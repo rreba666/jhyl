@@ -1,0 +1,49 @@
+# ===== 依赖与构建产物（不入库）=====
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+unpackage/
+**/unpackage/
+*.zip
+*.log
+logs/
+tmp/
+temp/
+.pnpm-store/
+.vite/
+**/.vite/
+
+# ===== 环境文件 =====
+# 只入库**开发环境** .env（本地测试 IP）；生产环境/本地覆盖一律不入库
+.env.*
+**/.env.*
+.mcp.json
+.claude/
+.claude/settings.local.json
+.agents/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ===== 文档与设计稿（与今华有肽口径一致，不入库）=====
+docs/
+CLAUDE.md
+api_doc.json
+lanhu-design-*.json
+lanhu-sketch-*.json
+今华有礼_切图/
+data/
+
+# ===== 契约测试脚本（本地验证用，与今华有肽口径一致）=====
+*.contract.ps1
+
+# ===== 编辑器与系统文件 =====
+.vscode/
+.idea/
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*.swo
