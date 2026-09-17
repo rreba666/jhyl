@@ -12,6 +12,7 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import {
   EXCEPTION_TYPES,
   deliverTask,
+  getOrderProofs,
   getTaskContact,
   getTaskDetail,
   getTaskItems,
@@ -19,6 +20,7 @@ import {
   reportTaskException,
   toObjectKey,
   verifyTaskCode,
+  type DeliveryProof,
   type RiderTask,
   type RiderTaskItem,
   type TaskNodeBody,
@@ -28,6 +30,8 @@ import { uploadFile } from '@/utils/request'
 const taskId = ref('')
 const task = ref<RiderTask | null>(null)
 const items = ref<RiderTaskItem[]>([])
+/** 送达凭证（仅已完成态拉取；用于订单信息里的「送达照片」）。 */
+const proofs = ref<DeliveryProof[]>([])
 const loading = ref(true)
 const acting = ref(false)
 /** 剩余秒数（服务端基准，本地递减）。 */
@@ -145,6 +149,19 @@ const needPickupCode = computed(() => Boolean(task.value?.pickupCodeRequired))
 /** 异常类型中文（附录 C 枚举；非异常单为空）。 */
 const exceptionTypeText = computed(() => EXCEPTION_TYPES.find((item) => item.value === String(task.value?.exceptionType || ''))?.label || '—')
 
+/** 送达照片（只取 PHOTO 类型且有 objectKey 的凭证；签名/说明类凭证不进照片行）。 */
+const photoProofs = computed(() => proofs.value.filter((proof) => String(proof.proofType || 'PHOTO') === 'PHOTO' && proof.objectKey))
+
+/**
+ * 查看送达照片：用小程序原生图片预览（**交互由前端定**：缩略图点击 → 全屏预览，可左右滑动看多张）。
+ * 设计稿只给了 56×56 缩略图，没有大图弹层，这里取"系统预览"这个最省事且体验标准的方式。
+ */
+function previewProofs(index: number): void {
+  const urls = photoProofs.value.map((proof) => imageUrl(proof.objectKey))
+  if (!urls.length) return
+  uni.previewImage({ urls, current: index })
+}
+
 /** 手机号打星（明文下发，UI 自己截）。 */
 function maskPhone(phone?: string): string {
   const value = String(phone || '').replace(/\s/g, '')
@@ -161,6 +178,10 @@ async function loadDetail(): Promise<void> {
     task.value = detail
     remainSeconds.value = detail.remainingSeconds != null ? Number(detail.remainingSeconds) : null
     items.value = await getTaskItems(taskId.value).catch(() => [])
+    // 送达照片只在已完成态需要（非送达订单后端返回空列表）
+    proofs.value = String(detail.status) === 'DELIVERED' && detail.orderNo
+      ? await getOrderProofs(String(detail.orderNo)).catch(() => [])
+      : []
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : '任务详情加载失败', icon: 'none' })
   } finally {
@@ -435,6 +456,21 @@ onUnload(() => {
           <view v-if="stage === 'done'" class="info-row"><text class="info-label">配送时长</text><text class="info-value">{{ deliveryDurationText }}</text></view>
           <view v-if="stage === 'done'" class="info-row"><text class="info-label">配送距离</text><text class="info-value">{{ distanceText }}</text></view>
           <view v-if="stage === 'done'" class="info-row"><text class="info-label">送达时间</text><text class="info-value">{{ task.deliveredAt || '—' }}</text></view>
+          <!-- 送达照片（设计稿 10 的「送达照片」行：56×56 缩略图，点击用系统图片预览看大图） -->
+          <view v-if="stage === 'done'" class="info-row">
+            <text class="info-label">送达照片</text>
+            <view class="proof-row">
+              <image
+                v-for="(proof, index) in photoProofs"
+                :key="index"
+                class="proof-image"
+                :src="imageUrl(proof.objectKey)"
+                mode="aspectFill"
+                @click="previewProofs(index)"
+              />
+              <text v-if="!photoProofs.length" class="info-value">无</text>
+            </view>
+          </view>
           <view v-if="stage === 'exception'" class="info-row"><text class="info-label">异常类型</text><text class="info-value">{{ exceptionTypeText }}</text></view>
           <!-- ⚠️ 备注（用户留言）设计稿有、后端 RiderTaskVO 暂无该字段，先按空值显示，等后端补 remark 字段 -->
           <view class="info-row"><text class="info-label">备注</text><text class="info-value">{{ task.remark || '无' }}</text></view>
@@ -563,6 +599,9 @@ onUnload(() => {
 .info-short-no { margin-right: 12rpx; color: #ff7d00; font-size: 29rpx; }
 .info-value { flex: 1; color: #1d2129; font-size: 29rpx; word-break: break-all; }
 .info-copy { flex-shrink: 0; margin-left: 12rpx; color: #1d2129; font-size: 31rpx; }
+/* 送达照片缩略图（设计 56×56 → 108rpx；点击用系统图片预览看大图） */
+.proof-row { display: flex; flex: 1; flex-wrap: wrap; gap: 12rpx; }
+.proof-image { width: 108rpx; height: 108rpx; border-radius: 12rpx; background: #f2f3f7; }
 
 /* ===== 底部动作（按钮高 48px → 92rpx、圆角 12px → 24rpx）===== */
 .footer { position: fixed; right: 0; bottom: 0; left: 0; display: flex; gap: 16rpx; padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom)); background: #fff; }

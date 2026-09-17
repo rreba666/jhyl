@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 骑手工作台（对应设计稿：新任务 / 待取货 / 配送中 / 已完成 / 异常·取消）
+ * 骑手工作台（对应设计稿 5 个 Tab：新任务 / 待取货 / 配送中 / 已完成 / 异常单）
  * 契约：2026-09-14 骑手端 UI 落地版（v1.4）
  * - 列表：**一个接口** `GET /api/delivery/tasks?tab=&page=&pageSize=`（返回 PageResult<RiderTaskVO>）
  * - 商品清单：折叠条件数用列表的 `itemCount`，展开再调 `GET /tasks/{id}/items`
@@ -9,7 +9,6 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
-  EXCEPTION_TYPES,
   acceptTask,
   claimTask,
   deliverTask,
@@ -26,15 +25,16 @@ import {
 
 /**
  * Tab 定义：key=前端、api=后端 tab 参数、label=展示。
- * 注意：最后一个 Tab 后端是「异常 + 已取消」混排（`EXCEPTION` 含 `CANCELLED`），
- * 因此文案定为「异常/取消」，卡片上用红/灰两种小标签区分（见 exceptionTagText）。
+ * 第 5 个 Tab 按**设计稿**叫「异常单」（`EXCEPTION`）；后端口径里 `CANCELLED` 是混排进来的，
+ * 但**业务上骑手端不处理"已取消"（那是 PC 后台的范畴）**，所以不再做"异常/已取消"两色标签区分，
+ * 卡片右上直接显示状态（异常=红「订单异常」）。代码里保留 `CANCELLED` 的兜底渲染，防止后端偶发返回时白屏。
  */
 const TABS = [
   { key: 'new', api: 'NEW', label: '新任务' },
   { key: 'picking', api: 'PICKUP', label: '待取货' },
   { key: 'delivering', api: 'DELIVERING', label: '配送中' },
   { key: 'done', api: 'DONE', label: '已完成' },
-  { key: 'exception', api: 'EXCEPTION', label: '异常/取消' },
+  { key: 'exception', api: 'EXCEPTION', label: '异常单' },
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
@@ -44,7 +44,7 @@ const EMPTY_TEXT: Record<TabKey, string> = {
   picking: '暂无待取货任务',
   delivering: '暂无配送中任务',
   done: '暂无已完成任务',
-  exception: '暂无异常/取消单',
+  exception: '暂无异常单',
 }
 
 /** 状态栏高度（自定义导航需避开状态栏与胶囊）。 */
@@ -204,25 +204,12 @@ function statusClass(task: RiderTask): string {
   return 'is-new'
 }
 
-/** 已取消（后端把 `CANCELLED` 并进「异常/取消」Tab，卡片上要与真异常区分）。 */
+/**
+ * 已取消兜底：业务口径上骑手端**不处理已取消**（PC 后台范畴），出参也不应含 `CANCELLED`；
+ * 但万一后端返回，这里仍按灰调渲染并隐藏"联系客户"，避免白屏或误操作。
+ */
 function isCancelled(task: RiderTask): boolean {
   return String(task.status || '') === 'CANCELLED'
-}
-
-/**
- * 「异常/取消」Tab 的区分标签文案：
- * - `CANCELLED` → 「已取消」（订单被取消，非骑手责任）；
- * - `EXCEPTION` → 「异常 · {异常类型中文}」，类型缺失时兜底「异常」。
- */
-function exceptionTagText(task: RiderTask): string {
-  if (isCancelled(task)) return '已取消'
-  const matched = EXCEPTION_TYPES.find((item) => item.value === String(task.exceptionType || ''))
-  return matched ? `异常 · ${matched.label}` : '异常'
-}
-
-/** 区分标签配色：异常=红，已取消=灰。 */
-function exceptionTagClass(task: RiderTask): string {
-  return isCancelled(task) ? 'is-cancelled' : 'is-exception'
 }
 
 /** 加载任务列表（reset=true 回到第一页）。 */
@@ -482,11 +469,6 @@ onUnload(() => {
             </view>
           </view>
 
-          <!-- 「异常/取消」Tab 的区分标签：异常（红，含异常类型）/ 已取消（灰） -->
-          <view v-if="activeTab === 'exception'" class="tag-row">
-            <text class="state-tag" :class="exceptionTagClass(task)">{{ exceptionTagText(task) }}</text>
-          </view>
-
           <!--
             新任务：按设计稿 01 呈现 —— 左侧距离竖条（取货点 `0 km` → 骑手插画 → 送货 `N km`）+ 右侧取送信息。
             竖条中间的骑手图即设计交付的 `rider-badge.png`（72×222，与设计稿里 24×74 的比例完全一致）。
@@ -627,11 +609,6 @@ onUnload(() => {
 .card-status.is-done { color: #00b42a; }
 .card-status.is-exception { color: #f53f3f; }
 .card-status.is-cancelled { color: #86909c; }
-/* 「异常/取消」Tab 的区分标签 */
-.tag-row { display: flex; align-items: center; margin-bottom: 12rpx; }
-.state-tag { padding: 4rpx 12rpx; border-radius: 6rpx; font-size: 22rpx; }
-.state-tag.is-exception { color: #ff0000; background: #ffece8; }
-.state-tag.is-cancelled { color: #86909c; background: #f2f3f7; }
 .route-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10rpx; }
 .route-name { flex: 1; min-width: 0; overflow: hidden; color: #1d2129; font-size: 28rpx; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .route-km { flex-shrink: 0; margin-left: 16rpx; color: #86909c; font-size: 24rpx; }

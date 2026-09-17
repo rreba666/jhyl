@@ -276,6 +276,28 @@ export async function uploadTaskProof(
   await request({ url: `/api/delivery/tasks/${taskId}/proof`, method: 'POST', data: body })
 }
 
+/** 送达凭证（`DeliveryProofEntity`，`objectKey` 展示前需转 URL）。 */
+export interface DeliveryProof {
+  id?: number
+  taskNo?: string
+  /** PHOTO 照片 / SIGNATURE 签名 / RECEIVER_NAME 收货人 / REMARK 交付说明。 */
+  proofType?: string
+  /** OSS Key（用 `imageUrl()` / `toObjectKey()` 互转）。 */
+  objectKey?: string
+  receiverName?: string
+  remark?: string
+  uploadedBy?: number
+  createTime?: string
+}
+
+/**
+ * 送达凭证列表（`GET /api/delivery/orders/{orderNo}/proofs`，需求 §7.1 C）：
+ * 送达后在订单详情展示送达照片；**非送达订单返回空列表**，归属校验由后端做。
+ */
+export async function getOrderProofs(orderNo: string): Promise<DeliveryProof[]> {
+  return toList<DeliveryProof>(await request<unknown>({ url: `/api/delivery/orders/${orderNo}/proofs`, method: 'GET' }))
+}
+
 // ===== 辅助 =====
 
 /** 骑手工作台红点未读数（拉取即清零；建议 30s 轮询）。 */
