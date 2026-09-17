@@ -511,24 +511,27 @@ onUnload(() => {
             </view>
           </template>
 
-          <!-- 商品清单（设计稿：仅「新任务」与「待取货」卡有折叠条，配送中/已完成/异常无） -->
-          <view v-if="activeTab === 'new' || activeTab === 'picking'" class="goods-row" @click="toggleItems(task)">
-            <text class="goods-text">商品清单（{{ task.itemCount ?? 0 }} 件）</text>
-            <text class="goods-arrow" :class="{ 'is-open': expanded[String(task.id)] }">›</text>
-          </view>
-          <view v-if="(activeTab === 'new' || activeTab === 'picking') && expanded[String(task.id)]" class="goods-list">
-            <view v-for="(item, itemIndex) in (itemCache[String(task.id)] || [])" :key="itemIndex" class="goods-item">
-              <image v-if="item.productImage" class="goods-image" :src="item.productImage" mode="aspectFill" />
-              <view class="goods-info">
-                <text class="goods-name">{{ item.productName }}</text>
-                <text v-if="item.skuSpec" class="goods-spec">{{ item.skuSpec }}</text>
-              </view>
-              <view class="goods-right">
-                <text class="goods-qty">× {{ item.quantity }}</text>
-                <text v-if="item.price != null" class="goods-price">¥{{ Number(item.price).toFixed(2) }}</text>
-              </view>
+          <!--
+            商品清单（设计稿 03/04：灰底容器内嵌白色商品行；仅「新任务」「待取货」有，配送中/已完成/异常无）
+            展开态：容器变高，标题行下方是白底商品行（高 56px→108rpx、圆角 8px→15rpx、行距 15rpx）
+          -->
+          <view v-if="activeTab === 'new' || activeTab === 'picking'" class="goods-box">
+            <view class="goods-row" @click="toggleItems(task)">
+              <text class="goods-text">商品清单（{{ task.itemCount ?? 0 }} 件）</text>
+              <!-- 展开时箭头朝上（iconfont `jiantou_shang` / 收起 `jiantou_xia`） -->
+              <text class="rider-icon goods-arrow" :class="expanded[String(task.id)] ? 'rider-icon-jiantou_shang' : 'rider-icon-jiantou_xia'" />
             </view>
-            <view v-if="!(itemCache[String(task.id)] || []).length" class="goods-empty">暂无商品明细</view>
+            <view v-if="expanded[String(task.id)]" class="goods-list">
+              <view v-for="(item, itemIndex) in (itemCache[String(task.id)] || [])" :key="itemIndex" class="goods-item">
+                <image v-if="item.productImage" class="goods-image" :src="item.productImage" mode="aspectFill" />
+                <view class="goods-info">
+                  <text class="goods-name">{{ item.productName }}</text>
+                  <text v-if="item.skuSpec" class="goods-spec">{{ item.skuSpec }}</text>
+                </view>
+                <text class="goods-qty">× {{ item.quantity }}</text>
+              </view>
+              <view v-if="!(itemCache[String(task.id)] || []).length" class="goods-empty">暂无商品明细</view>
+            </view>
           </view>
 
           <!-- 动作区（按钮宽度按设计稿比例：待取货 128:214、配送中 92:116:126、已完成/异常 1:1） -->
@@ -631,20 +634,19 @@ onUnload(() => {
 .address { display: block; color: #86909c; font-size: 27rpx; line-height: 38rpx; }
 .exception-text { display: block; margin-top: 10rpx; color: #ff0000; font-size: 26rpx; line-height: 36rpx; }
 /* 商品清单 */
-.goods-row { display: flex; align-items: center; justify-content: space-between; height: 92rpx; margin-top: 20rpx; padding: 0 20rpx; border-radius: 24rpx; background: #f6f7f9; }
-.goods-text { color: #1d2129; font-size: 26rpx; }
-.goods-arrow { color: #86909c; font-size: 30rpx; line-height: 1; transition: transform .2s; }
-.goods-arrow.is-open { transform: rotate(90deg); }
-.goods-list { margin-top: 16rpx; }
-.goods-item { display: flex; align-items: center; padding: 12rpx 0; }
-.goods-image { width: 72rpx; height: 72rpx; flex-shrink: 0; border-radius: 8rpx; background: #f2f3f7; }
+/* ===== 商品清单（设计稿 03 收起 / 04 展开）：灰底容器 + 白色商品行 ===== */
+.goods-box { margin-top: 20rpx; padding: 0 20rpx; border-radius: 24rpx; background: #f6f7f9; }
+.goods-row { display: flex; align-items: center; justify-content: space-between; height: 92rpx; }
+.goods-text { color: #1d2129; font-size: 27rpx; font-weight: 500; }
+.goods-arrow { color: #1d2129; font-size: 31rpx; }
+.goods-list { padding-bottom: 15rpx; }
+.goods-item { display: flex; align-items: center; height: 108rpx; margin-bottom: 15rpx; padding: 0 20rpx; border-radius: 15rpx; background: #fff; }
+.goods-image { width: 85rpx; height: 85rpx; flex-shrink: 0; border-radius: 12rpx; background: #f2f3f7; }
 .goods-info { flex: 1; min-width: 0; margin-left: 16rpx; }
-.goods-name { display: block; overflow: hidden; color: #1d2129; font-size: 26rpx; white-space: nowrap; text-overflow: ellipsis; }
-.goods-spec { display: block; margin-top: 4rpx; color: #86909c; font-size: 22rpx; }
-.goods-right { flex-shrink: 0; margin-left: 16rpx; text-align: right; }
-.goods-qty { display: block; color: #1d2129; font-size: 24rpx; }
-.goods-price { display: block; margin-top: 4rpx; color: #86909c; font-size: 22rpx; }
-.goods-empty { padding: 16rpx 0; color: #86909c; font-size: 24rpx; text-align: center; }
+.goods-name { display: block; overflow: hidden; color: #1d2129; font-size: 25rpx; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.goods-spec { display: block; margin-top: 4rpx; color: #86909c; font-size: 23rpx; }
+.goods-qty { flex-shrink: 0; margin-left: 16rpx; color: #4e5969; font-size: 23rpx; }
+.goods-empty { padding: 8rpx 0 24rpx; color: #86909c; font-size: 24rpx; text-align: center; }
 /* 按钮 */
 .actions { display: flex; gap: 16rpx; margin-top: 22rpx; }
 .btn { flex: 1; margin: 0; border-radius: 20rpx; font-size: 29rpx; line-height: 92rpx; }
