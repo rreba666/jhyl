@@ -49,7 +49,9 @@ const EMPTY_TEXT: Record<TabKey, string> = {
 
 /** 状态栏高度（自定义导航需避开状态栏与胶囊）。 */
 const statusBarHeight = ref(0)
-const contentTop = computed(() => statusBarHeight.value + 44)
+/** Tab 行高度（设计稿 46px）：深色头部 = 状态栏 + 44px 门店行 + Tab 行，列表从这里往下开始 */
+const TABS_HEIGHT = 46
+const contentTop = computed(() => statusBarHeight.value + 44 + TABS_HEIGHT)
 /** 门店名（切换身份时缓存的身份卡）。 */
 const shopName = ref('')
 
@@ -93,11 +95,35 @@ function deadlineText(task: RiderTask): string {
   const remain = remainMap.value[String(task.id)]
   // remainingSeconds 为 0/负 = 已过承诺时间 → 显示"已超时"，避免"剩余 0 分钟"这种无效文案
   if (remain != null && remain <= 0) return '已超时'
-  const raw = String(task.expectedDeliverAt || '')
-  const matched = raw.match(/(\d{2}:\d{2})/)
-  if (matched) return `${matched[1]} 前送达`
+  const clock = deadlineClock(task)
+  if (clock) return `${clock} 前送达`
   if (remain == null) return ''
   return `剩余 ${Math.ceil(remain / 60)} 分钟`
+}
+
+/** 从 `expectedDeliverAt` 里取 `HH:mm`（取不到返回空串）。 */
+function deadlineClock(task: RiderTask): string {
+  const matched = String(task.expectedDeliverAt || '').match(/(\d{2}:\d{2})/)
+  return matched ? matched[1] : ''
+}
+
+/**
+ * 新任务卡右上承诺时限（设计稿 01：`55 分钟内（10:13前）送达`）。
+ * 剩余分钟由 `remainingSeconds`（服务端基准）折算；字段缺失时退化成「10:13 前送达」或「剩余 N 分钟」。
+ */
+function newTaskDeadline(task: RiderTask): string {
+  const clock = deadlineClock(task)
+  const remain = task.remainingSeconds
+  const minutes = remain != null ? Math.ceil(Number(remain) / 60) : null
+  if (minutes != null && minutes > 0 && clock) return `${minutes} 分钟内（${clock}前）送达`
+  if (clock) return `${clock} 前送达`
+  if (minutes != null && minutes > 0) return `剩余 ${minutes} 分钟`
+  return ''
+}
+
+/** 送货段距离文案（设计稿左侧竖条下方：`4.1 km`）。 */
+function distanceText(task: RiderTask): string {
+  return task.distanceKm != null ? `${Number(task.distanceKm).toFixed(1)} km` : '—'
 }
 
 /** 右上次要文案：时间或距离。 */
@@ -113,6 +139,8 @@ function statusLabel(task: RiderTask): string {
   if (status === 'CANCELLED') return '已取消'
   if (status === 'EXCEPTION') return '订单异常'
   if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY') return '配送中'
+  // 新任务（PENDING/ASSIGNED）：设计稿要的是「55 分钟内（10:13前）送达」
+  if (status === 'PENDING' || status === 'ASSIGNED') return newTaskDeadline(task)
   return deadlineText(task)
 }
 
@@ -362,23 +390,27 @@ onUnload(() => {
 
 <template>
   <view class="page" :style="{ paddingTop: contentTop + 'px' }">
-    <!-- 自定义导航：门店名居中 -->
-    <view class="nav" :style="{ paddingTop: statusBarHeight + 'px' }">
+    <!-- 深色头部（设计稿 Frame 35）：门店行 + 5 Tab 同处 #0F0F11 -->
+    <view class="header" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="nav-inner">
         <text class="nav-back" @click="goBack">‹</text>
-        <text class="nav-title">{{ shopName || '骑手工作台' }}</text>
-      </view>
-    </view>
-
-    <!-- 5 个 Tab -->
-    <view class="tabs">
-      <view v-for="tab in TABS" :key="tab.key" class="tab" @click="switchTab(tab.key)">
-        <view class="tab-label-wrap">
-          <text class="tab-text" :class="{ 'is-active': activeTab === tab.key }">{{ tab.label }}</text>
-          <!-- 新任务未读红点（10s 轮询刷新） -->
-          <view v-if="tab.key === 'new' && unread > 0" class="tab-dot" />
+        <!-- 门店 logo + 门店名（设计稿 Frame 38：32px 圆底 + 20px logo + 白色店名） -->
+        <view class="shop-row">
+          <image class="shop-logo" src="/static/logo.png" mode="aspectFit" />
+          <text class="shop-name">{{ shopName || '骑手工作台' }}</text>
         </view>
-        <view class="tab-line" :class="{ 'is-active': activeTab === tab.key }" />
+      </view>
+
+      <!-- 5 个 Tab（设计稿：激活 #FF5500 + 底部下划线，未激活 #D7DBE0） -->
+      <view class="tabs">
+        <view v-for="tab in TABS" :key="tab.key" class="tab" @click="switchTab(tab.key)">
+          <view class="tab-label-wrap">
+            <text class="tab-text" :class="{ 'is-active': activeTab === tab.key }">{{ tab.label }}</text>
+            <!-- 新任务未读红点（10s 轮询刷新） -->
+            <view v-if="tab.key === 'new' && unread > 0" class="tab-dot" />
+          </view>
+          <view class="tab-line" :class="{ 'is-active': activeTab === tab.key }" />
+        </view>
       </view>
     </view>
 
@@ -400,16 +432,24 @@ onUnload(() => {
             <text class="state-tag" :class="exceptionTagClass(task)">{{ exceptionTagText(task) }}</text>
           </view>
 
-          <!-- 新任务：取货点 → 送货点 -->
+          <!--
+            新任务：按设计稿 01 呈现 —— 左侧距离竖条（取货点 `0 km` → 骑手插画 → 送货 `N km`）+ 右侧取送信息。
+            竖条中间的骑手图即设计交付的 `rider-badge.png`（72×222，与设计稿里 24×74 的比例完全一致）。
+          -->
           <template v-if="activeTab === 'new'">
-            <view class="route-row">
-              <text class="route-name">{{ task.pickupAddress || '取货点' }}</text>
-              <text class="route-km">0 km</text>
-            </view>
-            <view class="pickup-tag"><text class="pickup-tag-text">本店自取</text></view>
-            <view class="route-row">
-              <text class="route-name">{{ task.deliveryAddress || '收货地址' }}</text>
-              <text class="route-km">{{ task.distanceKm != null ? `${Number(task.distanceKm).toFixed(1)} km` : '—' }}</text>
+            <view class="new-route">
+              <view class="distance-bar">
+                <text class="distance-text">0 km</text>
+                <image class="distance-rider" src="/static/rider/rider-badge.png" mode="aspectFit" />
+                <text class="distance-text">{{ distanceText(task) }}</text>
+              </view>
+              <view class="new-route-info">
+                <view>
+                  <text class="route-name">{{ task.pickupAddress || '取货点' }}</text>
+                  <text class="route-tag">本店自取</text>
+                </view>
+                <text class="route-name route-dest">{{ task.deliveryAddress || '收货地址' }}</text>
+              </view>
             </view>
           </template>
 
@@ -472,25 +512,28 @@ onUnload(() => {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: #f6f7f9; }
-.nav { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #fff; }
+.page { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: #f2f3f7; }
+.header { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #0f0f11; }
 .nav-inner { position: relative; display: flex; align-items: center; justify-content: center; height: 44px; }
-.nav-back { position: absolute; top: 50%; left: 24rpx; color: #1d2129; font-size: 46rpx; line-height: 1; transform: translateY(-50%); }
-.nav-title { max-width: 60%; overflow: hidden; color: #1d2129; font-size: 32rpx; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
-.tabs { display: flex; padding-top: 8rpx; background: #fff; }
-.tab { display: flex; flex: 1; flex-direction: column; align-items: center; padding-bottom: 14rpx; }
+.nav-back { position: absolute; top: 50%; left: 24rpx; color: #fff; font-size: 46rpx; line-height: 1; transform: translateY(-50%); }
+/* ===== 深色头部（设计稿 Frame 35：#0F0F11，门店行与 Tab 同处一块）===== */
+.shop-row { display: flex; align-items: center; max-width: 62%; }
+.shop-logo { box-sizing: border-box; width: 64rpx; height: 64rpx; margin-right: 12rpx; padding: 12rpx; border-radius: 50%; background: #f6f7f9; }
+.shop-name { max-width: 100%; overflow: hidden; color: #fff; font-size: 32rpx; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.tabs { display: flex; height: 46px; }
+.tab { position: relative; display: flex; flex: 1; align-items: center; justify-content: center; }
 .tab-label-wrap { position: relative; display: inline-flex; align-items: center; }
 .tab-dot { position: absolute; top: -4rpx; right: -14rpx; width: 14rpx; height: 14rpx; border-radius: 50%; background: #ff0000; }
-.tab-text { color: #1d2129; font-size: 28rpx; }
+.tab-text { color: #d7dbe0; font-size: 28rpx; }
 .tab-text.is-active { color: #ff5500; font-weight: 600; }
-.tab-line { width: 44rpx; height: 6rpx; margin-top: 10rpx; border-radius: 3rpx; background: transparent; }
+.tab-line { position: absolute; bottom: 0; left: 50%; width: 84rpx; height: 4rpx; border-radius: 2rpx; background: transparent; transform: translateX(-50%); }
 .tab-line.is-active { background: #ff5500; }
 .list { flex: 1; min-height: 0; padding: 20rpx 24rpx 40rpx; box-sizing: border-box; }
 .state { padding: 140rpx 0; color: #86909c; font-size: 28rpx; text-align: center; }
-.card { margin-bottom: 20rpx; padding: 24rpx; border-radius: 16rpx; background: #fff; }
+.card { margin-bottom: 16rpx; padding: 24rpx; border-radius: 24rpx; background: #fff; }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
-.order-no { color: #ff7d00; font-size: 28rpx; font-weight: 600; }
-.card-status { font-size: 26rpx; font-weight: 600; }
+.order-no { padding: 2rpx 12rpx; border-radius: 6rpx; background: #fff6ed; color: #ff7d00; font-size: 30rpx; font-weight: 600; }
+.card-status { font-size: 28rpx; font-weight: 600; }
 .status-km { margin-left: 8rpx; font-weight: 500; }
 .card-status.is-new { color: #ff0000; }
 .card-status.is-picking { color: #ff7d00; }
@@ -506,6 +549,17 @@ onUnload(() => {
 .route-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10rpx; }
 .route-name { flex: 1; min-width: 0; overflow: hidden; color: #1d2129; font-size: 28rpx; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .route-km { flex-shrink: 0; margin-left: 16rpx; color: #86909c; font-size: 24rpx; }
+/* ===== 新任务卡片（设计稿 01_新任务_商品清单未展开）===== */
+.new-route { display: flex; align-items: stretch; gap: 16rpx; margin-top: 4rpx; }
+/* 左侧距离竖条：设计稿 Frame 45（36×150@390 → 72×288rpx），胶囊浅灰底 */
+.distance-bar { display: flex; flex: none; flex-direction: column; align-items: center; justify-content: space-between; width: 72rpx; padding: 12rpx 0; background: #f6f7f9; border-radius: 9999rpx; }
+.distance-text { color: #1d2129; font-size: 30rpx; font-weight: 500; white-space: nowrap; }
+/* 骑手插画：设计稿 24×74@390 → 46×142rpx（rider-badge.png 为 3 倍图，足够清晰） */
+.distance-rider { width: 46rpx; height: 142rpx; }
+.new-route-info { display: flex; flex: 1; min-width: 0; flex-direction: column; justify-content: space-between; }
+.new-route-info .route-name { flex: none; font-size: 34rpx; }
+.route-tag { display: block; margin-top: 4rpx; color: #86909c; font-size: 27rpx; }
+.route-dest { margin-top: 20rpx; }
 .pickup-tag { display: inline-flex; margin-top: 10rpx; padding: 4rpx 12rpx; border-radius: 6rpx; background: #fff6ed; }
 .pickup-tag-text { color: #ff7d00; font-size: 22rpx; }
 .receiver-row { display: flex; align-items: center; margin-bottom: 8rpx; }
@@ -514,7 +568,7 @@ onUnload(() => {
 .address { display: block; color: #86909c; font-size: 26rpx; line-height: 38rpx; }
 .exception-text { display: block; margin-top: 10rpx; color: #ff0000; font-size: 26rpx; line-height: 36rpx; }
 /* 商品清单 */
-.goods-row { display: flex; align-items: center; justify-content: space-between; margin-top: 18rpx; padding-top: 18rpx; border-top: 1rpx solid #f2f3f7; }
+.goods-row { display: flex; align-items: center; justify-content: space-between; height: 92rpx; margin-top: 20rpx; padding: 0 20rpx; border-radius: 24rpx; background: #f6f7f9; }
 .goods-text { color: #1d2129; font-size: 26rpx; }
 .goods-arrow { color: #86909c; font-size: 30rpx; line-height: 1; transition: transform .2s; }
 .goods-arrow.is-open { transform: rotate(90deg); }
