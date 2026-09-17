@@ -34,6 +34,9 @@ onShow((options) => {
 </script>
 
 <style>
+/* 骑手端图标字体（iconfont 项目 5230143，ttf 已转 base64 内联；小程序 wxss 不能引远程字体） */
+@import "./styles/rider-iconfont.wxss";
+
 /* 全局页面基础样式。 */
 page {
   background: #f6f8fc;

@@ -334,9 +334,9 @@ onUnload(() => {
           </view>
 
           <view class="contact-actions">
-            <button class="btn btn-ghost" @click="callCustomer">联系客户</button>
+            <button class="btn btn-ghost" @click="callCustomer"><text class="rider-icon rider-icon-dianhua btn-icon" />联系客户</button>
             <!-- 已取消的单无需导航 -->
-            <button v-if="stage !== 'cancelled'" class="btn btn-ghost" @click="navigate">导航</button>
+            <button v-if="stage !== 'cancelled'" class="btn btn-ghost" @click="navigate"><text class="rider-icon rider-icon-daohang btn-icon" />导航</button>
           </view>
         </view>
 
@@ -376,7 +376,7 @@ onUnload(() => {
         <button class="btn btn-primary btn-block" :disabled="acting" @click="doPickup">确认取货</button>
       </template>
       <template v-else-if="canDeliver">
-        <button class="btn btn-ghost" @click="exceptionVisible = true">上报异常</button>
+        <button class="btn btn-ghost" @click="exceptionVisible = true"><text class="rider-icon rider-icon-jingbao btn-icon" />上报异常</button>
         <button class="btn btn-primary" :disabled="acting" @click="doDeliver">确认送达</button>
       </template>
     </view>
@@ -420,6 +420,8 @@ onUnload(() => {
 .status-text.is-exception { color: #ff0000; }
 .status-text.is-cancelled { color: #86909c; }
 .status-extra { color: #ff7d00; font-size: 26rpx; font-weight: 600; }
+/* 按钮内图标（iconfont，16px → 31rpx） */
+.btn-icon { margin-right: 8rpx; font-size: 31rpx; }
 /* 状态插画：切图 96×96，按 2 倍图使用 → 显示 96rpx */
 .status-illustration { width: 96rpx; height: 96rpx; margin-top: 16rpx; }
 /* 异常态宽幅横幅（1122×324，widthFix 自适应高度） */
