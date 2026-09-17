@@ -68,6 +68,18 @@ const stage = computed<'picking' | 'delivering' | 'done' | 'exception' | 'cancel
   return 'picking'
 })
 const stageText = computed(() => ({ picking: '待取货', delivering: '配送中', done: '已完成', exception: '配送异常', cancelled: '已取消' })[stage.value])
+/**
+ * 状态区插画（设计切图，与详情页节点 05/07/10 一一对应）：
+ * 待取货 → `to-pickup`、配送中 → `delivering`、已完成 → `completed`；
+ * **异常**用宽幅横幅（见模板里的 `issue-banner`）、**已取消**不显示插画（设计：灰调、不给动作）。
+ * 切图为 96×96（按 2 倍图使用），显示尺寸取 96rpx。
+ */
+const stageIllustration = computed(() => {
+  if (stage.value === 'picking') return '/static/rider/to-pickup.png'
+  if (stage.value === 'delivering') return '/static/rider/delivering.png'
+  if (stage.value === 'done') return '/static/rider/completed.png'
+  return ''
+})
 /** 阶段进度：已取消停在第一步（进度条全灰）。 */
 const stageIndex = computed(() => (stage.value === 'picking' || stage.value === 'cancelled' ? 1 : stage.value === 'delivering' ? 2 : 3))
 const canPickup = computed(() => String(task.value?.status || '') === 'ACCEPTED')
@@ -299,7 +311,11 @@ onUnload(() => {
             <text class="status-text" :class="{ 'is-exception': stage === 'exception', 'is-cancelled': stage === 'cancelled' }">{{ stageText }}</text>
             <text class="status-extra">{{ stageExtra }}</text>
           </view>
+          <!-- 状态插画（设计切图 05 待取货 / 07 配送中 / 10 已完成） -->
+          <image v-if="stageIllustration" class="status-illustration" :src="stageIllustration" mode="aspectFit" />
           <template v-if="stage === 'exception'">
+            <!-- 异常态宽幅横幅（设计切图 12 异常单） -->
+            <image class="issue-banner" src="/static/rider/delivery-issue.png" mode="widthFix" />
             <text class="exception-tip">请尽快处理该订单</text>
             <text v-if="task.exceptionRemark" class="exception-reason">异常原因：{{ task.exceptionRemark }}</text>
           </template>
@@ -404,6 +420,10 @@ onUnload(() => {
 .status-text.is-exception { color: #ff0000; }
 .status-text.is-cancelled { color: #86909c; }
 .status-extra { color: #ff7d00; font-size: 26rpx; font-weight: 600; }
+/* 状态插画：切图 96×96，按 2 倍图使用 → 显示 96rpx */
+.status-illustration { width: 96rpx; height: 96rpx; margin-top: 16rpx; }
+/* 异常态宽幅横幅（1122×324，widthFix 自适应高度） */
+.issue-banner { display: block; width: 100%; margin-top: 16rpx; border-radius: 12rpx; }
 .exception-tip { display: block; margin-top: 10rpx; color: #ff0000; font-size: 26rpx; }
 .exception-tip.is-cancelled { color: #86909c; }
 .exception-reason { display: block; margin-top: 6rpx; color: #ff0000; font-size: 26rpx; line-height: 36rpx; }
