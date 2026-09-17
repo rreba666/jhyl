@@ -352,7 +352,7 @@ onUnload(() => {
           <!-- 异常态：特殊头部（设计稿 12 的 Frame 158/154） -->
           <template v-if="stage === 'exception'">
             <view class="exception-head">
-              <image class="exception-head-bg" src="/static/rider/delivery-issue.png" mode="aspectFill" />
+              <image class="exception-head-bg" src="/static/rider/delivery-issue.jpg" mode="aspectFill" />
               <view class="exception-head-body">
                 <view class="exception-title-row">
                   <text class="rider-icon rider-icon-jingbao exception-icon" />
