@@ -126,10 +126,47 @@ function distanceText(task: RiderTask): string {
   return task.distanceKm != null ? `${Number(task.distanceKm).toFixed(1)} km` : '—'
 }
 
-/** 右上次要文案：时间或距离。 */
-function statusExtra(task: RiderTask): string {
-  const km = task.distanceKm != null ? `${Number(task.distanceKm).toFixed(1)}km` : ''
-  return km
+/** 卡片头部是否用短号：设计稿里新任务 / 待取货 / 配送中用 `#001`，已完成 / 异常单改用订单号。 */
+const useShortNo = computed(() => activeTab.value === 'new' || activeTab.value === 'picking' || activeTab.value === 'delivering')
+
+/**
+ * 卡片右上主文案（设计稿分状态）：
+ * 新任务 = 「55 分钟内（10:13前）送达」（红）；待取货 = 「55 分钟内」（橙）；
+ * 配送中 / 已完成 / 异常 = 状态名（分别橙 / 绿 / 红）。
+ */
+function headStatusText(task: RiderTask): string {
+  if (String(task.status || '') === 'ACCEPTED') {
+    const remain = remainMap.value[String(task.id)]
+    if (remain != null && remain <= 0) return '已超时'
+    const minutes = remain != null ? Math.ceil(remain / 60) : null
+    if (minutes != null && minutes > 0) return `${minutes} 分钟内`
+    const clock = deadlineClock(task)
+    return clock ? `${clock} 前送达` : '待取货'
+  }
+  return statusLabel(task)
+}
+
+/** 卡片右上补充文案：设计稿里**只有待取货**在时限后追加 `- 4.1km`。 */
+function headStatusExtra(task: RiderTask): string {
+  if (String(task.status || '') !== 'ACCEPTED') return ''
+  return task.distanceKm != null ? `- ${Number(task.distanceKm).toFixed(1)}km` : ''
+}
+
+/** 配送中地图卡：预计送达时间（`HH:mm`）。 */
+function deliverEta(task: RiderTask): string {
+  return deadlineClock(task) || '—'
+}
+
+/** 配送中地图卡：距离目的地（只留数字，单位写在文案里）。 */
+function distanceOnly(task: RiderTask): string {
+  return task.distanceKm != null ? Number(task.distanceKm).toFixed(1) : '—'
+}
+
+/** 复制订单号（已完成 / 异常单卡的头部）。 */
+function copyOrderNo(task: RiderTask): void {
+  const no = String(task.orderNo || '')
+  if (!no) return
+  uni.setClipboardData({ data: no, success: () => uni.showToast({ title: '订单号已复制', icon: 'none' }) })
 }
 
 /** 右上状态：配送中 / 已完成 / 已取消 / 订单异常，其它显示承诺时间。 */
@@ -419,11 +456,15 @@ onUnload(() => {
       <view v-else-if="!tasks.length" class="state">{{ EMPTY_TEXT[activeTab] }}</view>
       <template v-else>
         <view v-for="(task, index) in tasks" :key="task.id" class="card">
-          <!-- 头部：短号 + 状态/承诺时间 -->
+          <!-- 头部（设计稿）：新任务/待取货/配送中用短号 `#001`；已完成/异常单用订单号 + 复制 -->
           <view class="card-head">
-            <text class="order-no">{{ shortNo(index) }}</text>
+            <text v-if="useShortNo" class="order-no">{{ shortNo(index) }}</text>
+            <view v-else class="order-no-plain">
+              <text class="order-no-text">{{ task.orderNo || '—' }}</text>
+              <text class="order-no-copy" @click="copyOrderNo(task)">复制</text>
+            </view>
             <text class="card-status" :class="statusClass(task)">
-              {{ statusLabel(task) }}<text v-if="statusExtra(task)" class="status-km"> {{ statusExtra(task) }}</text>
+              {{ headStatusText(task) }}<text v-if="headStatusExtra(task)" class="status-km"> {{ headStatusExtra(task) }}</text>
             </text>
           </view>
 
@@ -453,7 +494,7 @@ onUnload(() => {
             </view>
           </template>
 
-          <!-- 其它 Tab：收货人（打星）+ 地址 -->
+          <!-- 其它 Tab：收货人（打星）+ 地址；配送中再加一张地图卡 -->
           <template v-else>
             <view class="receiver-row">
               <text class="receiver-name">{{ task.receiverName || '收货人' }}</text>
@@ -461,14 +502,25 @@ onUnload(() => {
             </view>
             <text class="address">{{ task.deliveryAddress || '—' }}</text>
             <text v-if="activeTab === 'exception' && task.exceptionRemark" class="exception-text">异常说明：{{ task.exceptionRemark }}</text>
+            <!-- 配送中：地图卡（设计稿 06 的 Frame 133：地图底图 + 预计送达标签 + 骑手位置 + 店铺与距离气泡） -->
+            <view v-if="activeTab === 'delivering'" class="map-card">
+              <image class="map-bg" src="/static/rider/map-bg.jpg" mode="aspectFill" />
+              <view class="map-eta">
+                <view class="map-eta-dot" />
+                <text class="map-eta-text">预计 {{ deliverEta(task) }} 送达</text>
+              </view>
+              <view class="map-distance"><text class="map-distance-text">距离目的地还有 {{ distanceOnly(task) }}km</text></view>
+              <image class="map-rider" src="/static/rider/rider-on-bike.png" mode="aspectFit" />
+              <view class="map-shop"><text class="map-shop-text">{{ task.pickupAddress || '取货门店' }}</text></view>
+            </view>
           </template>
 
-          <!-- 商品清单：折叠条件数用 itemCount，展开调 /items -->
-          <view class="goods-row" @click="toggleItems(task)">
+          <!-- 商品清单（设计稿：仅「新任务」与「待取货」卡有折叠条，配送中/已完成/异常无） -->
+          <view v-if="activeTab === 'new' || activeTab === 'picking'" class="goods-row" @click="toggleItems(task)">
             <text class="goods-text">商品清单（{{ task.itemCount ?? 0 }} 件）</text>
             <text class="goods-arrow" :class="{ 'is-open': expanded[String(task.id)] }">›</text>
           </view>
-          <view v-if="expanded[String(task.id)]" class="goods-list">
+          <view v-if="(activeTab === 'new' || activeTab === 'picking') && expanded[String(task.id)]" class="goods-list">
             <view v-for="(item, itemIndex) in (itemCache[String(task.id)] || [])" :key="itemIndex" class="goods-item">
               <image v-if="item.productImage" class="goods-image" :src="item.productImage" mode="aspectFill" />
               <view class="goods-info">
@@ -483,22 +535,22 @@ onUnload(() => {
             <view v-if="!(itemCache[String(task.id)] || []).length" class="goods-empty">暂无商品明细</view>
           </view>
 
-          <!-- 动作区 -->
+          <!-- 动作区（按钮宽度按设计稿比例：待取货 128:214、配送中 92:116:126、已完成/异常 1:1） -->
           <view class="actions">
             <template v-if="activeTab === 'new'">
               <button class="btn btn-primary btn-block" :disabled="acting" @click="doAccept(task)">接单</button>
             </template>
             <template v-else-if="activeTab === 'picking'">
-              <button class="btn btn-ghost" @click="callCustomer(task)">联系顾客</button>
-              <button class="btn btn-primary" :disabled="acting" @click="doPickup(task)">确认取货</button>
+              <button class="btn btn-ghost" style="flex: 128" @click="callCustomer(task)">联系顾客</button>
+              <button class="btn btn-primary" style="flex: 214" :disabled="acting" @click="doPickup(task)">确认取货</button>
             </template>
             <template v-else-if="activeTab === 'delivering'">
-              <button class="btn btn-ghost" @click="navigate(task)">导航</button>
-              <button class="btn btn-ghost" @click="callCustomer(task)">联系客户</button>
-              <button class="btn btn-primary" :disabled="acting" @click="doDeliver(task)">确认送达</button>
+              <button class="btn btn-ghost" style="flex: 92" @click="navigate(task)">导航</button>
+              <button class="btn btn-ghost" style="flex: 116" @click="callCustomer(task)">联系客户</button>
+              <button class="btn btn-primary" style="flex: 126" :disabled="acting" @click="doDeliver(task)">确认送达</button>
             </template>
             <template v-else>
-              <button class="btn btn-ghost" @click="openDetail(task)">详情</button>
+              <button class="btn btn-detail" @click="openDetail(task)">详情</button>
               <!-- 已取消的单不必再联系客户 -->
               <button v-if="!isCancelled(task)" class="btn btn-ghost" @click="callCustomer(task)">联系客户</button>
             </template>
@@ -533,13 +585,28 @@ onUnload(() => {
 .card { margin-bottom: 16rpx; padding: 24rpx; border-radius: 24rpx; background: #fff; }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
 .order-no { padding: 2rpx 12rpx; border-radius: 6rpx; background: #fff6ed; color: #ff7d00; font-size: 30rpx; font-weight: 600; }
+/* 已完成 / 异常单卡头部：订单号（灰） + 复制 */
+.order-no-plain { display: flex; align-items: center; }
+.order-no-text { color: #86909c; font-size: 29rpx; }
+.order-no-copy { margin-left: 12rpx; color: #ff5500; font-size: 26rpx; }
+/* ===== 配送中卡的地图区域（设计稿 Frame 133：350×168 → 673×323rpx）===== */
+.map-card { position: relative; width: 100%; height: 323rpx; margin-top: 20rpx; overflow: hidden; border-radius: 16rpx; }
+.map-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.map-eta { position: absolute; top: 23rpx; left: 23rpx; display: flex; align-items: center; height: 50rpx; padding: 0 14rpx; border-radius: 8rpx; background: #fff4e8; }
+.map-eta-dot { width: 12rpx; height: 12rpx; margin-right: 8rpx; border-radius: 50%; background: #ff5500; }
+.map-eta-text { color: #ff5500; font-size: 27rpx; }
+.map-distance { position: absolute; top: 90rpx; left: 50%; display: flex; align-items: center; height: 58rpx; padding: 0 20rpx; border-radius: 9999rpx; background: #fff; transform: translateX(-50%); }
+.map-distance-text { color: #1d2129; font-size: 21rpx; white-space: nowrap; }
+.map-rider { position: absolute; top: 150rpx; left: 50%; width: 77rpx; height: 77rpx; transform: translateX(-50%); }
+.map-shop { position: absolute; bottom: 66rpx; left: 35rpx; display: flex; align-items: center; height: 46rpx; padding: 0 16rpx; border-radius: 9999rpx; background: #fff; }
+.map-shop-text { color: #1d2129; font-size: 21rpx; }
 .card-status { font-size: 28rpx; font-weight: 600; }
 .status-km { margin-left: 8rpx; font-weight: 500; }
 .card-status.is-new { color: #ff0000; }
 .card-status.is-picking { color: #ff7d00; }
-.card-status.is-delivering { color: #ff5500; }
-.card-status.is-done { color: #86909c; }
-.card-status.is-exception { color: #ff0000; }
+.card-status.is-delivering { color: #ff7d00; }
+.card-status.is-done { color: #00b42a; }
+.card-status.is-exception { color: #f53f3f; }
 .card-status.is-cancelled { color: #86909c; }
 /* 「异常/取消」Tab 的区分标签 */
 .tag-row { display: flex; align-items: center; margin-bottom: 12rpx; }
@@ -563,9 +630,9 @@ onUnload(() => {
 .pickup-tag { display: inline-flex; margin-top: 10rpx; padding: 4rpx 12rpx; border-radius: 6rpx; background: #fff6ed; }
 .pickup-tag-text { color: #ff7d00; font-size: 22rpx; }
 .receiver-row { display: flex; align-items: center; margin-bottom: 8rpx; }
-.receiver-name { color: #1d2129; font-size: 30rpx; font-weight: 600; }
-.receiver-phone { margin-left: 16rpx; color: #1d2129; font-size: 26rpx; }
-.address { display: block; color: #86909c; font-size: 26rpx; line-height: 38rpx; }
+.receiver-name { color: #1d2129; font-size: 34rpx; font-weight: 600; }
+.receiver-phone { margin-left: 16rpx; color: #1d2129; font-size: 32rpx; }
+.address { display: block; color: #86909c; font-size: 27rpx; line-height: 38rpx; }
 .exception-text { display: block; margin-top: 10rpx; color: #ff0000; font-size: 26rpx; line-height: 36rpx; }
 /* 商品清单 */
 .goods-row { display: flex; align-items: center; justify-content: space-between; height: 92rpx; margin-top: 20rpx; padding: 0 20rpx; border-radius: 24rpx; background: #f6f7f9; }
@@ -584,11 +651,13 @@ onUnload(() => {
 .goods-empty { padding: 16rpx 0; color: #86909c; font-size: 24rpx; text-align: center; }
 /* 按钮 */
 .actions { display: flex; gap: 16rpx; margin-top: 22rpx; }
-.btn { flex: 1; margin: 0; border-radius: 44rpx; font-size: 28rpx; line-height: 76rpx; }
+.btn { flex: 1; margin: 0; border-radius: 20rpx; font-size: 29rpx; line-height: 92rpx; }
 .btn::after { border: 0; }
 .btn-block { flex: none; width: 100%; }
 .btn-primary { color: #fff; background: #ff5500; }
 .btn-primary[disabled] { opacity: .6; }
-.btn-ghost { color: #1d2129; background: #f2f3f7; }
+.btn-ghost { color: #1d2129; background: #f6f7f9; }
+/* 「详情」按钮底色比其它次要按钮略深（设计稿 #F1F2F4 vs #F6F7F9） */
+.btn-detail { color: #1d2129; background: #f1f2f4; }
 .list-footer { padding: 24rpx 0 8rpx; color: #86909c; font-size: 24rpx; text-align: center; }
 </style>
