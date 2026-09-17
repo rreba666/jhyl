@@ -12,7 +12,7 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import {
   EXCEPTION_TYPES,
   deliverTask,
-  getOrderProofs,
+  getTaskProofs,
   getTaskContact,
   getTaskDetail,
   getTaskItems,
@@ -68,7 +68,8 @@ const stage = computed<'picking' | 'delivering' | 'done' | 'exception' | 'cancel
   if (status === 'CANCELLED') return 'cancelled'
   if (status === 'EXCEPTION') return 'exception'
   if (status === 'DELIVERED') return 'done'
-  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY') return 'delivering'
+  // PAUSED（商家暂停）在「配送中」Tab 仍可见，详情也按配送中处理（2026-09-17 后端口径）
+  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY' || status === 'PAUSED') return 'delivering'
   return 'picking'
 })
 const stageText = computed(() => ({ picking: '待取货', delivering: '配送中', done: '已完成', exception: '配送异常', cancelled: '已取消' })[stage.value])
@@ -143,7 +144,7 @@ function copyOrderNo(): void {
   uni.setClipboardData({ data: no, success: () => uni.showToast({ title: '订单号已复制', icon: 'none' }) })
 }
 const canPickup = computed(() => String(task.value?.status || '') === 'ACCEPTED')
-const canDeliver = computed(() => ['PICKED_UP', 'DELIVERING', 'NEARBY'].includes(String(task.value?.status || '')))
+const canDeliver = computed(() => ['PICKED_UP', 'DELIVERING', 'NEARBY', 'PAUSED'].includes(String(task.value?.status || '')))
 /** 是否需要收货码核销。 */
 const needPickupCode = computed(() => Boolean(task.value?.pickupCodeRequired))
 /** 异常类型中文（附录 C 枚举；非异常单为空）。 */
@@ -178,9 +179,10 @@ async function loadDetail(): Promise<void> {
     task.value = detail
     remainSeconds.value = detail.remainingSeconds != null ? Number(detail.remainingSeconds) : null
     items.value = await getTaskItems(taskId.value).catch(() => [])
-    // 送达照片只在已完成态需要（非送达订单后端返回空列表）
-    proofs.value = String(detail.status) === 'DELIVERED' && detail.orderNo
-      ? await getOrderProofs(String(detail.orderNo)).catch(() => [])
+    // 送达照片只在已完成态需要：走**骑手端专用**的 `tasks/{id}/proofs`
+    // （C 端的 `orders/{orderNo}/proofs` 按下单人校验，骑手调用会 403 —— 2026-09-17 后端要求改调）
+    proofs.value = String(detail.status) === 'DELIVERED'
+      ? await getTaskProofs(taskId.value).catch(() => [])
       : []
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : '任务详情加载失败', icon: 'none' })

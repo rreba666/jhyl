@@ -3,7 +3,7 @@
  * 骑手工作台（对应设计稿 5 个 Tab：新任务 / 待取货 / 配送中 / 已完成 / 异常单）
  * 契约：2026-09-14 骑手端 UI 落地版（v1.4）
  * - 列表：**一个接口** `GET /api/delivery/tasks?tab=&page=&pageSize=`（返回 PageResult<RiderTaskVO>）
- * - 商品清单：折叠条件数用列表的 `itemCount`，展开再调 `GET /tasks/{id}/items`
+ * - 商品清单：折叠条件数用列表的 `totalQuantity`（总件数；`itemCount` 是明细行数），展开再调 `GET /tasks/{id}/items`
  * - 手机号明文下发，**UI 星号由前端截**；倒计时以服务端 `remainingSeconds` 为基准
  */
 import { computed, ref } from 'vue'
@@ -159,6 +159,10 @@ function deliverEta(task: RiderTask): string {
 
 /** 配送中地图卡：距离目的地（只留数字，单位写在文案里）。 */
 function distanceOnly(task: RiderTask): string {
+  // 优先「距目的地剩余直线距离」（骑手有位置上报时后端才算得出）；
+  // null（骑手无位置/任务缺坐标）时回退配送段总距离 distanceKm —— 2026-09-17 api_doc 口径。
+  const remain = task.distanceToDestinationKm
+  if (remain != null) return Number(remain).toFixed(1)
   return task.distanceKm != null ? Number(task.distanceKm).toFixed(1) : '—'
 }
 
@@ -177,7 +181,7 @@ function statusIcon(task: RiderTask): string {
   const status = String(task.status || '')
   if (status === 'DELIVERED') return 'rider-icon-gouxuan_tianchong'
   if (status === 'EXCEPTION') return 'rider-icon-jingbao'
-  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY') return 'rider-icon-peisongzhong'
+  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY' || status === 'PAUSED') return 'rider-icon-peisongzhong'
   return ''
 }
 
@@ -187,7 +191,7 @@ function statusLabel(task: RiderTask): string {
   if (status === 'DELIVERED') return '已完成'
   if (status === 'CANCELLED') return '已取消'
   if (status === 'EXCEPTION') return '订单异常'
-  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY') return '配送中'
+  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY' || status === 'PAUSED') return '配送中'
   // 新任务（PENDING/ASSIGNED）：设计稿要的是「55 分钟内（10:13前）送达」
   if (status === 'PENDING' || status === 'ASSIGNED') return newTaskDeadline(task)
   return deadlineText(task)
@@ -200,7 +204,7 @@ function statusClass(task: RiderTask): string {
   if (status === 'CANCELLED') return 'is-cancelled'
   if (status === 'EXCEPTION') return 'is-exception'
   if (status === 'ACCEPTED') return 'is-picking'
-  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY') return 'is-delivering'
+  if (status === 'PICKED_UP' || status === 'DELIVERING' || status === 'NEARBY' || status === 'PAUSED') return 'is-delivering'
   return 'is-new'
 }
 
@@ -482,7 +486,7 @@ onUnload(() => {
               </view>
               <view class="new-route-info">
                 <view>
-                  <text class="route-name">{{ task.pickupAddress || '取货点' }}</text>
+                  <text class="route-name">{{ task.pickupShopName || task.pickupAddress || '取货点' }}</text>
                   <text class="route-tag">本店自取</text>
                 </view>
                 <text class="route-name route-dest">{{ task.deliveryAddress || '收货地址' }}</text>
@@ -507,7 +511,7 @@ onUnload(() => {
               </view>
               <view class="map-distance"><text class="map-distance-text">距离目的地还有 {{ distanceOnly(task) }}km</text></view>
               <image class="map-rider" src="/static/rider/rider-on-bike.png" mode="aspectFit" />
-              <view class="map-shop"><text class="map-shop-text">{{ task.pickupAddress || '取货门店' }}</text></view>
+              <view class="map-shop"><text class="map-shop-text">{{ task.pickupShopName || task.pickupAddress || '取货门店' }}</text></view>
             </view>
           </template>
 
@@ -517,7 +521,8 @@ onUnload(() => {
           -->
           <view v-if="activeTab === 'new' || activeTab === 'picking'" class="goods-box">
             <view class="goods-row" @click="toggleItems(task)">
-              <text class="goods-text">商品清单（{{ task.itemCount ?? 0 }} 件）</text>
+              <!-- 「N 件」用 totalQuantity（总件数），不是 itemCount（明细行数）—— 2026-09-17 api_doc 明确规定 -->
+              <text class="goods-text">商品清单（{{ task.totalQuantity ?? task.itemCount ?? 0 }} 件）</text>
               <!-- 展开时箭头朝上（iconfont `jiantou_shang` / 收起 `jiantou_xia`） -->
               <text class="rider-icon goods-arrow" :class="expanded[String(task.id)] ? 'rider-icon-jiantou_shang' : 'rider-icon-jiantou_xia'" />
             </view>

@@ -6,7 +6,7 @@ import { request } from '@/utils/request'
  * - `receiverPhone` **明文下发**（拨号必需），UI 上的星号由前端自己截；
  * - **不再下发 `pickupCode`**，改为布尔 `pickupCodeRequired`（送达前须先 `/verify-code`）；
  * - 新增倒计时三件套 `expectedDeliverAt / remainingSeconds / serverTime`（服务端时间基准）；
- * - 新增 `itemCount / totalQuantity`（卡片折叠条「商品清单（3件）」）。
+ * - 新增 `itemCount`（明细行数）/ `totalQuantity`（**总件数**，卡片折叠条「商品清单（3件）」用这个）。
  */
 export interface RiderTask {
   id?: number
@@ -61,6 +61,24 @@ export interface RiderTask {
    * 已作为待补字段反馈后端，接口补上后前端无需改动（当前显示「无」）。
    */
   remark?: string
+  /**
+   * 距目的地**剩余**直线距离（公里，1 位小数）。
+   * null = 骑手无位置上报或任务缺坐标 → 前端回退用 `distanceKm`（配送段总距离）。
+   */
+  distanceToDestinationKm?: number | null
+  /** 取货门店名（本店自取时=门店名，比 `pickupAddress` 更准）。 */
+  pickupShopName?: string
+  /** 取货门店图。 */
+  pickupShopImage?: string
+  /** 本单送达凭证要求（来自门店规则；null=未配置，按默认 PHOTO）。 */
+  proofTypes?: string[] | string | null
+  /** 是否已超承诺送达时间 / 超时分钟数（2026-09-17 新增）。 */
+  overdue?: boolean
+  overdueMinutes?: number
+  /** 取消信息（仅 `status=CANCELLED` 时有值；骑手端列表已不返回取消单，仅详情深链场景用）。 */
+  cancelReason?: string
+  cancelTime?: string
+  cancelBy?: string
   createTime?: string
   updateTime?: string
 }
@@ -174,7 +192,7 @@ export async function getRiderTasks(tab: RiderTaskTab, page = 1, pageSize = 10):
   }
 }
 
-/** 任务商品清单（卡片展开时调用；折叠条的件数用列表里的 `itemCount`）。 */
+/** 任务商品清单（卡片展开时调用；折叠条的件数用列表里的 `totalQuantity`，不是 `itemCount`）。 */
 export async function getTaskItems(taskId: number | string): Promise<RiderTaskItem[]> {
   return toList<RiderTaskItem>(await request<unknown>({ url: `/api/delivery/tasks/${taskId}/items`, method: 'GET' }))
 }
@@ -291,11 +309,13 @@ export interface DeliveryProof {
 }
 
 /**
- * 送达凭证列表（`GET /api/delivery/orders/{orderNo}/proofs`，需求 §7.1 C）：
- * 送达后在订单详情展示送达照片；**非送达订单返回空列表**，归属校验由后端做。
+ * 送达凭证列表（`GET /api/delivery/tasks/{taskId}/proofs`，**骑手端专用**，2026-09-17 后端要求改调本接口）。
+ *
+ * ⚠️ 不要再让骑手端调 `/api/delivery/orders/{orderNo}/proofs`：那是 **C 端**接口（按 `userId` 校验订单归属人），
+ * 骑手不是下单人 —— 用 C 端 token 会被 403、用 staff token 会被 C 端拦截器 401。
  */
-export async function getOrderProofs(orderNo: string): Promise<DeliveryProof[]> {
-  return toList<DeliveryProof>(await request<unknown>({ url: `/api/delivery/orders/${orderNo}/proofs`, method: 'GET' }))
+export async function getTaskProofs(taskId: number | string): Promise<DeliveryProof[]> {
+  return toList<DeliveryProof>(await request<unknown>({ url: `/api/delivery/tasks/${taskId}/proofs`, method: 'GET' }))
 }
 
 // ===== 辅助 =====
