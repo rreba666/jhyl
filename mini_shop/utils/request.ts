@@ -113,6 +113,15 @@ function requestInternal<T = unknown>(options: UniApp.RequestOptions, allowPubli
         }
         if (response.statusCode < 200 || response.statusCode >= 300) {
           handleUnauthorized(response.statusCode, body.code)
+          // 404/405：接口不存在或未上线 → 给业务可读文案（与今华有肽同口径），避免被误报成「网络异常」
+          if (response.statusCode === 404) {
+            reject(new ApiRequestError(body.message || '接口不存在或尚未上线，请联系后端确认', body.code))
+            return
+          }
+          if (response.statusCode === 405) {
+            reject(new ApiRequestError('该功能所需的后端接口尚未上线，暂无法使用', body.code))
+            return
+          }
           reject(new ApiRequestError(body.message || '网络异常，请稍后重试', body.code))
           return
         }

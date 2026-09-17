@@ -18,9 +18,16 @@ function redirectToLogin(): void {
   window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`)
 }
 
+/**
+ * 后端基址：优先 `VITE_API_BASE_URL`（admin 通过 `vite.config.ts` 的 `envDir: '../mini_shop'` **复用小程序的环境文件**），
+ * 缺失时兜底到 dev 内网地址 —— 今华有肽的教训：baseURL 为 `undefined` 时 axios 会静默走相对路径、打到当前站点，报错很隐蔽。
+ * ⚠️ 生产构建必须由 `mini_shop/.env.production` 提供正式 HTTPS 域名。
+ */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.4:8080'
+
 // 统一请求实例，使用 Vite 环境变量区分不同部署环境的后端地址。
 export const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: API_BASE_URL,
   timeout: 10000,
   // Spring 接口将数组绑定为重复查询参数，例如 statuses=6&statuses=7。
   paramsSerializer: { indexes: null },

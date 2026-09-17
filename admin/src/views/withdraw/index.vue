@@ -211,7 +211,9 @@ async function loadRecords(): Promise<void> {
     const message = error instanceof Error ? error.message : '提现交易记录查询失败'
     // 容错：当前环境的接口未发版时会返回 404（请求拦截器已把文案归一为「接口不存在或尚未上线…」），
     // 此时在页签内展示说明性 el-alert，而不是每次切页签都弹一次错误。
-    if (/404|不存在|not\s*found/i.test(message)) {
+    // ⚠️ 正则**不能**匹配泛化的「不存在」：业务错误里也常见（如「提现单不存在」），
+    // 一旦匹配就会把真实业务错误吞掉、把整页切成"接口不可用"（今华有肽踩过同款坑）。
+    if (/接口不存在|尚未上线|not\s*found|404/i.test(message)) {
       recordsUnavailable.value = true
       recordsLoaded.value = true
       records.value = []
