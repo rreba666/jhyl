@@ -69,39 +69,81 @@ const stage = computed<'picking' | 'delivering' | 'done' | 'exception' | 'cancel
 })
 const stageText = computed(() => ({ picking: '待取货', delivering: '配送中', done: '已完成', exception: '配送异常', cancelled: '已取消' })[stage.value])
 /**
- * 状态区插画（设计切图，与详情页节点 05/07/10 一一对应）：
- * 待取货 → `to-pickup`、配送中 → `delivering`、已完成 → `completed`；
- * **异常**用宽幅横幅（见模板里的 `issue-banner`）、**已取消**不显示插画（设计：灰调、不给动作）。
- * 切图为 96×96（按 2 倍图使用），显示尺寸取 96rpx。
+ * 阶段指示的三个节点（设计稿 05/07/08/10 的 `Frame 104`）：
+ * 用交付的三张插画做节点图标（设计 32×32 → **61rpx**），文字 12px → 23rpx。
+ * 颜色：当前阶段 = 主色 `#FF5500`、已经过的阶段 = 深灰 `#1D2129`、未到 = 浅灰 `#86909C`。
  */
-const stageIllustration = computed(() => {
-  if (stage.value === 'picking') return '/static/rider/to-pickup.png'
-  if (stage.value === 'delivering') return '/static/rider/delivering.png'
-  if (stage.value === 'done') return '/static/rider/completed.png'
-  return ''
-})
-/** 阶段进度：已取消停在第一步（进度条全灰）。 */
+const stageNodes = [
+  { key: 'picking', label: '待取货', image: '/static/rider/to-pickup.png' },
+  { key: 'delivering', label: '配送中', image: '/static/rider/delivering.png' },
+  { key: 'done', label: '已完成', image: '/static/rider/completed.png' },
+]
+/** 阶段进度：已取消停在第一步（异常态在模板里不渲染阶段指示）。 */
 const stageIndex = computed(() => (stage.value === 'picking' || stage.value === 'cancelled' ? 1 : stage.value === 'delivering' ? 2 : 3))
+/** 阶段节点文字颜色类。 */
+function stageNodeClass(index: number): string {
+  const current = stageIndex.value
+  if (index + 1 === current) return 'is-current'
+  return index + 1 < current ? 'is-passed' : ''
+}
+/** 卡片头部状态图标（iconfont）：待取货=时间、配送中=车、已完成=勾、异常=警报。 */
+const headIcon = computed(() => {
+  if (stage.value === 'exception') return 'rider-icon-jingbao'
+  if (stage.value === 'done') return 'rider-icon-gouxuan_tianchong'
+  if (stage.value === 'delivering') return 'rider-icon-peisongzhong'
+  return 'rider-icon-shijian'
+})
+/**
+ * 卡片头部右侧文案：
+ * 待取货/配送中 = 「55 分钟内- 4.1km」；已完成 = 「送达时间：10:52:00」；异常/取消 = 空。
+ */
+const headRightText = computed(() => {
+  const item = task.value
+  if (!item) return ''
+  if (stage.value === 'exception' || stage.value === 'cancelled') return ''
+  if (stage.value === 'done') return item.deliveredAt ? `送达时间：${String(item.deliveredAt).slice(-8)}` : ''
+  const km = item.distanceKm != null ? `${Number(item.distanceKm).toFixed(1)}km` : ''
+  const clock = String(item.expectedDeliverAt || '').match(/\d{2}:\d{2}/)?.[0] || ''
+  let left = ''
+  if (remainSeconds.value != null) left = remainSeconds.value <= 0 ? '已超时' : `${Math.ceil(remainSeconds.value / 60)} 分钟内`
+  else if (clock) left = `${clock} 前送达`
+  if (left && km) return `${left}- ${km}`
+  return left || km
+})
+/** 配送时长（已完成态）：后端未直接给，由取货时间与送达时间推算。 */
+const deliveryDurationText = computed(() => {
+  const item = task.value
+  if (!item?.pickedUpAt || !item?.deliveredAt) return '—'
+  const start = new Date(String(item.pickedUpAt).replace(/-/g, '/')).getTime()
+  const end = new Date(String(item.deliveredAt).replace(/-/g, '/')).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return '—'
+  return `${Math.round((end - start) / 60000)} 分钟`
+})
+/** 配送距离文案（订单信息用）。 */
+const distanceText = computed(() => {
+  const km = task.value?.distanceKm
+  return km != null ? `${Number(km).toFixed(1)}km` : '—'
+})
+/**
+ * 订单信息里的短号：设计稿写 `#001`（规则未定，列表用的是序号）。
+ * 详情页没有列表下标，这里取任务号末 3 位兜底（等 §六 的短号规则确认后统一改）。
+ */
+const shortNoFromTask = computed(() => {
+  const no = String(task.value?.taskNo || '')
+  return no ? `#${no.slice(-3)}` : '#—'
+})
+/** 复制订单号（订单信息行）。 */
+function copyOrderNo(): void {
+  const no = String(task.value?.orderNo || '')
+  if (!no) return
+  uni.setClipboardData({ data: no, success: () => uni.showToast({ title: '订单号已复制', icon: 'none' }) })
+}
 const canPickup = computed(() => String(task.value?.status || '') === 'ACCEPTED')
 const canDeliver = computed(() => ['PICKED_UP', 'DELIVERING', 'NEARBY'].includes(String(task.value?.status || '')))
 /** 是否需要收货码核销。 */
 const needPickupCode = computed(() => Boolean(task.value?.pickupCodeRequired))
 /** 异常类型中文（附录 C 枚举；非异常单为空）。 */
 const exceptionTypeText = computed(() => EXCEPTION_TYPES.find((item) => item.value === String(task.value?.exceptionType || ''))?.label || '—')
-
-/** 右上文案：已完成显示送达时间，其它显示承诺时间/倒计时。 */
-const stageExtra = computed(() => {
-  const item = task.value
-  if (!item) return ''
-  if (stage.value === 'done' && item.deliveredAt) return `送达时间：${String(item.deliveredAt).slice(-8)}`
-  const raw = String(item.expectedDeliverAt || '')
-  const matched = raw.match(/\d{2}:\d{2}/)
-  if (remainSeconds.value != null) {
-    // 服务端已判超时（0/负）→ 明确提示，避免"剩余 0 分钟"
-    return remainSeconds.value <= 0 ? '已超时' : `剩余 ${Math.ceil(remainSeconds.value / 60)} 分钟`
-  }
-  return matched ? `${matched[0]} 前送达` : ''
-})
 
 /** 手机号打星（明文下发，UI 自己截）。 */
 function maskPhone(phone?: string): string {
@@ -305,168 +347,251 @@ onUnload(() => {
       <view v-if="loading" class="state">加载中…</view>
       <view v-else-if="!task" class="state">任务不存在或无权查看</view>
       <template v-else>
-        <!-- 状态区 -->
+        <!-- 状态卡（设计稿 05/07/10 的 Frame 117；异常态见 12：浅红头部 + 异常原因条） -->
         <view class="card">
-          <view class="status-head">
-            <text class="status-text" :class="{ 'is-exception': stage === 'exception', 'is-cancelled': stage === 'cancelled' }">{{ stageText }}</text>
-            <text class="status-extra">{{ stageExtra }}</text>
-          </view>
-          <!-- 状态插画（设计切图 05 待取货 / 07 配送中 / 10 已完成） -->
-          <image v-if="stageIllustration" class="status-illustration" :src="stageIllustration" mode="aspectFit" />
+          <!-- 异常态：特殊头部（设计稿 12 的 Frame 158/154） -->
           <template v-if="stage === 'exception'">
-            <!-- 异常态宽幅横幅（设计切图 12 异常单） -->
-            <image class="issue-banner" src="/static/rider/delivery-issue.png" mode="widthFix" />
-            <text class="exception-tip">请尽快处理该订单</text>
-            <text v-if="task.exceptionRemark" class="exception-reason">异常原因：{{ task.exceptionRemark }}</text>
+            <view class="exception-head">
+              <image class="exception-head-bg" src="/static/rider/delivery-issue.png" mode="aspectFill" />
+              <view class="exception-head-body">
+                <view class="exception-title-row">
+                  <text class="rider-icon rider-icon-jingbao exception-icon" />
+                  <text class="exception-title">配送异常</text>
+                </view>
+                <text class="exception-tip">请尽快处理该订单</text>
+              </view>
+            </view>
+            <view v-if="task.exceptionRemark" class="exception-reason-bar">
+              <text class="exception-reason-label">异常原因：</text>
+              <text class="exception-reason-text">{{ task.exceptionRemark }}</text>
+            </view>
           </template>
-          <!-- 已取消：进度无意义，给一句说明即可 -->
-          <text v-if="stage === 'cancelled'" class="exception-tip is-cancelled">该订单已取消，无需继续配送</text>
+
+          <!-- 常规态头部：状态图标 + 状态名 + 右侧时限 / 送达时间 -->
+          <view v-else class="status-head">
+            <view class="status-left" :class="stage === 'done' ? 'is-done' : stage === 'cancelled' ? 'is-cancelled' : ''">
+              <text class="rider-icon status-icon" :class="headIcon" />
+              <text class="status-text">{{ stageText }}</text>
+            </view>
+            <text v-if="headRightText" class="status-extra">{{ headRightText }}</text>
+          </view>
+
+          <!-- 收货人 + 地址（地址前带定位图标，设计稿 Frame 90） -->
           <view class="receiver-row">
             <text class="receiver-name">{{ task.receiverName || '收货人' }}</text>
             <text class="receiver-phone">{{ maskPhone(task.receiverPhone) }}</text>
           </view>
-          <text class="address">{{ task.deliveryAddress || '—' }}</text>
+          <view class="address-row">
+            <text class="rider-icon rider-icon-weizhi1 address-icon" />
+            <text class="address">{{ task.deliveryAddress || '—' }}</text>
+          </view>
+          <text v-if="stage === 'cancelled'" class="cancelled-tip">该订单已取消，无需继续配送</text>
 
-          <view v-if="stage !== 'cancelled'" class="stages">
-            <view class="stage" :class="{ 'is-done': stageIndex >= 1 }"><text class="stage-text">待取货</text></view>
-            <view class="stage" :class="{ 'is-done': stageIndex >= 2 }"><text class="stage-text">配送中</text></view>
-            <view class="stage" :class="{ 'is-done': stageIndex >= 3 }"><text class="stage-text">已完成</text></view>
+          <!-- 阶段指示（设计稿 Frame 104）：三个节点用交付插画 32×32 → 61rpx；异常/已取消不显示 -->
+          <view v-if="stage !== 'cancelled' && stage !== 'exception'" class="stages">
+            <template v-for="(node, index) in stageNodes" :key="node.key">
+              <view class="stage">
+                <image class="stage-image" :src="node.image" mode="aspectFit" />
+                <text class="stage-text" :class="stageNodeClass(index)">{{ node.label }}</text>
+              </view>
+              <view v-if="index < stageNodes.length - 1" class="stage-line" />
+            </template>
           </view>
 
-          <view class="contact-actions">
+          <!-- 联系客户 / 导航（异常态设计稿里没有这两个按钮） -->
+          <view v-if="stage !== 'exception'" class="contact-actions">
             <button class="btn btn-ghost" @click="callCustomer"><text class="rider-icon rider-icon-dianhua btn-icon" />联系客户</button>
-            <!-- 已取消的单无需导航 -->
             <button v-if="stage !== 'cancelled'" class="btn btn-ghost" @click="navigate"><text class="rider-icon rider-icon-daohang btn-icon" />导航</button>
           </view>
         </view>
 
-        <!-- 商品清单 -->
+        <!-- 商品清单（设计稿 Frame 122：只展示 图 / 品名 / 规格 / ×数量，没有单价） -->
         <view class="card">
-          <text class="card-title">商品清单（{{ task.itemCount ?? items.length }} 件）</text>
+          <text class="card-title">商品清单</text>
           <view v-for="(item, index) in items" :key="index" class="goods-item">
             <image v-if="item.productImage" class="goods-image" :src="item.productImage" mode="aspectFill" />
             <view class="goods-info">
               <text class="goods-name">{{ item.productName }}</text>
               <text v-if="item.skuSpec" class="goods-spec">{{ item.skuSpec }}</text>
             </view>
-            <view class="goods-right">
-              <text class="goods-qty">× {{ item.quantity }}</text>
-              <text v-if="item.price != null" class="goods-price">¥{{ Number(item.price).toFixed(2) }}</text>
-            </view>
+            <text class="goods-qty">× {{ item.quantity }}</text>
           </view>
           <view v-if="!items.length" class="goods-empty"><text class="goods-empty-text">暂无商品明细</text></view>
         </view>
 
-        <!-- 订单信息 -->
+        <!-- 订单信息（设计稿 Frame 121：标签 15px 灰 + 值 15px 深色 + 行底分割线；行随状态变化） -->
         <view class="card">
           <text class="card-title">订单信息</text>
-          <view class="info-row"><text class="info-label">任务号</text><text class="info-value">{{ task.taskNo || '—' }}</text></view>
-          <view class="info-row"><text class="info-label">订单号</text><text class="info-value">{{ task.orderNo || '—' }}</text></view>
+          <view class="info-row">
+            <text class="info-label">订单编号</text>
+            <view class="info-value-row">
+              <text class="info-short-no">{{ shortNoFromTask }}</text>
+              <text class="info-value">{{ task.orderNo || '—' }}</text>
+              <text class="rider-icon rider-icon-fuzhi info-copy" @click="copyOrderNo" />
+            </view>
+          </view>
           <view class="info-row"><text class="info-label">下单时间</text><text class="info-value">{{ task.createTime || '—' }}</text></view>
-          <view class="info-row"><text class="info-label">配送距离</text><text class="info-value">{{ task.distanceKm != null ? `${Number(task.distanceKm).toFixed(1)}km` : '—' }}</text></view>
-          <view class="info-row" v-if="stage === 'exception'"><text class="info-label">异常类型</text><text class="info-value">{{ exceptionTypeText }}</text></view>
-          <view class="info-row" v-if="stage === 'done'"><text class="info-label">送达时间</text><text class="info-value">{{ task.deliveredAt || '—' }}</text></view>
+          <view v-if="task.pickedUpAt" class="info-row"><text class="info-label">取货时间</text><text class="info-value">{{ task.pickedUpAt }}</text></view>
+          <view v-if="stage === 'done'" class="info-row"><text class="info-label">配送时长</text><text class="info-value">{{ deliveryDurationText }}</text></view>
+          <view v-if="stage === 'done'" class="info-row"><text class="info-label">配送距离</text><text class="info-value">{{ distanceText }}</text></view>
+          <view v-if="stage === 'done'" class="info-row"><text class="info-label">送达时间</text><text class="info-value">{{ task.deliveredAt || '—' }}</text></view>
+          <view v-if="stage === 'exception'" class="info-row"><text class="info-label">异常类型</text><text class="info-value">{{ exceptionTypeText }}</text></view>
+          <!-- ⚠️ 备注（用户留言）设计稿有、后端 RiderTaskVO 暂无该字段，先按空值显示，等后端补 remark 字段 -->
+          <view class="info-row"><text class="info-label">备注</text><text class="info-value">{{ task.remark || '无' }}</text></view>
         </view>
       </template>
     </scroll-view>
 
-    <!-- 底部动作（已取消等无动作状态不渲染，避免空白条） -->
+    <!-- 底部动作（设计稿：待取货 = 确认取货；配送中 = 上报异常 + 确认送达；已完成/异常/已取消无底部条） -->
     <view v-if="task && (canPickup || canDeliver)" class="footer">
       <template v-if="canPickup">
         <button class="btn btn-primary btn-block" :disabled="acting" @click="doPickup">确认取货</button>
       </template>
       <template v-else-if="canDeliver">
-        <button class="btn btn-ghost" @click="exceptionVisible = true"><text class="rider-icon rider-icon-jingbao btn-icon" />上报异常</button>
-        <button class="btn btn-primary" :disabled="acting" @click="doDeliver">确认送达</button>
+        <button class="btn btn-danger-ghost" style="flex: 136" @click="exceptionVisible = true"><text class="rider-icon rider-icon-jingbao btn-icon" />上报异常</button>
+        <button class="btn btn-primary" style="flex: 222" :disabled="acting" @click="doDeliver">确认送达</button>
       </template>
     </view>
 
-    <!-- 上报异常弹层 -->
+    <!-- 上报异常弹层（设计稿 08 的 Frame 141/142：居中卡片 + 异常原因 + 上传图片 + 提交） -->
     <view v-if="exceptionVisible" class="mask" @click="exceptionVisible = false">
       <view class="sheet" @click.stop>
-        <text class="sheet-title">上报异常</text>
+        <view class="sheet-head">
+          <text class="rider-icon rider-icon-jingbao sheet-icon" />
+          <text class="sheet-title">上报异常</text>
+        </view>
+
+        <!-- 异常类型（后端必填；设计稿只画了"异常原因"，这里补一行下拉） -->
         <view class="sheet-field">
-          <text class="sheet-label">异常原因 <text class="required">*</text></text>
+          <text class="sheet-label">异常类型 <text class="required">*</text></text>
           <picker :range="EXCEPTION_TYPES.map((item) => item.label)" @change="onExceptionTypeChange">
             <view class="sheet-picker">{{ EXCEPTION_TYPES.find((item) => item.value === exceptionType)?.label || '请选择' }}</view>
           </picker>
+        </view>
+
+        <view class="sheet-field">
+          <text class="sheet-label">异常原因 <text class="required">*</text></text>
           <textarea v-model="exceptionRemark" class="sheet-input" :maxlength="200" placeholder="请描述异常情况，例如：联系不上用户" />
+        </view>
+
+        <view class="sheet-field">
+          <text class="sheet-label">上传图片</text>
           <view class="sheet-images">
             <image v-for="(key, index) in exceptionImages" :key="index" class="sheet-image" :src="imageUrl(key)" mode="aspectFill" />
-            <view class="sheet-add" @click="chooseExceptionImages">{{ uploading ? '上传中' : '+ 图片' }}</view>
+            <view class="sheet-add" @click="chooseExceptionImages">
+              <text v-if="uploading" class="sheet-add-text">上传中</text>
+              <text v-else class="rider-icon rider-icon-tianjia sheet-add-icon" />
+            </view>
           </view>
         </view>
-        <view class="sheet-actions">
-          <button class="btn btn-ghost" @click="exceptionVisible = false">取消</button>
-          <button class="btn btn-primary" :disabled="acting || uploading" @click="submitException">提交</button>
-        </view>
+
+        <button class="sheet-submit" :disabled="acting || uploading" @click="submitException">{{ uploading ? '上传中…' : '提交' }}</button>
       </view>
     </view>
   </view>
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: #f6f7f9; }
-.nav { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #fff; }
+.page { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: #f2f3f7; }
+.nav { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #f2f3f7; }
 .nav-inner { position: relative; display: flex; align-items: center; justify-content: center; height: 44px; }
 .nav-back { position: absolute; top: 50%; left: 24rpx; color: #1d2129; font-size: 46rpx; line-height: 1; transform: translateY(-50%); }
-.nav-title { color: #1d2129; font-size: 32rpx; font-weight: 600; }
-.body { flex: 1; min-height: 0; padding: 20rpx 24rpx 140rpx; box-sizing: border-box; }
+.nav-title { color: #1d2129; font-size: 33rpx; font-weight: 600; }
+.body { flex: 1; min-height: 0; padding: 16rpx 16rpx 160rpx; box-sizing: border-box; }
 .state { padding: 160rpx 0; color: #86909c; font-size: 28rpx; text-align: center; }
-.card { margin-bottom: 20rpx; padding: 24rpx; border-radius: 16rpx; background: #fff; }
-.card-title { display: block; margin-bottom: 16rpx; color: #1d2129; font-size: 30rpx; font-weight: 600; }
+.card { margin-bottom: 24rpx; padding: 24rpx; border-radius: 24rpx; background: #fff; }
+.card-title { display: block; margin-bottom: 16rpx; color: #000; font-size: 31rpx; font-weight: 500; }
+
+/* ===== 状态卡头部（设计稿 05/07/10 的 Frame 82）===== */
 .status-head { display: flex; align-items: center; justify-content: space-between; }
-.status-text { color: #ff7d00; font-size: 32rpx; font-weight: 600; }
-.status-text.is-exception { color: #ff0000; }
-.status-text.is-cancelled { color: #86909c; }
-.status-extra { color: #ff7d00; font-size: 26rpx; font-weight: 600; }
+.status-left { display: flex; align-items: center; color: #ff7d00; }
+.status-left.is-done { color: #00b42a; }
+.status-left.is-cancelled { color: #86909c; }
+.status-icon { margin-right: 8rpx; font-size: 38rpx; }
+.status-text { font-size: 31rpx; font-weight: 600; }
+.status-extra { color: #ff7d00; font-size: 31rpx; font-weight: 600; }
 /* 按钮内图标（iconfont，16px → 31rpx） */
 .btn-icon { margin-right: 8rpx; font-size: 31rpx; }
-/* 状态插画：切图 96×96，按 2 倍图使用 → 显示 96rpx */
-.status-illustration { width: 96rpx; height: 96rpx; margin-top: 16rpx; }
-/* 异常态宽幅横幅（1122×324，widthFix 自适应高度） */
-.issue-banner { display: block; width: 100%; margin-top: 16rpx; border-radius: 12rpx; }
-.exception-tip { display: block; margin-top: 10rpx; color: #ff0000; font-size: 26rpx; }
-.exception-tip.is-cancelled { color: #86909c; }
-.exception-reason { display: block; margin-top: 6rpx; color: #ff0000; font-size: 26rpx; line-height: 36rpx; }
-.receiver-row { display: flex; align-items: center; margin-top: 16rpx; }
-.receiver-name { color: #1d2129; font-size: 30rpx; font-weight: 600; }
-.receiver-phone { margin-left: 16rpx; color: #1d2129; font-size: 26rpx; }
-.address { display: block; margin-top: 8rpx; color: #86909c; font-size: 26rpx; line-height: 38rpx; }
-.stages { display: flex; align-items: center; justify-content: space-between; margin-top: 22rpx; }
-.stage { flex: 1; text-align: center; }
-.stage-text { color: #86909c; font-size: 26rpx; }
-.stage.is-done .stage-text { color: #ff5500; font-weight: 600; }
-.contact-actions { display: flex; gap: 16rpx; margin-top: 22rpx; }
-.goods-item { display: flex; align-items: center; padding: 12rpx 0; }
-.goods-image { width: 80rpx; height: 80rpx; flex-shrink: 0; border-radius: 8rpx; background: #f2f3f7; }
+
+/* ===== 异常态头部（设计稿 12 的 Frame 158 + 异常原因条 Frame 154）===== */
+.exception-head { position: relative; overflow: hidden; border-radius: 16rpx; }
+.exception-head-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.exception-head-body { position: relative; padding: 24rpx; }
+.exception-title-row { display: flex; align-items: center; }
+.exception-icon { margin-right: 8rpx; color: #f53f3f; font-size: 31rpx; }
+.exception-title { color: #f53f3f; font-size: 27rpx; font-weight: 600; }
+.exception-tip { display: block; margin-top: 6rpx; margin-left: 39rpx; color: #86909c; font-size: 23rpx; }
+.exception-reason-bar { display: flex; align-items: flex-start; margin: 20rpx -24rpx -24rpx; padding: 16rpx 24rpx; background: #ffeded; }
+.exception-reason-label { flex-shrink: 0; color: #f53f3f; font-size: 27rpx; }
+.exception-reason-text { flex: 1; color: #1d2129; font-size: 27rpx; }
+
+/* ===== 收货人 / 地址 ===== */
+.receiver-row { display: flex; align-items: center; margin-top: 24rpx; }
+.receiver-name { color: #1d2129; font-size: 34rpx; font-weight: 600; }
+.receiver-phone { margin-left: 16rpx; color: #1d2129; font-size: 32rpx; }
+.address-row { display: flex; align-items: flex-start; margin-top: 10rpx; }
+.address-icon { flex-shrink: 0; margin-right: 8rpx; color: #86909c; font-size: 31rpx; }
+.address { flex: 1; color: #86909c; font-size: 27rpx; line-height: 38rpx; }
+.cancelled-tip { display: block; margin-top: 12rpx; color: #86909c; font-size: 27rpx; }
+
+/* ===== 阶段指示（设计稿 Frame 104：插画 32×32 → 61rpx，连线 105px → 202rpx）===== */
+.stages { display: flex; align-items: center; margin-top: 28rpx; }
+.stage { display: flex; width: 69rpx; flex-direction: column; align-items: center; }
+.stage-image { width: 61rpx; height: 61rpx; }
+.stage-text { margin-top: 6rpx; color: #86909c; font-size: 23rpx; }
+.stage-text.is-current { color: #ff5500; }
+.stage-text.is-passed { color: #1d2129; }
+.stage-line { flex: 1; height: 2rpx; background: #e5e6eb; }
+
+.contact-actions { display: flex; gap: 16rpx; margin-top: 28rpx; }
+
+/* ===== 商品清单（设计稿 Frame 122：图 44×44、品名 13px、规格 12px、×数量 12px）===== */
+.goods-item { display: flex; align-items: center; padding: 10rpx 0; }
+.goods-image { width: 85rpx; height: 85rpx; flex-shrink: 0; border-radius: 12rpx; background: #f2f3f7; }
 .goods-info { flex: 1; min-width: 0; margin-left: 16rpx; }
-.goods-name { display: block; overflow: hidden; color: #1d2129; font-size: 26rpx; white-space: nowrap; text-overflow: ellipsis; }
-.goods-spec { display: block; margin-top: 4rpx; color: #86909c; font-size: 22rpx; }
-.goods-right { flex-shrink: 0; margin-left: 16rpx; text-align: right; }
-.goods-qty { display: block; color: #1d2129; font-size: 24rpx; }
-.goods-price { display: block; margin-top: 4rpx; color: #86909c; font-size: 22rpx; }
+.goods-name { display: block; overflow: hidden; color: #1d2129; font-size: 25rpx; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.goods-spec { display: block; margin-top: 4rpx; color: #86909c; font-size: 23rpx; }
+.goods-qty { flex-shrink: 0; margin-left: 16rpx; color: #4e5969; font-size: 23rpx; }
 .goods-empty { padding: 24rpx 0; text-align: center; }
 .goods-empty-text { color: #86909c; font-size: 24rpx; }
-.info-row { display: flex; align-items: flex-start; justify-content: space-between; padding: 12rpx 0; }
-.info-label { flex-shrink: 0; margin-right: 24rpx; color: #86909c; font-size: 26rpx; }
-.info-value { flex: 1; color: #1d2129; font-size: 26rpx; text-align: right; word-break: break-all; }
+
+/* ===== 订单信息（设计稿 Frame 121：行高 56px、标签 15px 灰、值 15px 深色、行底分割线）===== */
+.info-row { display: flex; align-items: flex-start; padding: 18rpx 0; border-bottom: 1rpx solid #f2f3f7; }
+.info-row:last-child { border-bottom: 0; }
+.info-label { flex-shrink: 0; width: 140rpx; color: #86909c; font-size: 29rpx; }
+.info-value-row { display: flex; flex: 1; align-items: center; }
+.info-short-no { margin-right: 12rpx; color: #ff7d00; font-size: 29rpx; }
+.info-value { flex: 1; color: #1d2129; font-size: 29rpx; word-break: break-all; }
+.info-copy { flex-shrink: 0; margin-left: 12rpx; color: #1d2129; font-size: 31rpx; }
+
+/* ===== 底部动作（按钮高 48px → 92rpx、圆角 12px → 24rpx）===== */
 .footer { position: fixed; right: 0; bottom: 0; left: 0; display: flex; gap: 16rpx; padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom)); background: #fff; }
-.btn { flex: 1; margin: 0; border-radius: 44rpx; font-size: 28rpx; line-height: 76rpx; }
+.btn { flex: 1; margin: 0; border-radius: 24rpx; font-size: 31rpx; line-height: 92rpx; }
 .btn::after { border: 0; }
 .btn-block { flex: none; width: 100%; }
 .btn-primary { color: #fff; background: #ff5500; }
 .btn-primary[disabled] { opacity: .6; }
-.btn-ghost { color: #1d2129; background: #f2f3f7; }
-.mask { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 40; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .4); }
-.sheet { width: 100%; padding: 32rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); box-sizing: border-box; border-radius: 24rpx 24rpx 0 0; background: #fff; }
-.sheet-title { display: block; margin-bottom: 24rpx; color: #1d2129; font-size: 32rpx; font-weight: 600; text-align: center; }
-.sheet-label { display: block; margin-bottom: 12rpx; color: #1d2129; font-size: 28rpx; }
-.required { color: #ff0000; }
-.sheet-picker { padding: 20rpx 24rpx; margin-bottom: 16rpx; border-radius: 12rpx; background: #f6f7f9; color: #1d2129; font-size: 26rpx; }
-.sheet-input { width: 100%; height: 160rpx; padding: 20rpx; box-sizing: border-box; border-radius: 12rpx; background: #f6f7f9; color: #1d2129; font-size: 26rpx; }
-.sheet-images { display: flex; align-items: center; gap: 16rpx; margin-top: 16rpx; }
-.sheet-image { width: 110rpx; height: 110rpx; border-radius: 10rpx; background: #f2f3f7; }
-.sheet-add { display: flex; align-items: center; justify-content: center; width: 110rpx; height: 110rpx; border-radius: 10rpx; background: #f2f3f7; color: #86909c; font-size: 24rpx; }
-.sheet-actions { display: flex; gap: 16rpx; margin-top: 28rpx; }
+.btn-ghost { color: #1d2129; background: #f6f7f9; }
+/* 「上报异常」按钮（设计稿 #FFEDED 底 + 红字） */
+.btn-danger-ghost { color: #f53f3f; background: #ffeded; }
+
+/* ===== 上报异常弹层（设计稿 08：居中卡片 326×412、圆角 16px）===== */
+.mask { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .5); }
+.sheet { width: 626rpx; padding: 32rpx; box-sizing: border-box; border-radius: 31rpx; background: #fff; }
+.sheet-head { display: flex; align-items: center; margin-bottom: 32rpx; }
+.sheet-icon { margin-right: 8rpx; color: #f53f3f; font-size: 38rpx; }
+.sheet-title { color: #f53f3f; font-size: 31rpx; font-weight: 500; }
+.sheet-field { margin-bottom: 28rpx; }
+.sheet-label { display: block; margin-bottom: 12rpx; color: #1d2129; font-size: 27rpx; font-weight: 500; }
+.required { color: #f53f3f; }
+.sheet-picker { padding: 20rpx 24rpx; border-radius: 15rpx; background: #f6f7f9; color: #1d2129; font-size: 27rpx; }
+.sheet-input { width: 100%; height: 138rpx; padding: 20rpx; box-sizing: border-box; border-radius: 15rpx; background: #f6f7f9; color: #1d2129; font-size: 27rpx; }
+.sheet-images { display: flex; align-items: center; gap: 16rpx; }
+.sheet-image { width: 185rpx; height: 185rpx; border-radius: 15rpx; background: #f2f3f7; }
+.sheet-add { display: flex; align-items: center; justify-content: center; width: 185rpx; height: 185rpx; border-radius: 15rpx; background: #f6f7f9; }
+.sheet-add-icon { color: #86909c; font-size: 46rpx; }
+.sheet-add-text { color: #86909c; font-size: 24rpx; }
+.sheet-submit { margin-top: 8rpx; border-radius: 24rpx; background: #fff4e8; color: #ff5500; font-size: 31rpx; font-weight: 600; line-height: 92rpx; }
+.sheet-submit::after { border: 0; }
+.sheet-submit[disabled] { opacity: .6; }
 </style>

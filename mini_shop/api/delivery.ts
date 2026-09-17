@@ -55,6 +55,12 @@ export interface RiderTask {
   exceptionRemark?: string
   /** 凭证补传截止时间（送达后 24h）。 */
   proofDeadline?: string
+  /**
+   * 订单备注（用户留言，如"放前台/别敲门"）。
+   * ⚠️ 设计稿（详情页「订单信息 → 备注」）需要，但后端 `RiderTaskVO` **暂未返回该字段** ——
+   * 已作为待补字段反馈后端，接口补上后前端无需改动（当前显示「无」）。
+   */
+  remark?: string
   createTime?: string
   updateTime?: string
 }
