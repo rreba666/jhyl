@@ -22,6 +22,7 @@ import {
   getRiderStats,
   getTaskTimeline,
   reassignTask,
+  closeDeadOrders as requestCloseDeadOrders,
   resumeTask,
   rollbackTask,
   saveFeeConfig,
@@ -168,6 +169,43 @@ async function loadShops(): Promise<void> {
  * - `merchantId=ALL`：对每家门店各查一次后合并（后端不支持全平台一次查，实测留空/传 0 都是 0 条）；
  * - 指定门店：直接按门店查。
  */
+/**
+ * 清理历史死单（2026-09-18 后端新增 `POST /api/admin/delivery/orders/close-dead`）。
+ *
+ * 两步走：**先 dry-run 预览**（只出清单、不改数据）→ 把命中数与样例摆给运营看 → 确认后才真正收口。
+ * 收口只改履约状态（`→ CANCELLED`），**不触发退款**（退款另行走售后/客服）。
+ */
+const deadClosing = ref(false)
+async function closeDeadOrders(): Promise<void> {
+  if (deadClosing.value) return
+  deadClosing.value = true
+  try {
+    const preview = await requestCloseDeadOrders(true)
+    if (!preview.deadOrders) {
+      ElMessage.success(`未发现历史死单（扫描 ${preview.scannedOrders ?? 0} 条候选订单）`)
+      return
+    }
+    const samples = (preview.samples || []).slice(0, 5).join('\n')
+    await ElMessageBox.confirm(
+      `扫描 ${preview.scannedOrders ?? 0} 条候选订单，命中 ${preview.deadOrders} 条历史死单` +
+        '（订单处于在途/异常，但已没有任何未终态任务）。\n\n' +
+        `${samples}${preview.deadOrders > 5 ? `\n…另有 ${preview.deadOrders - 5} 条` : ''}\n\n` +
+        '收口会把这些订单的配送状态置为「已取消」，且**不触发退款**（退款请另行走售后/客服）。确认执行吗？',
+      '清理历史死单',
+      { type: 'warning', confirmButtonText: '确认收口', cancelButtonText: '取消' },
+    )
+    const result = await requestCloseDeadOrders(false)
+    ElMessage.success(`已收口 ${result.closed ?? 0} 条${result.failed ? `，失败 ${result.failed} 条（状态被并发改变）` : ''}`)
+    await loadOrders()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error instanceof Error ? error.message : '清理历史死单失败')
+    }
+  } finally {
+    deadClosing.value = false
+  }
+}
+
 async function loadOrders(): Promise<void> {
   const status = orderFilters.deliveryStatus || undefined
   ordersLoading.value = true
@@ -398,6 +436,46 @@ function onInterveneTaskChange(taskIdValue: string | number): void {
   taskNo.value = String(task.taskNo ?? '')
   reassignTarget.value = task.deliveryPersonId ? String(task.deliveryPersonId) : ''
   timeline.value = []
+}
+
+/**
+ * 任务干预四个动作的**状态白名单**（2026-09-18）。
+ *
+ * 原先四个按钮只看「taskId 填没填」，选一个已 `DELIVERED`/`CANCELED` 的任务时按钮全亮，
+ * 点下去必被后端状态机拒（`13003`）—— 不会写坏数据，但白报错、容易被当成系统故障。
+ * 白名单依据各接口文档：
+ * - **改派**：未送达均可（`ASSIGNED/ACCEPTED/PICKED_UP/DELIVERING/NEARBY/PAUSED`）
+ * - **异常恢复**：仅 `EXCEPTION`/`PAUSED`（`resume` 的硬要求）
+ * - **回退**：`DELIVERED/NEARBY/DELIVERING`（回退链 `DELIVERED→NEARBY→DELIVERING→PICKED_UP`，到 `PICKED_UP` 已无路可退）
+ * - **解锁收货码**：受理后到送达前（`ACCEPTED`~`PAUSED`）
+ */
+const INTERVENE_ACTIONS: Record<'reassign' | 'resume' | 'rollback' | 'unlock', readonly string[]> = {
+  reassign: ['ASSIGNED', 'ACCEPTED', 'PICKED_UP', 'DELIVERING', 'NEARBY', 'PAUSED'],
+  resume: ['EXCEPTION', 'PAUSED'],
+  rollback: ['DELIVERED', 'NEARBY', 'DELIVERING'],
+  unlock: ['ACCEPTED', 'PICKED_UP', 'DELIVERING', 'NEARBY', 'PAUSED'],
+}
+
+/** 当前所选任务（下拉选中的那条；手动只填 taskId 时为 null）。 */
+const interveneTask = computed(() => interveneTasks.value.find((item) => String(item.id) === String(taskId.value)) || null)
+
+/**
+ * 所选任务的状态是否允许该动作。
+ * ⚠️ 手动输入 taskId（未从下拉选）时拿不到任务状态 → **不拦**，交给后端状态机校验，
+ * 避免把原有的"手输 ID"路径一并禁掉。
+ */
+function canIntervene(action: keyof typeof INTERVENE_ACTIONS): boolean {
+  const task = interveneTask.value
+  if (!task) return Boolean(String(taskId.value).trim())
+  return INTERVENE_ACTIONS[action].includes(String(task.status || ''))
+}
+
+/** 动作按钮的禁用原因（给 `title` 用；返回空串表示可点）。 */
+function interveneHint(action: keyof typeof INTERVENE_ACTIONS): string {
+  const task = interveneTask.value
+  if (!task) return String(taskId.value).trim() ? '' : '请先选择配送任务'
+  if (!canIntervene(action)) return `任务当前状态「${taskStatusLabel(task.status)}」不支持该操作`
+  return ''
 }
 
 // ===== 骑手业绩 =====
@@ -648,6 +726,10 @@ onMounted(async () => {
               </el-select>
             </el-form-item>
             <el-form-item><el-button type="primary" :loading="ordersLoading" @click="loadOrders">查询</el-button></el-form-item>
+            <!-- 历史死单收口（2026-09-18 后端新增接口）：先 dry-run 预览命中哪些单，确认后再执行；只改履约状态、不退款 -->
+            <el-form-item>
+              <el-button type="warning" plain :loading="deadClosing" @click="closeDeadOrders">清理历史死单</el-button>
+            </el-form-item>
           </el-form>
           <el-empty v-if="!ordersLoading && !orders.length" description="暂无符合条件的同城订单" :image-size="72" />
           <el-table v-else v-loading="ordersLoading" :data="orders" border size="small" max-height="520">
@@ -736,8 +818,8 @@ onMounted(async () => {
                 <el-button
                   type="warning"
                   plain
-                  :disabled="!taskId || !reassignTarget"
-                  :title="!taskId ? '请先选择配送任务' : (!reassignTarget ? '请先选择新骑手' : '')"
+                  :disabled="!canIntervene('reassign') || !reassignTarget"
+                  :title="interveneHint('reassign') || (!reassignTarget ? '请先选择新骑手' : '')"
                   @click="doReassign"
                 >强制改派</el-button>
               </div>
@@ -747,8 +829,8 @@ onMounted(async () => {
                 <el-button
                   type="warning"
                   plain
-                  :disabled="!taskId"
-                  :title="taskId ? '' : '请先选择配送任务'"
+                  :disabled="!canIntervene('resume')"
+                  :title="interveneHint('resume')"
                   @click="doResume"
                 >异常恢复（EXCEPTION → 异常前状态）</el-button>
                 <span class="muted">骑手上报异常后任务会卡在「配送异常」，运营恢复后回到异常前的节点继续履约</span>
@@ -760,14 +842,14 @@ onMounted(async () => {
                 <el-button
                   type="warning"
                   plain
-                  :disabled="!taskId || timeline.length < 2"
-                  :title="!taskId ? '请先选择配送任务' : (timeline.length < 2 ? '请先查询该任务的节点时间轴（至少 2 个节点才能回退）' : '')"
+                  :disabled="!canIntervene('rollback') || timeline.length < 2"
+                  :title="interveneHint('rollback') || (timeline.length < 2 ? '请先查询该任务的节点时间轴（至少 2 个节点才能回退）' : '')"
                   @click="doRollback"
                 >回退最近一步</el-button>
               </div>
             </el-form-item>
             <el-form-item label="收货码">
-              <el-button :disabled="!taskId" :title="taskId ? '' : '请先选择配送任务'" @click="doUnlock">解锁收货码（错 5 次锁定 10 分钟）</el-button>
+              <el-button :disabled="!canIntervene('unlock')" :title="interveneHint('unlock')" @click="doUnlock">解锁收货码（错 5 次锁定 10 分钟）</el-button>
             </el-form-item>
             <el-divider />
             <el-form-item label="任务号">

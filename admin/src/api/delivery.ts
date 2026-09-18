@@ -236,6 +236,40 @@ export async function resumeTask(taskId: number | string): Promise<void> {
   unwrap(await request.post<DeliveryResponse<null>>(`/api/admin/delivery/tasks/${taskId}/resume`, {}), '恢复失败')
 }
 
+/** 历史死单收口结果（`CloseResult`）。 */
+export interface CloseDeadResult {
+  /** 本次是否只预览 */
+  dryRun?: boolean
+  /** 扫描到的候选订单数（`EXCEPTION`/`PICKED_UP`/`DELIVERING`/`NEARBY` 四态合计、已去重） */
+  scannedOrders?: number
+  /** **命中死单数**（候选中"没有任何未终态任务"的才算） */
+  deadOrders?: number
+  /** 实际收口成功数（`dryRun=true` 时恒为 0） */
+  closed?: number
+  /** 收口失败数（状态在扫描后被并发改变，不影响其它单） */
+  failed?: number
+  /** 最多 10 条样例，形如 `ORD123 | deliveryStatus=EXCEPTION` */
+  samples?: string[]
+}
+
+/**
+ * 历史死单收口（`POST /api/admin/delivery/orders/close-dead`，2026-09-18 后端新增）。
+ *
+ * 收口对象：**订单履约状态在途/异常、但没有任何未终态任务**的历史死单 → 订单 `deliveryStatus` 置 `CANCELLED`。
+ * 这类单 `resume` 进不去（任务已取消）、`cancel-audit` 也进不去（订单不是 `CANCEL_REQUESTED`），
+ * 待办「配送异常单」按订单状态计数 → 永远清不掉，所以需要一个运营手工入口。
+ *
+ * ⚠️ **只改履约状态、不退款**（任务行保持原样，保留"曾被取消"的事实）；退款另行走售后/客服。
+ * `dryRun` 默认 true 只出清单（`scannedOrders` / `deadOrders` / `samples`），确认无误后再传 false 真正收口。
+ */
+export async function closeDeadOrders(dryRun = true, limit = 100): Promise<CloseDeadResult> {
+  const data = unwrap(
+    await request.post<DeliveryResponse<CloseDeadResult>>(`/api/admin/delivery/orders/close-dead?dryRun=${dryRun}&limit=${limit}`, {}),
+    '历史死单收口失败',
+  )
+  return data || {}
+}
+
 /** 解锁收货码（错 5 次锁定 10 分钟后由客服解锁）。 */
 export async function unlockTaskCode(taskId: number | string): Promise<void> {
   unwrap(await request.post<DeliveryResponse<null>>(`/api/admin/delivery/tasks/${taskId}/unlock-code`, null), '解锁收货码失败')
