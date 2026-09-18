@@ -54,8 +54,15 @@ function goShops(row: MerchantVO): void {
   ElMessage.info(`商户「${row.brandName}」共 ${row.shopCount ?? 0} 家门店`)
 }
 
-/** 按 URL query 初始化状态筛选（待办铃铛跳 `/merchants?status=0`）。 */
+/**
+ * 按 URL query 初始化状态筛选（待办铃铛跳 `/merchants?status=0`）。
+ *
+ * ⚠️ 2026-09-18：先**清掉与待办无关的筛选** —— 待办铃铛的数字是"该状态的全量条数"
+ * （`api/todo.ts` 承诺「徽标数字 = 点进去的条数」），若残留上一次的关键词搜索，
+ * 列表条数会少于铃铛数字、看起来像对不上。
+ */
 function applyQuery(): void {
+  filters.keyword = '' // 关键词与待办无关，进入待办视图时清掉
   const status = route.query.status
   if (typeof status === 'string' && status !== '' && !Number.isNaN(Number(status))) {
     filters.status = Number(status) as MerchantFilters['status']

@@ -23,7 +23,9 @@ import {
   getTaskTimeline,
   reassignTask,
   closeDeadOrders as requestCloseDeadOrders,
+  createPlatformDeliveryTask,
   resumeTask,
+  type CreateDeliveryTaskBody,
   rollbackTask,
   saveFeeConfig,
   setMasterSwitch,
@@ -203,6 +205,61 @@ async function closeDeadOrders(): Promise<void> {
     }
   } finally {
     deadClosing.value = false
+  }
+}
+
+// ===== 待派单「安排配送」=====
+// 2026-09-18 后端新增平台派单接口（POST /api/admin/delivery/tasks，**无需 shopId**，门店由订单带出）。
+// 待办 DELIVERY_WAIT_ASSIGN 跳到同城订单列表后，之前这一行操作列只有「—」，运营看得见却动不了。
+const dispatchVisible = ref(false)
+const dispatchRow = ref<DeliveryOrderView | null>(null)
+const dispatchType = ref<CreateDeliveryTaskBody['assignmentType']>('PUBLISH_CLAIM')
+const dispatchRiderId = ref('')
+const dispatchRiders = ref<DeliveryStaff[]>([])
+const dispatchRiderLoading = ref(false)
+const dispatching = ref(false)
+
+/** 打开「安排配送」弹窗（顺带拉该门店的配送员，供"指派骑手"选择）。 */
+async function openDispatch(row: DeliveryOrderView): Promise<void> {
+  dispatchRow.value = row
+  dispatchType.value = 'PUBLISH_CLAIM'
+  dispatchRiderId.value = ''
+  dispatchRiders.value = []
+  dispatchVisible.value = true
+  if (!row.shopId) return
+  dispatchRiderLoading.value = true
+  try {
+    dispatchRiders.value = await getMyStaff(row.shopId)
+  } catch {
+    dispatchRiders.value = [] // 拉不到骑手不阻断：仍可用「商家自送 / 发布待领取」
+  } finally {
+    dispatchRiderLoading.value = false
+  }
+}
+
+/** 提交派单（后端一单一任务，重复提交会幂等返回既有 taskNo）。 */
+async function submitDispatch(): Promise<void> {
+  const row = dispatchRow.value
+  if (!row?.orderNo || dispatching.value) return
+  const assignToPerson = dispatchType.value === 'ASSIGN_TO_PERSON'
+  if (assignToPerson && !dispatchRiderId.value) {
+    ElMessage.warning('请选择要指派的骑手')
+    return
+  }
+  dispatching.value = true
+  try {
+    const taskNo = await createPlatformDeliveryTask({
+      orderNo: row.orderNo,
+      assignmentType: dispatchType.value,
+      deliveryPersonId: assignToPerson ? dispatchRiderId.value : undefined,
+    })
+    ElMessage.success(taskNo ? `已安排配送（任务号 ${taskNo}）` : '已安排配送')
+    dispatchVisible.value = false
+    await loadOrders()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '安排配送失败')
+  } finally {
+    dispatching.value = false
   }
 }
 
@@ -612,8 +669,12 @@ async function auditCancel(row: OrderRow, approve: boolean): Promise<void> {
  * 按路由 query 初始化筛选（待办铃铛跳转：`/delivery?deliveryStatus=xxx`）。
  * 注意：必须同时用 watch 监听 query —— 在**同一模块内**连续点铃铛（如同城待接单 → 同城待派单）
  * 路径不变、只有 query 变，组件不会重新挂载，不 watch 就会"点了没反应"。
+ *
+ * ⚠️ 2026-09-18：先**清掉无关筛选（门店）** —— 待办数字是全平台的，
+ * 残留上一次选的门店会让列表条数少于铃铛数字（页面上方的 `orderTip` 也说明了这点）。
  */
 function applyQuery(): void {
+  orderFilters.merchantId = ALL_SHOPS // 门店与待办无关，进入待办视图时回到全平台
   const deliveryStatus = route.query.deliveryStatus
   if (typeof deliveryStatus === 'string' && deliveryStatus !== '') {
     orderFilters.deliveryStatus = deliveryStatus
@@ -764,6 +825,10 @@ onMounted(async () => {
                 <div v-else-if="row.deliveryStatus === 'EXCEPTION'" class="operator-actions">
                   <el-button size="small" type="warning" plain :loading="exceptionActing" @click="resumeExceptionOrder(row)">异常恢复</el-button>
                   <el-button size="small" type="danger" plain :loading="exceptionActing" @click="cancelExceptionOrder(row)">终止履约</el-button>
+                </div>
+                <!-- 待安排配送：平台派单（2026-09-18 后端新增接口，无需 shopId）—— 之前这行只有「—」 -->
+                <div v-else-if="row.deliveryStatus === 'WAIT_ASSIGN'" class="operator-actions">
+                  <el-button size="small" type="primary" plain @click="openDispatch(row)">安排配送</el-button>
                 </div>
                 <span v-else class="muted">—</span>
               </template>
@@ -965,6 +1030,41 @@ onMounted(async () => {
         </el-card>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 安排配送（平台派单；接口 POST /api/admin/delivery/tasks，无需 shopId，门店由订单带出） -->
+    <el-dialog v-model="dispatchVisible" title="安排配送" width="520px" append-to-body>
+      <el-alert
+        title="给「已备货完成」的同城订单安排配送：商家自送=本店自己送；指派骑手=指定某位配送员（骑手离线会失败）；发布待领取=进入本店抢单池，由骑手自行领取。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="tip"
+      />
+      <el-form label-width="100px" size="small">
+        <el-form-item label="订单号"><el-input :model-value="dispatchRow?.orderNo || ''" disabled /></el-form-item>
+        <el-form-item label="配送方式">
+          <el-radio-group v-model="dispatchType">
+            <el-radio-button value="MERCHANT_SELF">商家自送</el-radio-button>
+            <el-radio-button value="ASSIGN_TO_PERSON">指派骑手</el-radio-button>
+            <el-radio-button value="PUBLISH_CLAIM">发布待领取</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="dispatchType === 'ASSIGN_TO_PERSON'" label="选择骑手">
+          <el-select v-model="dispatchRiderId" filterable clearable :loading="dispatchRiderLoading" placeholder="选择本店配送员" style="width: 100%">
+            <el-option
+              v-for="person in dispatchRiders"
+              :key="person.id"
+              :label="`${person.name || '未命名'}（${person.id}）${person.phone ? ' · ' + person.phone : ''}`"
+              :value="String(person.id)"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dispatchVisible = false">取消</el-button>
+        <el-button type="primary" :loading="dispatching" @click="submitDispatch">确认安排</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 

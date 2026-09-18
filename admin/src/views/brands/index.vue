@@ -7,11 +7,13 @@ import {
   deleteAdminGoodsBrand,
   getAdminGoodsBrandDetail,
   getAdminGoodsBrands,
+  getGoodsBrandUsage,
   toggleAdminGoodsBrand,
   updateAdminGoodsBrand,
   uploadGoodsBrandLogo,
   type AdminGoodsBrand,
   type AdminGoodsBrandSaveDTO,
+  type GoodsBrandUsage,
 } from '@/api/brand'
 import { getAdminCategories } from '@/api/category'
 import type { AdminCategory } from '@/types/category'
@@ -194,9 +196,28 @@ async function toggleEnabled(row: AdminGoodsBrand): Promise<void> {
   }
 }
 
-/** 删除品牌（软删，C 端品牌条不再返回）。 */
+/**
+ * 删除品牌（软删，C 端品牌条不再返回）。
+ *
+ * ⚠️ 2026-09-18 增强：删除前先查**商品引用数** —— 品牌是软删，但商品的 `goodsBrandId` 仍指向它，
+ * 删完 C 端品牌条不再返回该品牌 → 挂着已删品牌的商品会「品牌显示不出来」。
+ * 有引用时直接拦下并告知数量，避免误删。
+ * 接口不可用时**降级不拦**（保持原有的删除能力，不因计量失败而卡住运营）。
+ */
 async function remove(row: AdminGoodsBrand): Promise<void> {
   try {
+    const usageList = await getGoodsBrandUsage([row.id as number | string]).catch(() => [] as GoodsBrandUsage[])
+    const usage = usageList[0]
+    const productCount = Number(usage?.productCount || 0)
+    if (productCount > 0) {
+      const onSaleCount = Number(usage?.onSaleCount || 0)
+      void ElMessageBox.alert(
+        `该品牌下还有 ${productCount} 个商品${onSaleCount > 0 ? `（其中 ${onSaleCount} 个在售）` : ''} 仍引用它。删除后这些商品在 C 端会显示不出品牌，请先在商品管理里移除品牌引用。`,
+        '无法删除',
+        { type: 'warning', confirmButtonText: '知道了' },
+      ).catch(() => undefined)
+      return
+    }
     await ElMessageBox.confirm(`确认删除品牌「${row.name}」吗？删除后小程序品牌条不再显示该品牌。`, '删除确认')
     await deleteAdminGoodsBrand(row.id)
     ElMessage.success('品牌已删除')

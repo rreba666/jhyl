@@ -67,6 +67,31 @@ export async function getAdminGoodsBrandDetail(id: number | string): Promise<Adm
   return ensureSuccess(response.data, '品牌详情查询失败')
 }
 
+/** 品牌被商品引用的计量（`GET /api/admin/product/brand-usage`）。 */
+export interface GoodsBrandUsage {
+  brandId?: number
+  /** 引用该品牌的商品数（**未软删**；商品下架也计入）——`=0` 表示可安全删除 */
+  productCount?: number
+  /** 其中「商品本体上架」（`status=1`）的数量 */
+  onSaleCount?: number
+}
+
+/**
+ * 一次问多个品牌"各自被多少商品引用"，用于**删除前判断**（2026-09-18 后端新增）。
+ *
+ * 背景：品牌删除是**软删**（`goods_brand.del_flag=1`），但商品的 `goods_brand_id` 仍指向它；
+ * 删完之后 C 端品牌条不再返回该品牌 → **挂着已删品牌的商品"品牌显示不出来"**。
+ *
+ * 入参逗号分隔（最多 200 个）；返回里**每个入参品牌都有一行**（没有商品的补 0），前端无需处理"缺席"分支。
+ */
+export async function getGoodsBrandUsage(brandIds: Array<number | string>): Promise<GoodsBrandUsage[]> {
+  if (!brandIds.length) return []
+  const query = new URLSearchParams({ brandIds: brandIds.join(',') }).toString()
+  const response = await request.get<BrandResponse<GoodsBrandUsage[]>>(`/api/admin/product/brand-usage?${query}`)
+  const data = ensureSuccess(response.data, '品牌引用查询失败')
+  return Array.isArray(data) ? data : []
+}
+
 /** 新增品牌。 */
 export async function createAdminGoodsBrand(payload: AdminGoodsBrandSaveDTO): Promise<void> {
   const response = await request.post<BrandResponse<null>>('/api/admin/goods-brand', payload)

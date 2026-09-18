@@ -213,6 +213,31 @@ export async function getDeliveryRefunds(params: { orderNo?: string; status?: st
 
 // ===== 7. 任务干预 + 时间轴 =====
 
+/** 平台创建配送任务 / 派单的入参（`CreateDeliveryTaskBody`）。 */
+export interface CreateDeliveryTaskBody {
+  orderNo: string
+  /** `MERCHANT_SELF` 商家自送 / `ASSIGN_TO_PERSON` 指派骑手 / `PUBLISH_CLAIM` 发布到待领取池 */
+  assignmentType: 'MERCHANT_SELF' | 'ASSIGN_TO_PERSON' | 'PUBLISH_CLAIM'
+  /** 仅 `ASSIGN_TO_PERSON` 必填 */
+  deliveryPersonId?: number | string
+}
+
+/**
+ * 平台创建配送任务 / 派单（`POST /api/admin/delivery/tasks`，2026-09-18 后端新增，**无需 shopId**）。
+ *
+ * 给「已备货完成（`WAIT_ASSIGN`）」的同城订单安排配送 —— 门店由订单自身带出
+ * （这正是它与商户侧 `POST /api/admin/delivery/my/tasks?shopId=` 的区别：平台运营手上只有订单、没有门店上下文）。
+ *
+ * 校验与幂等：订单必须是同城且处于 `WAIT_ASSIGN`（否则 `13003`）；一单一任务（已有未终态任务时**幂等返回既有 taskNo**）；
+ * 门店未终态任务上限 5（`13002`）；指派骑手时骑手显式离线会 `13008`。
+ *
+ * @returns 任务号 `taskNo`
+ */
+export async function createPlatformDeliveryTask(body: CreateDeliveryTaskBody): Promise<string> {
+  const data = unwrap(await request.post<DeliveryResponse<string>>('/api/admin/delivery/tasks', body), '创建配送任务失败')
+  return String(data || '')
+}
+
 /** 运营强制改派骑手（ASSIGNED/ACCEPTED/配送中均可）。 */
 export async function reassignTask(taskId: number | string, payload: { newPersonId: number | string; requestId?: string }): Promise<void> {
   unwrap(await request.post<DeliveryResponse<null>>(`/api/admin/delivery/tasks/${taskId}/reassign`, payload), '改派失败')

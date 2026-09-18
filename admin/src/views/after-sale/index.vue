@@ -157,8 +157,14 @@ function handleTypeChange(value: number | undefined): void { store.typeFilter = 
 function pageChange(value: number): void { store.page = value; void load() }
 function sizeChange(value: number): void { store.size = value; store.page = 1; void load() }
 
-/** 按 URL query 初始化状态筛选（待办铃铛跳 `/after-sale?status=0`）。 */
+/**
+ * 按 URL query 初始化状态筛选（待办铃铛跳 `/after-sale?status=0`）。
+ *
+ * ⚠️ 2026-09-18：先清掉**类型筛选** —— 待办数字是该状态的全量条数，
+ * 残留上一次点的「仅退款 / 退货退款」会让列表条数少于铃铛数字。
+ */
 function applyQuery(): void {
+  store.typeFilter = undefined // 类型与待办无关，进入待办视图时清掉
   const status = route.query.status
   if (typeof status === 'string' && status !== '' && !Number.isNaN(Number(status))) {
     store.statusFilter = Number(status)
