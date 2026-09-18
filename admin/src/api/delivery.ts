@@ -40,6 +40,23 @@ export interface DeliveryOrderView {
   status?: number
   /** 配送状态（如 PENDING/ASSIGNED/ACCEPTED/DELIVERING/DELIVERED/EXCEPTION…）。 */
   deliveryStatus?: string
+  /**
+   * 门店 ID / 门店名（2026-09-17 后端新增，已收录进 api_doc）。
+   * `shopId` = 订单的 `merchant_id`；有了它 + `shopName`，平台列表不必再逐店查询合并。
+   */
+  shopId?: number | string
+  shopName?: string
+  /**
+   * 当前配送任务 ID（该订单**最新一条**任务，2026-09-17 后端新增）。
+   * 任务级动作都要它：恢复 / 暂停 / 取消 / 改派 / 回退 / 解锁收货码。
+   */
+  taskId?: number
+  /** 当前任务号（`track` 轨迹 / `timeline` 时间轴按 `taskNo` 查）。 */
+  taskNo?: string
+  /** 异常类型（**仅任务 EXCEPTION 时有值**，如 `CONTACT_FAILED`）。 */
+  exceptionType?: string
+  /** 异常说明：`EXCEPTION` = 骑手文字说明；`PAUSED` = 商家暂停原因；其余 null。 */
+  exceptionRemark?: string
   receiverName?: string
   receiverPhone?: string
   receiverAddress?: string
@@ -204,6 +221,19 @@ export async function reassignTask(taskId: number | string, payload: { newPerson
 /** 人工回退任务节点（每次只回退最近一步，需填原因）。 */
 export async function rollbackTask(taskId: number | string, reason: string): Promise<void> {
   unwrap(await request.post<DeliveryResponse<null>>(`/api/admin/delivery/tasks/${taskId}/rollback`, { reason }), '回退失败')
+}
+
+/**
+ * 平台端「异常恢复」（`POST /api/admin/delivery/tasks/{taskId}/resume`，2026-09-17 后端新增）。
+ *
+ * 覆盖 `EXCEPTION`（骑手上报异常）与 `PAUSED`（商家暂停超时无人处理）：把任务恢复到**变更前的节点**，
+ * 并同步订单配送状态、写 `DELIVERY_RESUMED` 事件。
+ *
+ * ⚠️ `rollbackTask` 不能替代它：回退链只有 `DELIVERED→NEARBY→DELIVERING→PICKED_UP`，**不含 EXCEPTION/PAUSED**。
+ * 任务不处于这两种状态时（如已送达、已取消、已被别人恢复过）返回 `13003`，即**天然幂等** —— 重复调用第二次必失败。
+ */
+export async function resumeTask(taskId: number | string): Promise<void> {
+  unwrap(await request.post<DeliveryResponse<null>>(`/api/admin/delivery/tasks/${taskId}/resume`, {}), '恢复失败')
 }
 
 /** 解锁收货码（错 5 次锁定 10 分钟后由客服解锁）。 */

@@ -3,8 +3,8 @@
  * 同城配送管理（运营/客服）
  * - 配送总开关（应急总闸）
  * - 履约报表（任务数/送达率/异常率/各环节时长）
- * - 同城订单查询（按商家/配送状态）
- * - 任务干预（改派 / 人工回退 / 解锁收货码 / 节点时间轴）
+ * - 同城订单查询（按商家/配送状态；配送异常可直接「异常恢复」）
+ * - 任务干预（改派 / 人工回退 / 异常恢复 / 解锁收货码 / 节点时间轴）
  * - 骑手业绩（区间排行或单人明细）
  * - 退款单查询
  * - 配送费配置（全局默认 / 门店覆盖）
@@ -22,6 +22,7 @@ import {
   getRiderStats,
   getTaskTimeline,
   reassignTask,
+  resumeTask,
   rollbackTask,
   saveFeeConfig,
   setMasterSwitch,
@@ -32,7 +33,7 @@ import {
   type DeliveryReportVO,
 } from '@/api/delivery'
 import { getEnabledShops } from '@/api/shop'
-import { getMyStaff, getMyTasks, type DeliveryStaff, type DeliveryTask } from '@/api/shop-delivery'
+import { getMyStaff, getMyTasks, cancelMyTask, resumeMyTask, type DeliveryStaff, type DeliveryTask } from '@/api/shop-delivery'
 import type { Shop } from '@/types/shop'
 import {
   DELIVERY_STATUS_OPTIONS,
@@ -132,10 +133,11 @@ async function loadReport(): Promise<void> {
 // ===== 同城订单 =====
 /** 门店筛选的「全部门店」哨兵值：后端 `merchantId` 必填，这里由前端逐店查询后合并。 */
 const ALL_SHOPS = 'ALL'
-/** 合并查询的门店上限（超过则要求选具体门店，避免门店一多把浏览器打爆）。 */
-const MAX_MERGE_SHOPS = 30
-/** 列表行（合并查询时补上所属门店，便于在表格里区分）。 */
-type OrderRow = DeliveryOrderView & { shopId?: string; shopName?: string }
+/**
+ * 列表行：直接用订单视图（`shopId` / `shopName` / `taskId` / `taskNo` / `exceptionType` / `exceptionRemark`
+ * 均由后端返回，2026-09-17 起）。
+ */
+type OrderRow = DeliveryOrderView
 
 const orderFilters = reactive<{ merchantId: string; deliveryStatus: string }>({ merchantId: ALL_SHOPS, deliveryStatus: '' })
 const orders = ref<OrderRow[]>([])
@@ -170,34 +172,86 @@ async function loadOrders(): Promise<void> {
   const status = orderFilters.deliveryStatus || undefined
   ordersLoading.value = true
   try {
-    if (orderFilters.merchantId === ALL_SHOPS) {
-      if (!shops.value.length) {
-        orders.value = []
-        return
-      }
-      if (shops.value.length > MAX_MERGE_SHOPS) {
-        orders.value = []
-        ElMessage.warning(`门店较多（${shops.value.length} 家），请选择具体门店后查询`)
-        return
-      }
-      const groups = await Promise.all(shops.value.map(async (shop) => {
-        const list = await getDeliveryOrders({ merchantId: shop.id, deliveryStatus: status }).catch(() => [] as DeliveryOrderView[])
-        return list.map((row) => ({ ...row, shopId: shop.id, shopName: shop.name }))
-      }))
-      orders.value = groups.flat().sort((a, b) => String(b.createTime || '').localeCompare(String(a.createTime || '')))
-      return
-    }
-    // 兜底：清空选择时不允许"无门店"查询（后端会返回空，容易被误解成"没有单"）
-    if (!orderFilters.merchantId) {
-      orders.value = []
-      ElMessage.warning('请先选择门店：平台账号的同城订单按门店返回')
-      return
-    }
-    orders.value = await getDeliveryOrders({ merchantId: orderFilters.merchantId, deliveryStatus: status })
+    // 2026-09-17 后端已支持「不传 merchantId = 全平台」（传 0 / 负数同样按不传处理），且每行都带
+    // shopId/shopName —— 所以不再逐店查询合并（原先设了 30 店上限，门店一多就直接不让查）
+    const merchantId = orderFilters.merchantId === ALL_SHOPS ? undefined : orderFilters.merchantId
+    orders.value = await getDeliveryOrders({ merchantId, deliveryStatus: status })
   } catch (error) {
+    orders.value = []
     ElMessage.error(error instanceof Error ? error.message : '同城订单查询失败')
   } finally {
     ordersLoading.value = false
+  }
+}
+
+/** 订单列表「配送异常」恢复中标记（按钮 loading）。 */
+const exceptionActing = ref(false)
+
+/**
+ * 「配送异常」订单恢复配送（`EXCEPTION → 异常前状态`）。
+ *
+ * 2026-09-17 后端已在订单视图里返回 `taskId`，所以直接用平台端 `resume` 接口；
+ * 原先"再拉一次任务列表 + 按 orderNo 匹配"的兜底已删除（多任务历史下按 orderNo 匹配本就有歧义）。
+ */
+async function resumeExceptionOrder(row: DeliveryOrderView): Promise<void> {
+  const taskId = row.taskId
+  if (!taskId) {
+    ElMessage.warning('该订单没有关联的配送任务，无法恢复')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将把订单 ${row.orderNo || ''} 的配送任务从「配送异常」恢复到异常前的节点，骑手可继续履约。确认恢复吗？`,
+      '异常恢复',
+      { type: 'warning', confirmButtonText: '确认恢复', cancelButtonText: '取消' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  exceptionActing.value = true
+  try {
+    await resumeTask(taskId)
+    ElMessage.success('已恢复配送（任务回到异常前的节点）')
+    await loadOrders()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '异常恢复失败')
+  } finally {
+    exceptionActing.value = false
+  }
+}
+
+/**
+ * 「配送异常」订单**终止履约**（取消配送任务）。
+ *
+ * 2026-09-17 后端修复：任务处于 `EXCEPTION/PAUSED/在途` 时取消，**订单会同步收口为 `CANCELLED`**
+ * （此前只取消任务、订单永久停在 EXCEPTION，此时 `resume` 与 `cancel-audit` 都进不去）。
+ *
+ * ⚠️ 该接口**只改履约状态、不退款**：是否退款属售后/客服判断（顾客拒收走骑手端拒收接口会按快照扣费后退款）。
+ */
+async function cancelExceptionOrder(row: DeliveryOrderView): Promise<void> {
+  const targetTaskId = row.taskId
+  if (!targetTaskId || !row.shopId) {
+    ElMessage.warning('该订单缺少配送任务信息，无法终止履约')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将取消订单 ${row.orderNo || ''} 的配送任务，并把订单收口为「已取消」。该操作**只改履约状态、不退款**（退款请走售后/客服）。确认终止履约吗？`,
+      '终止履约',
+      { type: 'warning', confirmButtonText: '确认终止', cancelButtonText: '取消' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  exceptionActing.value = true
+  try {
+    await cancelMyTask(row.shopId, targetTaskId, '运营终止履约（配送异常）')
+    ElMessage.success('已终止履约，订单已收口为「已取消」')
+    await loadOrders()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '终止履约失败')
+  } finally {
+    exceptionActing.value = false
   }
 }
 
@@ -264,6 +318,24 @@ async function doUnlock(): Promise<void> {
     ElMessage.success('收货码已解锁')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '解锁失败')
+  }
+}
+
+/** 任务干预页签：异常恢复（`EXCEPTION → 异常前状态`）。 */
+async function doResume(): Promise<void> {
+  const id = requireTaskId()
+  if (!id) return
+  try {
+    await ElMessageBox.confirm(
+      `确认把任务 ${id} 从「配送异常」恢复到异常前的节点？仅对处于「配送异常」的任务有效。`,
+      '异常恢复确认',
+      { type: 'warning' },
+    )
+    await resumeMyTask(interveneShopId.value, id)
+    ElMessage.success('已恢复（任务回到异常前的节点）')
+    await loadInterveneTasks()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '恢复失败')
   }
 }
 
@@ -577,15 +649,19 @@ onMounted(async () => {
             </el-form-item>
             <el-form-item><el-button type="primary" :loading="ordersLoading" @click="loadOrders">查询</el-button></el-form-item>
           </el-form>
-          <el-empty v-if="!ordersLoading && !orders.length" :description="orderFilters.merchantId ? '暂无符合条件的同城订单' : '请先选择门店'" :image-size="72" />
+          <el-empty v-if="!ordersLoading && !orders.length" description="暂无符合条件的同城订单" :image-size="72" />
           <el-table v-else v-loading="ordersLoading" :data="orders" border size="small" max-height="520">
             <el-table-column prop="orderNo" label="订单号" min-width="180" />
             <el-table-column label="门店" min-width="150">
               <template #default="{ row }">{{ row.shopName ? `${row.shopName}（${row.shopId}）` : (orderFilters.merchantId === ALL_SHOPS ? '—' : orderFilters.merchantId) }}</template>
             </el-table-column>
-            <el-table-column label="配送状态" width="140">
+            <el-table-column label="配送状态" width="170">
               <template #default="{ row }">
                 <el-tag :type="deliveryStatusTagType(row.deliveryStatus)" effect="light">{{ deliveryStatusLabel(row.deliveryStatus) }}</el-tag>
+                <!-- 异常类型/说明（2026-09-17 后端新增字段）：异常单的原因直接在这里看到 -->
+                <div v-if="row.exceptionType || row.exceptionRemark" class="status-note">
+                  {{ [row.exceptionType, row.exceptionRemark].filter(Boolean).join('：') }}
+                </div>
               </template>
             </el-table-column>
             <el-table-column prop="receiverName" label="收货人" width="110" />
@@ -595,12 +671,17 @@ onMounted(async () => {
             <el-table-column label="配送费" width="100"><template #default="{ row }">¥ {{ Number(row.deliveryFee || 0).toFixed(2) }}</template></el-table-column>
             <el-table-column label="实付" width="100"><template #default="{ row }">¥ {{ Number(row.payAmount || 0).toFixed(2) }}</template></el-table-column>
             <el-table-column prop="createTime" label="下单时间" min-width="170" />
-            <el-table-column label="操作" width="180" fixed="right">
+            <el-table-column label="操作" width="250" fixed="right">
               <template #default="{ row }">
-                <!-- 只有「取消待审核」的订单需要运营介入；铃铛跳进来即可直接处理 -->
+                <!-- 需要运营介入的两种状态；铃铛跳进来即可直接处理 -->
                 <div v-if="row.deliveryStatus === 'CANCEL_REQUESTED'" class="operator-actions">
                   <el-button size="small" type="danger" plain @click="auditCancel(row, true)">同意取消</el-button>
                   <el-button size="small" @click="auditCancel(row, false)">驳回</el-button>
+                </div>
+                <!-- 配送异常：骑手上报后任务卡在 EXCEPTION。① 恢复 → 回异常前节点继续送；② 终止履约 → 取消任务并把订单收口为已取消（不退款） -->
+                <div v-else-if="row.deliveryStatus === 'EXCEPTION'" class="operator-actions">
+                  <el-button size="small" type="warning" plain :loading="exceptionActing" @click="resumeExceptionOrder(row)">异常恢复</el-button>
+                  <el-button size="small" type="danger" plain :loading="exceptionActing" @click="cancelExceptionOrder(row)">终止履约</el-button>
                 </div>
                 <span v-else class="muted">—</span>
               </template>
@@ -659,6 +740,18 @@ onMounted(async () => {
                   :title="!taskId ? '请先选择配送任务' : (!reassignTarget ? '请先选择新骑手' : '')"
                   @click="doReassign"
                 >强制改派</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item label="配送异常">
+              <div class="row-inline">
+                <el-button
+                  type="warning"
+                  plain
+                  :disabled="!taskId"
+                  :title="taskId ? '' : '请先选择配送任务'"
+                  @click="doResume"
+                >异常恢复（EXCEPTION → 异常前状态）</el-button>
+                <span class="muted">骑手上报异常后任务会卡在「配送异常」，运营恢复后回到异常前的节点继续履约</span>
               </div>
             </el-form-item>
             <el-form-item label="人工回退原因">
@@ -794,6 +887,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 配送状态列的副行：异常类型/说明（后端 2026-09-17 新增字段），异常单不必跳任务时间轴就能看出原因 */
+.status-note { margin-top: 4px; color: #909399; font-size: 12px; line-height: 1.4; }
 .heading-actions { display: flex; align-items: center; gap: 10px; }
 .master-label { color: var(--vben-muted); font-size: 14px; }
 .tip { margin-bottom: 16px; }

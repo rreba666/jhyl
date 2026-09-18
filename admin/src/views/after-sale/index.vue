@@ -31,8 +31,8 @@ const typeOptions: Array<{ label: string; value: number | undefined }> = [
   { label: '退货退款', value: 2 },
 ]
 
-const statusFilter = ref<number | undefined>(undefined)
-const typeFilter = ref<number | undefined>(undefined)
+// 状态/类型筛选值统一存在 store 里（模板直接绑 `store.statusFilter` / `store.typeFilter`），
+// 页面内不再保留同名本地 ref —— 曾经留过一对恒为 undefined 的 ref，导致单选高亮与实际筛选脱钩。
 const reasonVisible = ref(false)
 const reasonTitle = ref('')
 const reasonValue = ref('')
@@ -196,13 +196,15 @@ onMounted(() => {
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <span class="filter-label">状态</span>
-        <el-radio-group :model-value="statusFilter" @change="handleStatusChange">
+        <!-- ⚠️ 绑 store 的筛选值，不要绑本地 ref：el-radio-group 没有内部状态，选中态完全由 modelValue 决定，
+             原先绑的是从未被写入的 `statusFilter`（恒 undefined）→ 高亮永远停在「全部」，与真实筛选脱钩（2026-09-17 修） -->
+        <el-radio-group :model-value="store.statusFilter" @change="handleStatusChange">
           <el-radio-button v-for="opt in statusOptions" :key="String(opt.value)" :value="opt.value">{{ opt.label }}</el-radio-button>
         </el-radio-group>
       </div>
       <div class="filter-row">
         <span class="filter-label">类型</span>
-        <el-radio-group :model-value="typeFilter" @change="handleTypeChange">
+        <el-radio-group :model-value="store.typeFilter" @change="handleTypeChange">
           <el-radio-button v-for="opt in typeOptions" :key="String(opt.value)" :value="opt.value">{{ opt.label }}</el-radio-button>
         </el-radio-group>
       </div>
@@ -232,11 +234,18 @@ onMounted(() => {
               <!-- 待门店核实：优先展示回填入口 -->
               <el-button v-if="row.merchantVerifyStatus === 1" size="small" type="warning" :loading="store.actionLoading" @click="openVerify(row)">回填核实意见</el-button>
               <template v-if="row.status === 0">
-                <el-button size="small" type="success" :loading="store.actionLoading" @click="approve(row)"><el-icon><CircleCheck /></el-icon>通过</el-button>
-                <el-button size="small" type="danger" @click="reject(row)"><el-icon><CircleClose /></el-icon>驳回</el-button>
+                <!-- ⚠️ 待门店核实（merchantVerifyStatus=1）时不给终审按钮：
+                     「转门店核实」只改 merchant_verify_status、status 仍是 0，后端 approve 也只校验"待审核"，
+                     不拦的话中控能在门店回填前直接通过/驳回，绕过「转核实 → 门店意见 → 中控终审」（2026-09-17 修） -->
+                <template v-if="row.merchantVerifyStatus !== 1">
+                  <el-button size="small" type="success" :loading="store.actionLoading" @click="approve(row)"><el-icon><CircleCheck /></el-icon>通过</el-button>
+                  <el-button size="small" type="danger" @click="reject(row)"><el-icon><CircleClose /></el-icon>驳回</el-button>
+                </template>
                 <el-button v-if="row.merchantVerifyStatus !== 1" size="small" @click="requestShopVerify(row)">转门店核实</el-button>
               </template>
-              <template v-else-if="row.status === 5">
+              <!-- ⚠️ 收货质检只适用于「退货退款」(type=2)：api_doc 的 `/receive` 明确"仅退货退款调用"（违者 8701），
+                   原来只看 status===5，脏数据(type=1 且 status=5)会让按钮出现并调用语义不符的接口（2026-09-17 修） -->
+              <template v-else-if="row.status === 5 && row.type === 2">
                 <el-button size="small" type="success" :loading="store.actionLoading" @click="receivePass(row)"><el-icon><Box /></el-icon>质检通过</el-button>
                 <el-button size="small" type="danger" @click="receiveFail(row)">质检不通过</el-button>
               </template>

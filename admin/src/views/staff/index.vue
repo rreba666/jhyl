@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import DataTable from '@/components/DataTable.vue'
@@ -356,6 +356,15 @@ onMounted(() => {
   void loadList()
   shopStore.fetchEnabled().catch(() => undefined)
 })
+
+// ⚠️ 同一路由内 query 变化时组件会被复用、`onMounted` 不再执行，所以必须监听 query：
+// 例如带着 `?shopId=A` 进来后，再点左侧菜单「店员管理」（query 被清空）必须回到"全部门店"，
+// 否则列表会一直停在上一个门店，且门店下拉还显示 A（2026-09-17 修）。
+watch(() => route.query.shopId, (value) => {
+  store.shopId = value ? String(value) : ''
+  store.page = 1
+  void loadList()
+})
 </script>
 
 <template>
@@ -459,7 +468,9 @@ onMounted(() => {
                     <el-dropdown-menu>
                       <el-dropdown-item v-if="row.accountIssued" command="password"><el-icon><Key /></el-icon>查看登录密码</el-dropdown-item>
                       <el-dropdown-item command="history">改密留痕</el-dropdown-item>
-                      <el-dropdown-item v-if="row.identities?.includes('VERIFIER')" disabled>核销账号不绑微信</el-dropdown-item>
+                      <!-- ⚠️ 只有"纯核销账号"才不能绑微信：身份是「骑手 + 核销店员」这类叠加时仍需绑微信（否则该骑手接不了单）
+                           —— 原来用 `includes('VERIFIER')` 会把叠加身份一起禁掉（2026-09-17 修） -->
+                      <el-dropdown-item v-if="row.identities?.length === 1 && row.identities[0] === 'VERIFIER'" disabled>核销账号不绑微信</el-dropdown-item>
                       <el-dropdown-item v-else-if="row.boundUserId || row.boundOpenidMasked" command="unbind">解绑微信</el-dropdown-item>
                       <el-dropdown-item v-else command="bind">绑定微信</el-dropdown-item>
                       <el-dropdown-item v-if="row.accountIssued" command="reset" divided>重置密码</el-dropdown-item>

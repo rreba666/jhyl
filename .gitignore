@@ -19,6 +19,8 @@ temp/
 .env.*
 **/.env.*
 .mcp.json
+# Figma 导出工具：fetch.ps1 里含 FIGMA_API_KEY，与 .mcp.json 同类，严禁入库
+.figma-tools/
 .claude/
 .claude/settings.local.json
 .agents/

@@ -58,7 +58,13 @@
         "optimization" : {
             "subPackages" : true
         },
-        "requiredPrivateInfos" : [ "getLocation", "chooseLocation" ]
+        "requiredPrivateInfos" : [ "getLocation", "chooseLocation" ],
+        /* 微信要求：调用 getLocation 前必须声明用途，否则基础库直接弹「需要在 app.json 中声明 permission scope.userLocation 字段」 */
+        "permission" : {
+            "scope.userLocation" : {
+                "desc" : "用于记录取货、送达时的位置，便于门店核对配送节点"
+            }
+        }
     },
     "mp-alipay" : {
         "usingComponents" : true

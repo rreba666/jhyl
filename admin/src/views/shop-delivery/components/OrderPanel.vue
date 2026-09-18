@@ -9,7 +9,7 @@
  */
 import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { DeliveryOrderView } from '@/api/delivery'
+import { resumeTask, type DeliveryOrderView } from '@/api/delivery'
 import {
   acceptMyOrder,
   auditMyCancel,
@@ -30,6 +30,8 @@ const emit = defineEmits<{ dispatched: [] }>()
 const orders = ref<DeliveryOrderView[]>([])
 const loading = ref(false)
 const acting = ref(false)
+/** 「异常恢复」进行中（按钮 loading）。 */
+const resuming = ref(false)
 const filters = reactive<{ deliveryStatus: string }>({ deliveryStatus: '' })
 /** 本店配送员（「指定配送员」用下拉，避免手输 staffId）。 */
 const staff = ref<DeliveryStaff[]>([])
@@ -158,6 +160,37 @@ async function audit(row: DeliveryOrderView, approve: boolean): Promise<void> {
   }
 }
 
+/**
+ * 「配送异常」订单恢复（`EXCEPTION → 异常前状态`）。
+ * 2026-09-17 后端已在订单视图返回 `taskId`，直接用平台端 resume（不再按 orderNo 反查任务）。
+ */
+async function resumeException(row: DeliveryOrderView): Promise<void> {
+  const taskId = row.taskId
+  if (!taskId) {
+    ElMessage.warning('该订单没有关联的配送任务，无法恢复')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将把订单 ${row.orderNo || ''} 的配送任务从「配送异常」恢复到异常前的节点，骑手可继续履约。确认恢复吗？`,
+      '异常恢复',
+      { type: 'warning', confirmButtonText: '确认恢复', cancelButtonText: '取消' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  resuming.value = true
+  try {
+    await resumeTask(taskId)
+    ElMessage.success('已恢复配送（任务回到异常前的节点）')
+    await loadOrders()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '异常恢复失败')
+  } finally {
+    resuming.value = false
+  }
+}
+
 watch(() => props.shopId, () => { void loadOrders() })
 onMounted(() => { void loadOrders() })
 
@@ -224,6 +257,10 @@ defineExpose({ loadOrders })
             <template v-else-if="row.deliveryStatus === 'CANCEL_REQUESTED'">
               <el-button size="small" type="danger" plain @click="audit(row, true)">同意取消</el-button>
               <el-button size="small" @click="audit(row, false)">驳回</el-button>
+            </template>
+            <!-- 配送异常：骑手上报后任务卡在 EXCEPTION，恢复后回到异常前的节点继续履约 -->
+            <template v-else-if="row.deliveryStatus === 'EXCEPTION'">
+              <el-button size="small" type="warning" plain :loading="resuming" @click="resumeException(row)">异常恢复</el-button>
             </template>
             <span v-else class="muted">无需操作</span>
           </div>

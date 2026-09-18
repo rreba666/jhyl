@@ -121,6 +121,24 @@ async function refreshTodo(): Promise<void> {
 }
 
 /**
+ * 待办 route 归一化。
+ *
+ * 后端把「自提待核销」下发为 `/orders?statuses=1&pickupType=1`，但它其实属于**自提订单**模块
+ * （独立菜单 `/orders/pickup`）。不归一化会出现在"普通订单"页里展示自提订单、连左侧菜单高亮也是"普通订单"
+ * （2026-09-17 修）。这里把路径为 `/orders` 且带 `pickupType=1` 的跳转改写到 `/orders/pickup`。
+ */
+function normalizeTodoRoute(raw: string): string {
+  if (!raw) return raw
+  const [path, search = ''] = raw.split('?')
+  if (path !== '/orders') return raw
+  const params = new URLSearchParams(search)
+  if (params.get('pickupType') !== '1') return raw
+  params.delete('pickupType') // 自提页自身固定 pickupType=1，不必再带
+  const rest = params.toString()
+  return `/orders/pickup${rest ? `?${rest}` : ''}`
+}
+
+/**
  * 点击待办项：按后端给的 route 跳转（query 由后端保证与列表页筛选一致）。
  *
  * 两个坑：
@@ -133,9 +151,18 @@ function openTodo(item: TodoItem): void {
   if (!item.route) return
   const queryString = new URLSearchParams(route.query as Record<string, string>).toString()
   const current = `${route.path}${queryString ? `?${queryString}` : ''}`
-  todoStore.notifyClick()
-  if (item.route === route.fullPath || item.route === current) return
-  router.push(item.route)
+  const target = normalizeTodoRoute(item.route)
+  // ⚠️ 2026-09-17 修：原来这里是**先广播 clickTick、再 router.push**，有两个后果：
+  // ① 目标页的 clickTick 回调会在**旧路由**上先跑一遍（多一次无用请求，慢返回还可能覆盖新结果）；
+  // ② `merchants` / `after-sale` / `withdraw` 三页把 200ms 去重放在"路由 watcher 与铃铛 watcher 共用的函数"里，
+  //    这次旧调用把去重窗口占掉，紧接着带新 query 的路由 watcher 被 `return` → **第一次点待办没反应**
+  //    （`orders` / `delivery` 把去重放在各自回调内，所以只有那三页踩到）。
+  // 现在：**只在不会发生导航**（重复点同一条待办、或当前已在该视图）时才广播；正常导航交给路由 watcher。
+  if (target === route.fullPath || target === current) {
+    todoStore.notifyClick()
+    return
+  }
+  router.push(target)
 }
 
 /** 待办等级 → 标签颜色。 */

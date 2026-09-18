@@ -77,9 +77,32 @@ const expressCompanyOptions = [
   { label: '韵达快运', value: 'yundakuaiyun' },
 ]
 const hasSelection = computed(() => selected.value.length > 0)
-const isPickupOrder = computed(() => route.path === '/orders/pickup')
+/**
+ * 是否「自提订单」形态。
+ *
+ * ⚠️ 2026-09-17 修：原来只认 `route.path === '/orders/pickup'`，而待办铃铛「自提待核销」跳的是
+ * `/orders?statuses=1&pickupType=1`（**路径是 `/orders`**）→ 形态被判成"普通订单"，
+ * 却因 query 带着 `pickupType=1` 查出了自提订单，于是普通订单列表里混进自提单、还带着「发货」操作。
+ * 现在把 `?pickupType=1` 也算作自提形态。
+ */
+const isPickupOrder = computed(() => route.path === '/orders/pickup' || String(route.query.pickupType || '') === '1')
 const pageTitle = computed(() => isPickupOrder.value ? '自提订单' : '普通订单')
-const eligibleSelected = computed(() => selected.value.filter((order) => !isDeleted(order) && order.status === 1))
+
+/**
+ * 状态页签（**按形态过滤**，2026-09-17 修）：
+ * - 普通订单（物流）没有「已核销」这一说 —— 该状态码 8 只有自提订单才有；
+ * - 自提订单也没有「已发货 / 已收货」；
+ * - 自提订单的 1 语义是「待核销」（普通订单的 1 才是「已支付/待发货」），这里同步改标签。
+ */
+const visibleStatusOptions = computed(() => {
+  if (isPickupOrder.value) {
+    return statusOptions
+      .filter((option) => option.value !== 2 && option.value !== 3)
+      .map((option) => (option.value === 1 ? { label: '待核销', value: 1 as OrderStatus } : option))
+  }
+  return statusOptions.filter((option) => option.value !== 8)
+})
+const eligibleSelected = computed(() => selected.value.filter((order) => !isDeleted(order) && order.status === 1 && order.pickupType === 0))
 const deletableSelected = computed(() => selected.value.filter((order) => !isDeleted(order)))
 const restorableSelected = computed(() => selected.value.filter((order) => isDeleted(order)))
 
@@ -415,13 +438,11 @@ async function submitVerify(): Promise<void> {
 }
 
 async function loadList(): Promise<void> {
-  // ⚠️ 普通订单页原实现写死 `pickupType = isPickupOrder ? 1 : 0`，会把 URL 里的 pickupType 覆盖掉
-  // ——待办铃铛「自提待核销」跳的是 `/orders?statuses=1&pickupType=1`，点进来却变成"物流待发货"。
-  // 现在：自提页固定 1；普通订单页默认 0，但 URL 显式带 1/2 时保留该筛选。
-  const queryPickup = route.query.pickupType
-  if (isPickupOrder.value) store.filters.pickupType = 1
-  else if (queryPickup === '1' || queryPickup === '2') store.filters.pickupType = Number(queryPickup) as OrderPickupType
-  else store.filters.pickupType = 0
+  // 形态决定配送方式：自提页 = 1（线下自提），普通订单页 = 0（物流配送）。
+  // ⚠️ 2026-09-17 修：原先普通订单页会"保留 URL 里的 pickupType=1/2"，导致从待办「自提待核销」
+  // 跳进来时**页面仍是普通订单形态**、列表却查出自提订单（甚至能给自提订单填物流单号发货）。
+  // 现在 `isPickupOrder` 已兼容 `?pickupType=1`（视为自提形态），这里按形态定值即可。
+  store.filters.pickupType = isPickupOrder.value ? 1 : 0
   try {
     await store.fetchList()
   } catch (error) {
@@ -505,7 +526,7 @@ onMounted(() => {
         <el-form-item label="订单号"><el-input v-model="orderNoInput" placeholder="输入订单号" clearable style="width: 220px" @keyup.enter="searchByOrderNo" @clear="searchByOrderNo" /></el-form-item>
         <el-form-item><el-button type="primary" @click="searchByOrderNo">搜索</el-button></el-form-item>
         <el-form-item label="下单时间"><el-date-picker :model-value="dateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" @update:model-value="handleDateRangeChange" /></el-form-item>
-        <el-form-item label="微信发货上报">
+        <el-form-item v-if="!isPickupOrder" label="微信发货上报">
           <el-select v-model="store.filters.wxShippingStatus" clearable placeholder="全部" style="width: 160px" @change="loadList">
             <el-option label="未上报" :value="0" />
             <el-option label="已上报" :value="1" />
@@ -519,7 +540,7 @@ onMounted(() => {
 
     <el-tabs v-model="statusTab" class="order-status-tabs" @tab-change="handleStatusTabChange">
       <el-tab-pane label="全部" name="" />
-      <el-tab-pane v-for="option in statusOptions" :key="option.value" :label="option.label" :name="String(option.value)" />
+      <el-tab-pane v-for="option in visibleStatusOptions" :key="option.value" :label="option.label" :name="String(option.value)" />
     </el-tabs>
 
     <template v-if="isPickupOrder">
@@ -540,7 +561,7 @@ onMounted(() => {
           <el-table-column prop="shopName" label="自提门店" min-width="150"><template #default="{ row }">{{ row.shopName || '暂无数据' }}</template></el-table-column>
           <el-table-column label="核销状态" width="120"><template #default="{ row }"><el-tag :type="isVerifiedStatus(row.status) ? 'success' : 'warning'">{{ isVerifiedStatus(row.status) ? '已核销' : '待核销' }}</el-tag></template></el-table-column>
           <el-table-column label="订单状态" width="130"><template #default="{ row }"><div class="order-status"><el-tag :type="statusType(row.status)">{{ row.statusDesc }}</el-tag></div></template></el-table-column>
-          <el-table-column label="操作" fixed="right" width="240"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="showDetail(row)"><el-icon><View /></el-icon>详情</el-button><el-button v-if="row.status === 1" size="small" type="success" :loading="store.verifying" @click="openVerify(row)"><el-icon><CircleCheck /></el-icon>核销</el-button><el-button size="small" type="danger" :disabled="!isDeletable(row) || store.deleting" :loading="store.deleting" title="删除订单" @click="removeOrder(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column>
+          <el-table-column label="操作" fixed="right" width="240"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="showDetail(row)"><el-icon><View /></el-icon>详情</el-button><el-button v-if="row.status === 1 && row.pickupType === 1" size="small" type="success" :loading="store.verifying" @click="openVerify(row)"><el-icon><CircleCheck /></el-icon>核销</el-button><el-button size="small" type="danger" :disabled="!isDeletable(row) || store.deleting" :loading="store.deleting" title="删除订单" @click="removeOrder(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column>
         </DataTable>
       </el-card>
     </template>
@@ -589,7 +610,7 @@ onMounted(() => {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="240"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="showDetail(row)"><el-icon><View /></el-icon>详情</el-button><el-button v-if="row.status === 1" size="small" type="primary" @click="openShip(row)"><el-icon><Box /></el-icon>发货</el-button><el-button size="small" type="danger" :disabled="!isDeletable(row) || store.deleting" :loading="store.deleting" title="删除订单" @click="removeOrder(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column>
+        <el-table-column label="操作" fixed="right" width="240"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="showDetail(row)"><el-icon><View /></el-icon>详情</el-button><el-button v-if="row.status === 1 && row.pickupType === 0" size="small" type="primary" @click="openShip(row)"><el-icon><Box /></el-icon>发货</el-button><el-button size="small" type="danger" :disabled="!isDeletable(row) || store.deleting" :loading="store.deleting" title="删除订单" @click="removeOrder(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column>
       </DataTable>
       </el-card>
     </template>
@@ -599,7 +620,7 @@ onMounted(() => {
       <template v-else-if="store.detail">
         <el-steps :active="Math.min(store.detail.status, 3)" finish-status="success" align-center><el-step title="提交订单" /><el-step title="支付" /><el-step title="发货" /><el-step title="完成" /></el-steps>
         <el-divider />
-        <el-descriptions :column="2" border><el-descriptions-item label="订单号">{{ store.detail.orderNo }}</el-descriptions-item><el-descriptions-item label="订单状态"><span class="order-status"><el-tag :type="statusType(store.detail.status)">{{ store.detail.statusDesc }}</el-tag><el-tag v-if="isDeleted(store.detail)" type="danger" effect="plain">已删除</el-tag></span></el-descriptions-item><el-descriptions-item label="配送方式">{{ pickupTypeText(store.detail.pickupType) }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="核销状态">{{ isVerifiedStatus(store.detail.status) ? '已核销' : '待核销' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="自提门店">{{ store.detail.shopName || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="自提码">{{ store.detail.pickupCode || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="物流轨迹"><el-empty :image-size="48" description="暂无物流轨迹" /></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType !== 1" label="收货人">{{ store.detail.receiverName || '暂无数据' }}</el-descriptions-item><el-descriptions-item label="买家手机号">{{ store.detail.buyerPhone || '暂无数据' }}<el-button v-if="store.detail.buyerPhone" link type="primary" :icon="CopyDocument" @click="copyField(store.detail?.buyerPhone, '买家手机号')">复制</el-button></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType !== 1" label="联系电话"><span :class="{ 'phone-masked': isPhoneMasked(store.detail.receiverPhone) }">{{ store.detail.receiverPhone || '暂无数据' }}</span><el-button link type="primary" :icon="CopyDocument" @click="copyField(store.detail?.receiverPhone, '联系电话')">复制</el-button></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType !== 1" label="收货地址" :span="2"><div class="address-detail-row"><span>{{ store.detail.receiverAddress || '暂无数据' }}</span><span class="address-actions"><el-button link type="primary" :icon="CopyDocument" @click="copyField(store.detail?.receiverAddress, '收货地址')">复制</el-button><el-button v-if="store.detail.status === 1 && !isDeleted(store.detail)" link type="primary" @click="openAddressEditor">修改地址</el-button></span></div></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 0" label="快递公司">{{ store.detail.expressCompany || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 0" label="物流单号">{{ store.detail.expressNo || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 0" label="物流轨迹"><el-button v-if="isTraceable(store.detail)" link type="primary" :disabled="!isTraceable(store.detail) || store.traceLoading" :loading="store.traceLoading" @click="openTrace">物流轨迹</el-button><el-empty v-else :image-size="48" description="暂无物流轨迹" /></el-descriptions-item><el-descriptions-item label="商品总额">¥ {{ Number(store.detail.totalAmount || 0).toFixed(2) }}</el-descriptions-item><el-descriptions-item label="实付金额">¥ {{ Number(store.detail.payAmount || 0).toFixed(2) }}</el-descriptions-item></el-descriptions>
+        <el-descriptions :column="2" border><el-descriptions-item label="订单号">{{ store.detail.orderNo }}</el-descriptions-item><el-descriptions-item label="订单状态"><span class="order-status"><el-tag :type="statusType(store.detail.status)">{{ store.detail.statusDesc }}</el-tag><el-tag v-if="isDeleted(store.detail)" type="danger" effect="plain">已删除</el-tag></span></el-descriptions-item><el-descriptions-item label="配送方式">{{ pickupTypeText(store.detail.pickupType) }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="核销状态">{{ isVerifiedStatus(store.detail.status) ? '已核销' : '待核销' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="自提门店">{{ store.detail.shopName || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="自提码">{{ store.detail.pickupCode || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 1" label="物流轨迹"><el-empty :image-size="48" description="暂无物流轨迹" /></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType !== 1" label="收货人">{{ store.detail.receiverName || '暂无数据' }}</el-descriptions-item><el-descriptions-item label="买家手机号">{{ store.detail.buyerPhone || '暂无数据' }}<el-button v-if="store.detail.buyerPhone" link type="primary" :icon="CopyDocument" @click="copyField(store.detail?.buyerPhone, '买家手机号')">复制</el-button></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType !== 1" label="联系电话"><span :class="{ 'phone-masked': isPhoneMasked(store.detail.receiverPhone) }">{{ store.detail.receiverPhone || '暂无数据' }}</span><el-button link type="primary" :icon="CopyDocument" @click="copyField(store.detail?.receiverPhone, '联系电话')">复制</el-button></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType !== 1" label="收货地址" :span="2"><div class="address-detail-row"><span>{{ store.detail.receiverAddress || '暂无数据' }}</span><span class="address-actions"><el-button link type="primary" :icon="CopyDocument" @click="copyField(store.detail?.receiverAddress, '收货地址')">复制</el-button><el-button v-if="store.detail.status === 1 && store.detail.pickupType === 0 && !isDeleted(store.detail)" link type="primary" @click="openAddressEditor">修改地址</el-button></span></div></el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 0" label="快递公司">{{ store.detail.expressCompany || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 0" label="物流单号">{{ store.detail.expressNo || '暂无数据' }}</el-descriptions-item><el-descriptions-item v-if="store.detail.pickupType === 0" label="物流轨迹"><el-button v-if="isTraceable(store.detail)" link type="primary" :disabled="!isTraceable(store.detail) || store.traceLoading" :loading="store.traceLoading" @click="openTrace">物流轨迹</el-button><el-empty v-else :image-size="48" description="暂无物流轨迹" /></el-descriptions-item><el-descriptions-item label="商品总额">¥ {{ Number(store.detail.totalAmount || 0).toFixed(2) }}</el-descriptions-item><el-descriptions-item label="实付金额">¥ {{ Number(store.detail.payAmount || 0).toFixed(2) }}</el-descriptions-item></el-descriptions>
         <!-- 微信发货上报（仅物流订单）：自动上报失败时可在这里看原因并重试 -->
         <template v-if="store.detail.pickupType === 0">
           <el-divider>微信发货上报</el-divider>

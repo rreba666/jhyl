@@ -18,6 +18,7 @@ import {
   getTaskItems,
   pickupTask,
   reportTaskException,
+  startTask,
   toObjectKey,
   verifyTaskCode,
   type DeliveryProof,
@@ -25,6 +26,9 @@ import {
   type RiderTaskItem,
   type TaskNodeBody,
 } from '@/api/delivery'
+import { collectNodeLocation, confirmDeliverDistance } from '@/utils/location'
+import { durationMinutesText, formatClock, formatDateTime } from '@/utils/datetime'
+import { canStillUploadProof, captureProofImages, submitProofImages } from '@/utils/delivery-proof'
 import { uploadFile } from '@/utils/request'
 
 const taskId = ref('')
@@ -106,7 +110,7 @@ const headRightText = computed(() => {
   const item = task.value
   if (!item) return ''
   if (stage.value === 'exception' || stage.value === 'cancelled') return ''
-  if (stage.value === 'done') return item.deliveredAt ? `送达时间：${String(item.deliveredAt).slice(-8)}` : ''
+  if (stage.value === 'done') return item.deliveredAt ? `送达时间：${formatClock(item.deliveredAt)}` : ''
   const km = item.distanceKm != null ? `${Number(item.distanceKm).toFixed(1)}km` : ''
   const clock = String(item.expectedDeliverAt || '').match(/\d{2}:\d{2}/)?.[0] || ''
   let left = ''
@@ -115,15 +119,8 @@ const headRightText = computed(() => {
   if (left && km) return `${left}- ${km}`
   return left || km
 })
-/** 配送时长（已完成态）：后端未直接给，由取货时间与送达时间推算。 */
-const deliveryDurationText = computed(() => {
-  const item = task.value
-  if (!item?.pickedUpAt || !item?.deliveredAt) return '—'
-  const start = new Date(String(item.pickedUpAt).replace(/-/g, '/')).getTime()
-  const end = new Date(String(item.deliveredAt).replace(/-/g, '/')).getTime()
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return '—'
-  return `${Math.round((end - start) / 60000)} 分钟`
-})
+/** 配送时长（已完成态）：后端未直接给，由取货时间与送达时间推算（iOS 解析见 utils/datetime.ts 注释）。 */
+const deliveryDurationText = computed(() => durationMinutesText(task.value?.pickedUpAt, task.value?.deliveredAt))
 /** 配送距离文案（订单信息用）。 */
 const distanceText = computed(() => {
   const km = task.value?.distanceKm
@@ -152,6 +149,14 @@ const exceptionTypeText = computed(() => EXCEPTION_TYPES.find((item) => item.val
 
 /** 送达照片（只取 PHOTO 类型且有 objectKey 的凭证；签名/说明类凭证不进照片行）。 */
 const photoProofs = computed(() => proofs.value.filter((proof) => String(proof.proofType || 'PHOTO') === 'PHOTO' && proof.objectKey))
+
+/** 是否还能补传送达照片：后端 `/proof` 允许「送达后 24h 内」上传，超窗口就不再给入口。 */
+const canUploadProof = computed(() => {
+  const item = task.value
+  if (!item) return false
+  if (String(item.status) !== 'DELIVERED') return false
+  return canStillUploadProof(item.deliveredAt)
+})
 
 /**
  * 查看送达照片：用小程序原生图片预览（**交互由前端定**：缩略图点击 → 全屏预览，可左右滑动看多张）。
@@ -191,15 +196,22 @@ async function loadDetail(): Promise<void> {
   }
 }
 
-/** 采集定位（start / delivered 必采；pickup 可选）。 */
-function buildNodeBody(): Promise<TaskNodeBody> {
-  return new Promise((resolve, reject) => {
-    uni.getLocation({
-      type: 'gcj02',
-      success: (res) => resolve({ latitude: res.latitude, longitude: res.longitude, accuracy: res.accuracy }),
-      fail: () => reject(new Error('获取定位失败，请开启定位权限后重试')),
-    })
-  })
+/**
+ * 「开始配送」节点（`PICKED_UP → DELIVERING`）。
+ *
+ * ⚠️ 设计稿没有单独的「开始配送」按钮，但后端 `/delivered` 只接受 `DELIVERING`/`NEARBY`，
+ * 而任务列表的「配送中」Tab 会把 `PICKED_UP` 一起列出来 —— 不补这一步，任务会永远停在
+ * `PICKED_UP`，一点送达就报「任务状态已变化，无法确认送达」。故取货后自动补一次、送达前再兜底。
+ * 定位尽力而为（`NodeBody` 坐标非必填）。
+ */
+async function startDelivery(id: number | string): Promise<boolean> {
+  try {
+    const body = await collectNodeLocation(false, true)
+    await startTask(id, body)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** 确认取货（定位可选）。 */
@@ -207,8 +219,10 @@ async function doPickup(): Promise<void> {
   if (acting.value || !taskId.value) return
   acting.value = true
   try {
-    const body = await buildNodeBody().catch(() => ({}))
+    const body = await collectNodeLocation(false)
     await pickupTask(taskId.value, body)
+    // 取货成功后立刻进入「配送中」（设计稿没有单独的「开始配送」按钮）
+    await startDelivery(taskId.value)
     uni.showToast({ title: '已确认取货', icon: 'success' })
     await loadDetail()
   } catch (error) {
@@ -216,6 +230,24 @@ async function doPickup(): Promise<void> {
   } finally {
     acting.value = false
   }
+}
+
+/** 没拿到定位时的二次确认：确认后仍以「不带定位」提交送达（后端两个字段本就是可选）。 */
+function confirmDeliverWithoutLocation(): Promise<boolean> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: '未获取到位置',
+      content: '本次送达将不记录定位。可在「设置 - 位置信息」开启权限后重试，是否继续送达？',
+      confirmText: '继续送达',
+      cancelText: '去开启定位',
+      success: (res) => {
+        if (res.confirm) return resolve(true)
+        // 拒绝过授权时微信不再自动弹窗，这里顺带把设置页打开
+        uni.openSetting({ complete: () => resolve(false) })
+      },
+      fail: () => resolve(false),
+    })
+  })
 }
 
 /** 确认送达：需收货码时先弹框校验（服务端落事件），再提交送达（不传前端布尔）。 */
@@ -236,10 +268,38 @@ async function doDeliver(): Promise<void> {
     acting.value = true
   }
   try {
-    const body = await buildNodeBody()
+    // 兜底：任务可能还停在 PICKED_UP（例如取货时自动 start 没成功），送达前补一次
+    if (String(task.value?.status || '') === 'PICKED_UP') {
+      const started = await startDelivery(taskId.value)
+      if (!started) {
+        uni.showToast({ title: '任务状态已变化，请刷新后重试', icon: 'none' })
+        await loadDetail()
+        return
+      }
+    }
+    // 位置软提醒：离收货点太远先二次确认（只提醒不拦截 —— 室内定位飘移很常见）
+    if (!(await confirmDeliverDistance({ latitude: task.value?.deliveryLat, longitude: task.value?.deliveryLng }))) return
+    // 引导拍送达照片（可跳过；跳过之后可在本页 24h 内补传）
+    const proofKeys = await captureProofImages()
+    // 先静默取一次定位：拿到就带上；拿不到则二次确认后按「无定位」提交
+    let body: TaskNodeBody = {}
+    try {
+      body = await collectNodeLocation(true, true)
+    } catch {
+      const goOn = await confirmDeliverWithoutLocation()
+      if (!goOn) return
+    }
     await deliverTask(taskId.value, body)
     uni.showToast({ title: '已确认送达', icon: 'success' })
     await loadDetail()
+    // 凭证必须在**送达之后**提交（后端口径：送达后 24h 内）；失败不打断流程，延后提示以免盖掉成功 toast
+    if (proofKeys.length) {
+      try {
+        await submitProofImages(taskId.value, proofKeys, task.value?.receiverName)
+      } catch {
+        setTimeout(() => uni.showToast({ title: '送达照片上传失败，可在本页补传', icon: 'none' }), 1600)
+      }
+    }
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : '确认送达失败', icon: 'none' })
   } finally {
@@ -258,6 +318,26 @@ function promptPickupCode(): Promise<string | null> {
       fail: () => resolve(null),
     })
   })
+}
+
+/**
+ * 补传送达照片（已完成态、送达后 24h 内）：拍照/相册 → 上传 OSS → 提交 `/proof` → 重新拉凭证列表。
+ * 后端按张存（一次一个 objectKey），所以多张走 submitProofImages 逐张提交。
+ */
+async function uploadProof(): Promise<void> {
+  if (!taskId.value || uploading.value) return
+  const keys = await captureProofImages()
+  if (!keys.length) return
+  uploading.value = true
+  try {
+    await submitProofImages(taskId.value, keys, task.value?.receiverName)
+    uni.showToast({ title: '已上传', icon: 'success' })
+    proofs.value = await getTaskProofs(taskId.value).catch(() => proofs.value)
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '照片上传失败', icon: 'none' })
+  } finally {
+    uploading.value = false
+  }
 }
 
 /** 选择并上传异常图片（返回 OSS Key 列表）。 */
@@ -453,11 +533,11 @@ onUnload(() => {
               <text class="rider-icon rider-icon-fuzhi info-copy" @click="copyOrderNo" />
             </view>
           </view>
-          <view class="info-row"><text class="info-label">下单时间</text><text class="info-value">{{ task.createTime || '—' }}</text></view>
-          <view v-if="task.pickedUpAt" class="info-row"><text class="info-label">取货时间</text><text class="info-value">{{ task.pickedUpAt }}</text></view>
+          <view class="info-row"><text class="info-label">下单时间</text><text class="info-value">{{ formatDateTime(task.createTime) }}</text></view>
+          <view v-if="task.pickedUpAt" class="info-row"><text class="info-label">取货时间</text><text class="info-value">{{ formatDateTime(task.pickedUpAt) }}</text></view>
           <view v-if="stage === 'done'" class="info-row"><text class="info-label">配送时长</text><text class="info-value">{{ deliveryDurationText }}</text></view>
           <view v-if="stage === 'done'" class="info-row"><text class="info-label">配送距离</text><text class="info-value">{{ distanceText }}</text></view>
-          <view v-if="stage === 'done'" class="info-row"><text class="info-label">送达时间</text><text class="info-value">{{ task.deliveredAt || '—' }}</text></view>
+          <view v-if="stage === 'done'" class="info-row"><text class="info-label">送达时间</text><text class="info-value">{{ formatDateTime(task.deliveredAt) }}</text></view>
           <!-- 送达照片（设计稿 10 的「送达照片」行：56×56 缩略图，点击用系统图片预览看大图） -->
           <view v-if="stage === 'done'" class="info-row">
             <text class="info-label">送达照片</text>
@@ -470,7 +550,11 @@ onUnload(() => {
                 mode="aspectFill"
                 @click="previewProofs(index)"
               />
-              <text v-if="!photoProofs.length" class="info-value">无</text>
+              <!-- 补传入口：设计稿没画，但后端 /proof 允许「送达后 24h 内」补传，所以补一个「＋」方块 -->
+              <view v-if="canUploadProof" class="proof-add" @click="uploadProof">
+                <text class="proof-add-icon">{{ uploading ? '…' : '＋' }}</text>
+              </view>
+              <text v-if="!photoProofs.length && !canUploadProof" class="info-value">无</text>
             </view>
           </view>
           <view v-if="stage === 'exception'" class="info-row"><text class="info-label">异常类型</text><text class="info-value">{{ exceptionTypeText }}</text></view>
@@ -565,8 +649,8 @@ onUnload(() => {
 
 /* ===== 收货人 / 地址 ===== */
 .receiver-row { display: flex; align-items: center; margin-top: 24rpx; }
-.receiver-name { color: #1d2129; font-size: 34rpx; font-weight: 600; }
-.receiver-phone { margin-left: 16rpx; color: #1d2129; font-size: 32rpx; }
+.receiver-name { color: #1d2129; font-size: 35rpx; font-weight: 600; }
+.receiver-phone { margin-left: 23rpx; color: #1d2129; font-size: 35rpx; }
 .address-row { display: flex; align-items: flex-start; margin-top: 10rpx; }
 .address-icon { flex-shrink: 0; margin-right: 8rpx; color: #86909c; font-size: 31rpx; }
 .address { flex: 1; color: #86909c; font-size: 27rpx; line-height: 38rpx; }
@@ -583,8 +667,9 @@ onUnload(() => {
 
 .contact-actions { display: flex; gap: 16rpx; margin-top: 28rpx; }
 
-/* ===== 商品清单（设计稿 Frame 122：图 44×44、品名 13px、规格 12px、×数量 12px）===== */
-.goods-item { display: flex; align-items: center; padding: 10rpx 0; }
+/* ===== 商品清单（设计稿 Frame 122：行高 44px→85rpx、图 44×44、品名 13px、规格/数量 12px、行间距 12px→23rpx）===== */
+.goods-item { display: flex; align-items: center; margin-bottom: 23rpx; }
+.goods-item:last-child { margin-bottom: 0; }
 .goods-image { width: 85rpx; height: 85rpx; flex-shrink: 0; border-radius: 12rpx; background: #f2f3f7; }
 .goods-info { flex: 1; min-width: 0; margin-left: 16rpx; }
 .goods-name { display: block; overflow: hidden; color: #1d2129; font-size: 25rpx; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
@@ -593,8 +678,9 @@ onUnload(() => {
 .goods-empty { padding: 24rpx 0; text-align: center; }
 .goods-empty-text { color: #86909c; font-size: 24rpx; }
 
-/* ===== 订单信息（设计稿 Frame 121：行高 56px、标签 15px 灰、值 15px 深色、行底分割线）===== */
-.info-row { display: flex; align-items: flex-start; padding: 18rpx 0; border-bottom: 1rpx solid #f2f3f7; }
+/* ===== 订单信息（设计稿 Frame 121：行高 56px→108rpx、标签 15px 灰、值 15px 深色、行底分割线）=====
+   用 min-height 而非固定高度：备注/地址这类长值可能要换行，固定高会截断 */
+.info-row { display: flex; align-items: center; min-height: 108rpx; padding: 16rpx 0; border-bottom: 1rpx solid #f2f3f7; }
 .info-row:last-child { border-bottom: 0; }
 .info-label { flex-shrink: 0; width: 140rpx; color: #86909c; font-size: 29rpx; }
 .info-value-row { display: flex; flex: 1; align-items: center; }
@@ -604,10 +690,13 @@ onUnload(() => {
 /* 送达照片缩略图（设计 56×56 → 108rpx；点击用系统图片预览看大图） */
 .proof-row { display: flex; flex: 1; flex-wrap: wrap; gap: 12rpx; }
 .proof-image { width: 108rpx; height: 108rpx; border-radius: 12rpx; background: #f2f3f7; }
+/* 补传入口方块（与缩略图同尺寸；灰底 + 加号，设计稿未画、按后端 24h 补传能力补的） */
+.proof-add { display: flex; align-items: center; justify-content: center; width: 108rpx; height: 108rpx; border-radius: 12rpx; background: #f6f7f9; }
+.proof-add-icon { color: #86909c; font-size: 44rpx; line-height: 1; }
 
 /* ===== 底部动作（按钮高 48px → 92rpx、圆角 12px → 24rpx）===== */
 .footer { position: fixed; right: 0; bottom: 0; left: 0; display: flex; gap: 16rpx; padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom)); background: #fff; }
-.btn { flex: 1; margin: 0; border-radius: 24rpx; font-size: 31rpx; line-height: 92rpx; }
+.btn { flex: 1; height: 92rpx; margin: 0; padding: 0 8rpx; border-radius: 24rpx; font-size: 31rpx; line-height: 92rpx; white-space: nowrap; }
 .btn::after { border: 0; }
 .btn-block { flex: none; width: 100%; }
 .btn-primary { color: #fff; background: #ff5500; }
