@@ -301,6 +301,57 @@ export function getMerchantOrderDetail(orderNo: string): Promise<MerchantOrderDe
   })
 }
 
+// ===== 商家端 · 订单履约动作（写，2026-09-19 新增） =====
+// 背景：小程序商家端此前**只有只读订单**，商家看到「待接单」却推不动，
+// 于是骑手端永远拿不到任务（用户连着反馈了两次）。这里补齐「接单 → 备货完成 → 安排配送」三个动作。
+
+/** 商家接单：待接单（`deliveryStatus = WAIT_ACCEPT`）→ 已接单。 */
+export function acceptMerchantOrder(orderNo: string): Promise<void> {
+  return request<void>({ url: `/api/merchant/orders/${encodeURIComponent(orderNo)}/accept`, method: 'POST' })
+}
+
+/** 开始备货：已接单 → 备货中（`PREPARING`）。 */
+export function prepareMerchantOrder(orderNo: string): Promise<void> {
+  return request<void>({ url: `/api/merchant/orders/${encodeURIComponent(orderNo)}/prepare`, method: 'POST' })
+}
+
+/** 备货完成：备货中 → 待派单（`WAIT_ASSIGN`），此后才能安排配送。 */
+export function readyMerchantOrder(orderNo: string): Promise<void> {
+  return request<void>({ url: `/api/merchant/orders/${encodeURIComponent(orderNo)}/ready`, method: 'POST' })
+}
+
+/** 配送方式（后端 `CreateTaskBody.assignmentType`）。 */
+export type DeliveryAssignmentType =
+  /** 商家自送 */
+  | 'MERCHANT_SELF'
+  /** 指派某个骑手（需带 `deliveryPersonId`） */
+  | 'ASSIGN_TO_PERSON'
+  /** 发布到本店待领取池，骑手抢单 */
+  | 'PUBLISH_CLAIM'
+
+/** 安排配送：建配送任务。**前置：订单已备货完成**（否则后端返回 `13003`）。 */
+export function createMerchantDeliveryTask(payload: {
+  orderNo: string
+  assignmentType: DeliveryAssignmentType
+  deliveryPersonId?: number
+}): Promise<string | number | null> {
+  return request<string | number | null>({ url: '/api/merchant/delivery/tasks', method: 'POST', data: payload })
+}
+
+/** 本店配送员（「指派骑手」时用）。 */
+export interface DeliveryStaffVO {
+  id: number
+  name: string
+  phone?: string
+  /** 是否在线（可接单）。 */
+  online?: boolean
+}
+
+/** 本店配送员列表（含在线状态）。 */
+export function getDeliveryStaff(): Promise<DeliveryStaffVO[]> {
+  return request<DeliveryStaffVO[]>({ url: '/api/merchant/delivery/staff/delivery', method: 'GET' })
+}
+
 /** 同城履约状态 → 中文文案（骑手胶囊 / 详情状态头）。 */
 export const DELIVERY_STATUS_TEXT: Record<string, string> = {
   WAIT_ACCEPT: '待接单',

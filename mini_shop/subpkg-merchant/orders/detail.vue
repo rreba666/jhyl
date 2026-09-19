@@ -11,8 +11,15 @@ import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import {
   DELIVERY_STATUS_TEXT,
+  acceptMerchantOrder,
+  createMerchantDeliveryTask,
+  getDeliveryStaff,
   getMerchantOrderDetail,
   maskPhone,
+  prepareMerchantOrder,
+  readyMerchantOrder,
+  type DeliveryAssignmentType,
+  type DeliveryStaffVO,
   type MerchantOrderDetailVO,
 } from '@/api/merchant'
 import { resolveImageUrl } from '@/utils/request'
@@ -48,6 +55,121 @@ async function loadDetail(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+// ===== 履约动作（仅同城配送）=====
+// 2026-09-19 新增：小程序商家端此前**只有只读订单**，商家看到「待接单」却推不动，
+// 于是骑手端永远拿不到任务（用户连着反馈两次）。这里补齐「接单 → 备货完成 → 安排配送」。
+
+/** 是否正在提交（防重复点击）。 */
+const acting = ref(false)
+/** 安排配送弹层。 */
+const assignVisible = ref(false)
+const assigning = ref(false)
+const assignMode = ref<DeliveryAssignmentType>('PUBLISH_CLAIM')
+const staffLoading = ref(false)
+const staffList = ref<DeliveryStaffVO[]>([])
+const selectedStaffId = ref<number | null>(null)
+
+/** 三种配送方式与说明（对应后端 `assignmentType`）。 */
+const ASSIGN_OPTIONS: { type: DeliveryAssignmentType; label: string; desc: string }[] = [
+  { type: 'MERCHANT_SELF', label: '商家自送', desc: '本店自己送，不占用骑手' },
+  { type: 'ASSIGN_TO_PERSON', label: '指派骑手', desc: '指定本店某位配送员' },
+  { type: 'PUBLISH_CLAIM', label: '发布领取', desc: '发到本店待领取池，骑手抢单' },
+]
+
+/** 当前配送节点（`WAIT_ACCEPT` / `ACCEPTED` / `WAIT_ASSIGN` …）。 */
+const deliveryNode = computed(() => String(order.value?.deliveryStatus || ''))
+/** 只有同城配送订单需要商家履约（物流/自提不走这套）。 */
+const isSameCity = computed(() => order.value?.pickupType === 2)
+const canAccept = computed(() => isSameCity.value && deliveryNode.value === 'WAIT_ACCEPT')
+const canFinishPrepare = computed(() => isSameCity.value && ['ACCEPTED', 'PREPARING'].includes(deliveryNode.value))
+const canAssign = computed(() => isSameCity.value && deliveryNode.value === 'WAIT_ASSIGN')
+const showActions = computed(() => canAccept.value || canFinishPrepare.value || canAssign.value)
+
+/** 统一动作执行：提交 → toast → 重新拉详情（状态会随之后退）。 */
+async function runAction(task: () => Promise<unknown>, successText: string): Promise<void> {
+  if (acting.value) return
+  acting.value = true
+  try {
+    await task()
+    uni.showToast({ title: successText, icon: 'success' })
+    await loadDetail()
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
+  } finally {
+    acting.value = false
+  }
+}
+
+/** 接单。 */
+function acceptOrder(): void {
+  void runAction(() => acceptMerchantOrder(orderNo.value), '已接单')
+}
+
+/**
+ * 备货完成。
+ * 后端状态机要求 `prepare` → `ready` 两步，这里串起来 —— 商家只需要点一次「备货完成」。
+ */
+function finishPreparing(): void {
+  void runAction(async () => {
+    if (deliveryNode.value === 'ACCEPTED') await prepareMerchantOrder(orderNo.value)
+    await readyMerchantOrder(orderNo.value)
+  }, '已备货完成，可安排配送')
+}
+
+/** 打开安排配送弹层。 */
+function openAssign(): void {
+  assignVisible.value = true
+  assignMode.value = 'PUBLISH_CLAIM'
+  selectedStaffId.value = null
+}
+
+/** 选择配送方式；选「指派骑手」时加载本店配送员。 */
+function chooseAssignMode(type: DeliveryAssignmentType): void {
+  assignMode.value = type
+  selectedStaffId.value = null
+  if (type === 'ASSIGN_TO_PERSON' && !staffList.value.length) void loadStaff()
+}
+
+/** 加载本店配送员（失败只提示，不影响改用其它方式）。 */
+async function loadStaff(): Promise<void> {
+  staffLoading.value = true
+  try {
+    staffList.value = await getDeliveryStaff()
+  } catch {
+    staffList.value = []
+  } finally {
+    staffLoading.value = false
+  }
+}
+
+/** 确认安排配送：建配送任务。 */
+function confirmAssign(): void {
+  if (assigning.value) return
+  if (assignMode.value === 'ASSIGN_TO_PERSON' && selectedStaffId.value == null) {
+    uni.showToast({ title: '请选择要指派的骑手', icon: 'none' })
+    return
+  }
+  assigning.value = true
+  void (async () => {
+    try {
+      await createMerchantDeliveryTask({
+        orderNo: orderNo.value,
+        assignmentType: assignMode.value,
+        ...(assignMode.value === 'ASSIGN_TO_PERSON' && selectedStaffId.value != null
+          ? { deliveryPersonId: selectedStaffId.value }
+          : {}),
+      })
+      assignVisible.value = false
+      uni.showToast({ title: '已安排配送', icon: 'success' })
+      await loadDetail()
+    } catch (error) {
+      uni.showToast({ title: error instanceof Error ? error.message : '安排配送失败', icon: 'none' })
+    } finally {
+      assigning.value = false
+    }
+  })()
 }
 
 /** 详情形态：picking 待取货 / delivering 配送中 / done 已完成 / exception 异常 / plain 其它（物流/自提）。 */
@@ -282,12 +404,57 @@ function goBack(): void {
           <text class="info-value-text">{{ order.remark }}</text>
         </view>
       </view>
+      <!-- 底部动作栏是 fixed，这里留占位，避免它盖住最后一行 -->
+      <view v-if="showActions" class="action-space" />
     </scroll-view>
 
     <!-- 加载 / 错误态 -->
     <view v-else class="state-wrap">
       <view v-if="loading" class="state">加载中…</view>
       <view v-else class="state">{{ errorMsg || '订单不存在' }}</view>
+    </view>
+
+    <!-- 履约动作栏（仅同城配送、且处于可操作阶段时出现） -->
+    <view v-if="showActions" class="action-bar">
+      <view v-if="canAccept" class="action-btn" :class="{ disabled: acting }" @click="acceptOrder">{{ acting ? '处理中…' : '接单' }}</view>
+      <view v-else-if="canFinishPrepare" class="action-btn" :class="{ disabled: acting }" @click="finishPreparing">{{ acting ? '处理中…' : '备货完成' }}</view>
+      <view v-else-if="canAssign" class="action-btn" @click="openAssign">安排配送</view>
+    </view>
+
+    <!-- 安排配送弹层：三种方式 -->
+    <view v-if="assignVisible" class="mask" @click="assignVisible = false">
+      <view class="sheet" @click.stop>
+        <view class="sheet-head"><text class="sheet-title">安排配送</text><text class="sheet-close" @click="assignVisible = false">×</text></view>
+        <view
+          v-for="option in ASSIGN_OPTIONS"
+          :key="option.type"
+          class="assign-option"
+          :class="{ active: assignMode === option.type }"
+          @click="chooseAssignMode(option.type)"
+        >
+          <view class="radio" :class="{ active: assignMode === option.type }"><view class="radio-dot" /></view>
+          <view class="assign-text">
+            <text class="assign-name">{{ option.label }}</text>
+            <text class="assign-desc">{{ option.desc }}</text>
+          </view>
+        </view>
+        <!-- 指派骑手：选本店配送员 -->
+        <view v-if="assignMode === 'ASSIGN_TO_PERSON'" class="staff-list">
+          <view v-if="staffLoading" class="staff-empty">骑手加载中…</view>
+          <view v-else-if="!staffList.length" class="staff-empty">本店暂无配送员，可改用「发布领取」</view>
+          <view
+            v-for="staff in staffList"
+            :key="staff.id"
+            class="staff-item"
+            :class="{ active: selectedStaffId === staff.id }"
+            @click="selectedStaffId = staff.id"
+          >
+            <text class="staff-name">{{ staff.name }}</text>
+            <text class="staff-online">{{ staff.online ? '在线' : '离线' }}</text>
+          </view>
+        </view>
+        <view class="assign-submit" :class="{ disabled: assigning }" @click="confirmAssign">{{ assigning ? '提交中…' : '确认安排' }}</view>
+      </view>
     </view>
   </view>
 </template>
@@ -677,4 +844,62 @@ function goBack(): void {
   color: #86909c;
   font-size: 28rpx;
 }
+/* ===== 履约动作栏 + 安排配送弹层（2026-09-19：商家终于能在小程序里推单） ===== */
+.action-space { height: 160rpx; }
+.action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  padding: 16rpx 23rpx calc(16rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  box-shadow: 0 -2rpx 12rpx rgba(29, 33, 41, 0.06);
+}
+.action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88rpx;
+  border-radius: 16rpx;
+  color: #ffffff;
+  background: linear-gradient(90deg, #ff9301 0%, #ff4202 100%);
+  font-size: 31rpx;
+  font-weight: 600;
+}
+.action-btn.disabled { opacity: 0.6; }
+
+.mask { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; justify-content: flex-end; background: rgba(0, 0, 0, 0.45); }
+.sheet { padding: 31rpx 31rpx calc(31rpx + env(safe-area-inset-bottom)); border-radius: 23rpx 23rpx 0 0; background: #ffffff; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12rpx; }
+.sheet-title { color: #1d2129; font-size: 35rpx; font-weight: 600; }
+.sheet-close { color: #86909c; font-size: 44rpx; line-height: 1; }
+.assign-option { display: flex; align-items: center; padding: 24rpx 0; border-bottom: 1rpx solid #f2f3f7; }
+.assign-text { flex: 1; min-width: 0; }
+.assign-name { display: block; color: #1d2129; font-size: 28rpx; font-weight: 500; }
+.assign-desc { display: block; margin-top: 4rpx; color: #86909c; font-size: 23rpx; }
+.radio { flex: none; display: flex; align-items: center; justify-content: center; width: 38rpx; height: 38rpx; margin-right: 18rpx; border: 2rpx solid #d7dbe0; border-radius: 50%; box-sizing: border-box; }
+.radio.active { border-color: #ff5500; background: #ff5500; }
+.radio-dot { width: 16rpx; height: 16rpx; border-radius: 50%; }
+.radio.active .radio-dot { background: #ffffff; }
+.staff-list { margin-top: 16rpx; max-height: 400rpx; }
+.staff-item { display: flex; align-items: center; justify-content: space-between; padding: 22rpx 20rpx; margin-bottom: 12rpx; border-radius: 12rpx; background: #f6f7f9; }
+.staff-item.active { background: #fff4e8; }
+.staff-name { color: #1d2129; font-size: 27rpx; }
+.staff-online { color: #86909c; font-size: 23rpx; }
+.staff-empty { padding: 24rpx 0; color: #86909c; font-size: 25rpx; text-align: center; }
+.assign-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88rpx;
+  margin-top: 24rpx;
+  border-radius: 16rpx;
+  color: #ffffff;
+  background: linear-gradient(90deg, #ff9301 0%, #ff4202 100%);
+  font-size: 31rpx;
+  font-weight: 600;
+}
+.assign-submit.disabled { opacity: 0.6; }
 </style>
