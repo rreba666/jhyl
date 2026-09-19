@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCartList, type CartItem } from '@/api/cart'
-import { cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
+import { ADDRESS_DRAFT_KEY, cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
 import { createPrepay, requestPayment, payByBalance, switchToBalance } from '@/api/payment'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { quoteDelivery, type DeliveryQuote } from '@/api/delivery-order'
@@ -700,9 +700,27 @@ onLoad(async (options?: Record<string, string | undefined>) => {
   await Promise.all([loadSelectedItems(), loadShops(), loadBalance(), loadModuleConfig()])
 })
 
-/** 页面重新显示时关闭残留的发票抽屉，确保进入确认订单页不会被遮罩覆盖。 */
+/** 页面重新显示时关闭残留的发票抽屉；并从「配送地址」页读回刚保存的地址草稿。 */
 onShow(() => {
   invoiceDrawerVisible.value = false
+  try {
+    const draft = uni.getStorageSync(ADDRESS_DRAFT_KEY) as Address | ''
+    if (draft && typeof draft === 'object') {
+      selectedAddress.value = {
+        name: draft.name || '',
+        phone: draft.phone || '',
+        detail: draft.detail || '',
+        province: draft.province || '',
+        city: draft.city || '',
+        district: draft.district || '',
+        ...(draft.latitude != null ? { latitude: Number(draft.latitude) } : {}),
+        ...(draft.longitude != null ? { longitude: Number(draft.longitude) } : {}),
+      }
+      uni.removeStorageSync(ADDRESS_DRAFT_KEY)
+      // 地址变了，同城配送费/距离要重算
+      void refreshDeliveryQuote()
+    }
+  } catch { /* 忽略 */ }
 })
 
 onMounted(() => {
@@ -763,12 +781,18 @@ function selectPayMethod(method: PayMethod): void {
   payMethod.value = method
 }
 
-/** 打开本地地址编辑抽屉。 */
+/**
+ * 打开「配送地址」**独立页面**。
+ * 原方案是弹层，但弹层里塞不下「省市区选择 + 自动定位 + 地图选点」，
+ * 说明文字还会被挤到表单下方（2026-09-19 用户要求改成整页）。
+ * 当前地址写进 storage 作为草稿，页面保存后返回，由 onShow 读回。
+ */
 function openAddressEditor(): void {
-  Object.assign(addressForm, selectedAddress.value || { name: '', phone: '', detail: '', province: '', city: '', district: '' })
-  addressSheetVisible.value = true
-  // 打开表单时顺手定位一次：拿到省市区就自动填入（不覆盖用户已填），失败静默
-  void locateForAddress()
+  try {
+    if (selectedAddress.value) uni.setStorageSync(ADDRESS_DRAFT_KEY, selectedAddress.value)
+    else uni.removeStorageSync(ADDRESS_DRAFT_KEY)
+  } catch { /* 忽略 */ }
+  uni.navigateTo({ url: '/subpkg-order/address/edit' })
 }
 
 /** 校验并保存本地地址。 */
@@ -1383,23 +1407,6 @@ function backToCart(): void {
       <view class="pay-now" :class="{ disabled: !items.length || paying || switchingToBalancePayment }" @click="submitPayment">
         <text v-if="showCancelOrder && countdownText" class="countdown">{{ countdownText }}</text>
         <text>{{ paying || switchingToBalancePayment ? '处理中...' : '立即支付' }}</text>
-      </view>
-    </view>
-
-    <view v-show="addressSheetVisible" class="mask" @click="addressSheetVisible = false">
-      <view class="sheet" @click.stop>
-        <view class="sheet-head"><text class="sheet-title">配送地址</text><text class="sheet-close" @click="addressSheetVisible = false">×</text></view>
-        <view class="sheet-form-line">
-          <text class="form-label">所在地区<span class="required">*</span></text>
-          <picker mode="region" :value="regionPickerValue" class="sheet-picker" @change="onRegionChange">
-            <text :class="regionPickerValue.length === 3 ? 'sheet-picker-value' : 'sheet-picker-placeholder'">{{ regionText }}</text>
-          </picker>
-        </view>
-        <view class="sheet-form-line"><text class="form-label">详细地址<span class="required">*</span></text><input v-model="addressForm.detail" class="sheet-input" maxlength="200" placeholder="街道、门牌号等" placeholder-class="input-placeholder" /></view>
-        <view class="sheet-form-line"><text class="form-label">姓名<span class="required">*</span></text><input v-model="addressForm.name" class="sheet-input" maxlength="32" placeholder="请输入" placeholder-class="input-placeholder" /></view>
-        <view class="sheet-form-line"><text class="form-label">手机号<span class="required">*</span></text><input v-model="addressForm.phone" class="sheet-input" type="number" maxlength="11" placeholder="请输入" placeholder-class="input-placeholder" /></view>
-        <text class="sheet-tip">{{ addressTipText }}</text>
-        <view class="sheet-submit" @click="saveAddress">保存地址</view>
       </view>
     </view>
 

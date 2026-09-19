@@ -81,6 +81,13 @@
           }
         },
         {
+          "path": "address/edit",
+          "style": {
+            "navigationBarTitleText": "配送地址",
+            "navigationStyle": "custom"
+          }
+        },
+        {
           "path": "orders/list",
           "style": {
             "navigationStyle": "custom",

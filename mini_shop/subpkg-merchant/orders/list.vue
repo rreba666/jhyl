@@ -42,13 +42,6 @@ const contentTop = computed(() => statusBarHeight.value + 44 + 54)
 const activeTab = ref<TabKey>('all')
 const keyword = ref('')
 const orders = ref<MerchantOrderCardVO[]>([])
-/**
- * 订单卡片间距。
- * ⚠️ 必须用**内联 style** 下发（见模板注释）：微信小程序自定义组件默认 `styleIsolation: isolated`，
- * 父组件的 `.list-card { margin-bottom }` 规则**作用不到组件根节点**，
- * 表现就是「卡片挤在一起、改了间距没反应」（2026-09-19 用户两次反馈后定位）。
- */
-const CARD_GAP = '24rpx'
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
@@ -247,15 +240,15 @@ function applyFilter(): void {
       <view v-if="loading" class="state">加载中…</view>
       <view v-else-if="!orders.length" class="state">{{ EMPTY_TEXT[activeTab] }}</view>
       <template v-else>
-        <!-- 卡片间距用内联 style 而不是 class：小程序自定义组件样式隔离会让父组件的 .list-card 失效 -->
-        <OrderCard
-          v-for="order in orders"
-          :key="order.orderNo"
-          class="list-card"
-          :style="{ marginBottom: CARD_GAP }"
-          :order="order"
-          @click="goDetail"
-        />
+        <!--
+          卡片间距必须**包一层普通 view**：
+          小程序里自定义组件标签本身没有盒模型 —— 给组件加 class（父组件样式被 styleIsolation 隔离）
+          或 :style（不会透传到组件根节点）都产生不了外边距。
+          2026-09-19 因此改了两轮都没生效，最终用包裹层解决。
+        -->
+        <view v-for="order in orders" :key="order.orderNo" class="list-item">
+          <OrderCard :order="order" @click="goDetail" />
+        </view>
         <view class="list-footer">{{ loadingMore ? '加载中…' : (orders.length >= total ? '没有更多了' : '上拉加载更多') }}</view>
       </template>
     </scroll-view>
@@ -428,9 +421,8 @@ function applyFilter(): void {
   box-sizing: border-box;
   padding: 23rpx 23rpx 40rpx;
 }
-/* 卡片间距 12px（原 15rpx≈7.8px 太小）。注意：这条 class 规则在小程序里会被组件样式隔离挡住，
-   真正生效的是模板上的内联 :style（见 orders/list.vue 的 CARD_GAP），这里保留给 H5/其它端。 */
-.list-card {
+/* 卡片间距：包一层普通 view（组件标签本身没有盒模型，父组件样式/内联 style 都加不出外边距） */
+.list-item {
   margin-bottom: 24rpx;
 }
 .state {

@@ -1,6 +1,11 @@
 import { request } from '@/utils/request'
 
 export type OrderStatus = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+/**
+ * 配送地址草稿的 storage key。
+ * 「配送地址」独立页面（`subpkg-order/address/edit`）保存后写这里，确认订单页读取并清空。
+ */
+export const ADDRESS_DRAFT_KEY = 'payment_address_draft'
 /** 配送方式：0=物流 1=线下自提 2=同城配送（占位，本期不开放下单）。 */
 export type PickupType = 0 | 1 | 2
 /** 地址修改申请状态：0=待审核，1=已通过，2=已拒绝。 */
