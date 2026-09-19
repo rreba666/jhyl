@@ -4,7 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
-import { confirmReceiveDelivery, getOrderProgress, type DeliveryProgress } from '@/api/delivery-order'
+import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress, type DeliveryProgress } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
 import { isApiRequestError } from '@/utils/request'
 import { cleanDigits, cleanText, validateMobile, validateText } from '@/utils/input-validation'
@@ -288,6 +288,14 @@ async function loadAddressChangeRequest(orderId: string): Promise<void> {
 const deliveryProgress = ref<DeliveryProgress | null>(null)
 
 /**
+ * 同城订单但**还没有配送进度**（商家未派单 / 骑手未接）时的阶段文案。
+ * 之前这块整个不显示，用户看不到「到哪一步了」；现在至少给出「待接单 / 待派单 / 备货中」这类节点。
+ */
+const pendingDeliveryStage = computed(() =>
+  order.value?.pickupType === 2 && order.value?.status === 1 ? deliveryNodeText(order.value?.deliveryStatus, '') : '',
+)
+
+/**
  * 是否显示「确认收货」（同城配送）。
  * 同城订单**不会**在骑手送达时自动完成：任务送达后订单主状态仍是「履约中」（status=1），
  * 必须由用户确认才收口为「已完成」——所以在 `pickupType === 2 && node === 'DELIVERED'`
@@ -557,6 +565,10 @@ onUnload(() => {
       <view class="status-banner"><text class="status-banner-text">{{ order?.statusDesc }}</text></view>
 
       <!-- 同城配送进度 + 骑手（仅有配送数据时展示；进度只展示不伪造） -->
+      <!-- 同城订单但还没有配送进度时，也给一句阶段文案（否则整块消失，看不出到哪一步） -->
+      <view v-if="!deliveryProgress && pendingDeliveryStage" class="delivery-card">
+        <text class="delivery-stage">{{ pendingDeliveryStage }}</text>
+      </view>
       <view v-if="deliveryProgress" class="delivery-card">
         <view class="delivery-head">
           <text class="delivery-stage">{{ deliveryProgress.stage || '配送中' }}</text>

@@ -37,13 +37,24 @@ const hiddenCount = computed(() => {
   return total > 3 ? total - 3 : 0
 })
 
+/**
+ * 卡片右上角状态文案。
+ * ⚠️ 同城订单**优先用配送节点**（待接单/待取货/配送中/已送达…）：
+ * `statusDesc` 只到「已支付 / 履约中」，看不出进行到哪一步（2026-09-19 用户反馈）。
+ */
+const cardStatusText = computed(() => {
+  const node = DELIVERY_STATUS_TEXT[String(props.order.deliveryStatus || '')]
+  if (props.order.pickupType === 2 && node) return node
+  return props.order.statusDesc || ''
+})
+
 /** 状态文案颜色（A 型）：已完成绿 / 异常红 / 其余橙或灰。 */
 const statusClass = computed(() => {
   const status = props.order.status
-  const desc = String(props.order.statusDesc || '')
+  const desc = String(cardStatusText.value || '')
   if (status === 4 || desc.includes('完成')) return 'is-done'
   if (props.order.deliveryStatus === 'EXCEPTION' || desc.includes('异常')) return 'is-exception'
-  if (status === 5 || status === 7 || desc.includes('关闭') || desc.includes('退款')) return 'is-muted'
+  if (status === 5 || status === 7 || desc.includes('关闭') || desc.includes('退款') || desc.includes('取消')) return 'is-muted'
   return 'is-normal'
 })
 
@@ -80,7 +91,7 @@ function onCopy(): void {
           <text class="order-no">{{ order.orderNo || '—' }}</text>
           <text class="copy-icon" @click.stop="onCopy">⧉</text>
         </view>
-        <view class="status" :class="statusClass">{{ order.statusDesc || '' }}</view>
+        <view class="status" :class="statusClass">{{ cardStatusText }}</view>
       </template>
     </view>
 
