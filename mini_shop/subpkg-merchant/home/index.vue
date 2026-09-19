@@ -118,6 +118,13 @@ const roleOptions = computed(() => {
     seen.add(entry)
     list.push({ key: entry, bindingId: item.bindingId, disabled: Boolean(item.pending), ...roleMeta(entry) })
   })
+  // 店长身份「内含骑手能力」（IdentityVO.deliveryCapability）：后端常常只返回一张店长卡，
+  // 此时必须补一个「骑手」入口，否则门店管理员根本进不去配送页。
+  // 进骑手页**不需要切换身份**（同一 token、身份仍是店长，任务接口用 C 端 token 直调），
+  // 所以这一项 bindingId 保持 null，走直接跳转（见 confirmSwitch）。
+  if (identity.value?.deliveryCapability && !seen.has('RIDER')) {
+    list.push({ key: 'RIDER', bindingId: null, disabled: false, ...roleMeta('RIDER') })
+  }
   return list
 })
 
@@ -176,6 +183,12 @@ async function confirmSwitch(): Promise<void> {
     return
   }
   if (roleSwitching.value) return
+  // 店长内含骑手能力：骑手项不切身份（bindingId 为 null），直接进骑手工作台
+  if (option.key === 'RIDER' && option.bindingId === null) {
+    roleSheetVisible.value = false
+    uni.navigateTo({ url: '/subpkg-delivery/rider/index' })
+    return
+  }
   roleSwitching.value = true
   try {
     const result = await switchIdentity(option.bindingId)
