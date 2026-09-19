@@ -87,8 +87,8 @@ const deliveryQuote = ref<DeliveryQuote | null>(null)
 const quoteLoading = ref(false)
 /** 试算失败 / 不可配送的提示文案。 */
 const quoteError = ref('')
-/** 打开地址表单时定位是否成功（失败时同城用发货门店坐标兜底，并在页面提示）。 */
-const locationResolved = ref(false)
+/** 地址表单里的定位状态：idle（还没试） / ok（已自动填入省市区） / fail（拿不到，需手选）。 */
+const locationState = ref<'idle' | 'ok' | 'fail'>('idle')
 
 const invoiceExpanded = ref(false)
 const invoiceDrawerVisible = ref(false)
@@ -574,7 +574,7 @@ async function locateForAddress(): Promise<void> {
         fail: () => reject(new Error('定位失败')),
       })
     })
-    locationResolved.value = true
+    locationState.value = 'ok'
     addressForm.latitude = Number(result.latitude)
     addressForm.longitude = Number(result.longitude)
     const address = result.address || {}
@@ -586,9 +586,31 @@ async function locateForAddress(): Promise<void> {
     if (!addressForm.district && district) addressForm.district = district
   } catch {
     // 定位被拒 / 超时 / 没返回省市区：静默降级为手选
-    locationResolved.value = false
+    locationState.value = 'fail'
   }
 }
+
+/** 地址表单底部的定位状态提示（区分「已自动填入」与「没能定位，请手选」）。 */
+const addressTipText = computed(() => {
+  if (locationState.value === 'ok') return '已按当前位置自动填入所在地区，可手动修改'
+  if (locationState.value === 'fail') return '未能获取定位，请手动选择所在地区'
+  return '正在尝试按当前位置填入所在地区…'
+})
+
+/** 距离展示：不足 1km 保留两位（0.19km），否则一位；无值给占位。 */
+function formatDistance(km?: number): string {
+  const value = Number(km)
+  if (!Number.isFinite(value)) return '--'
+  return value < 1 ? `${value.toFixed(2)}km` : `${value.toFixed(1)}km`
+}
+
+/**
+ * 试算是否用了「发货门店坐标」兜底（收货地址没有定位坐标时）。
+ * 这种情况算出来的距离恒为 0 —— 不能只显示「距离 0km」让商家/用户以为就在隔壁，必须说明是按门店估算的。
+ */
+const quoteUsingShopFallback = computed(
+  () => pickupType.value === 2 && !!selectedAddress.value && selectedAddress.value.latitude == null && !!selectedShop.value,
+)
 
 /**
  * 同城配送试算：发货门店 + 收货地址齐了才调，用于展示配送费 / 距离 / 预计送达与可送性。
@@ -1235,8 +1257,7 @@ function backToCart(): void {
         </view>
         <text v-if="quoteError" class="quote-error">{{ quoteError }}</text>
         <text v-else-if="quoteLoading" class="quote-hint">配送费试算中...</text>
-        <text v-else-if="deliveryQuote" class="quote-hint">距离 {{ deliveryQuote.distanceKm }}km · 预计 {{ deliveryQuote.estimatedDeliveryMinutes }} 分钟送达</text>
-        <text v-else-if="selectedShop && selectedAddress && !locationResolved" class="quote-hint">未获取到定位，配送距离按发货门店估算</text>
+        <text v-else-if="deliveryQuote" class="quote-hint">距离 {{ formatDistance(deliveryQuote.distanceKm) }} · 预计 {{ deliveryQuote.estimatedDeliveryMinutes }} 分钟送达{{ quoteUsingShopFallback ? '（按发货门店估算）' : '' }}</text>
       </view>
 
       <view v-show="pickupType === 1" class="section contact-section">
@@ -1363,7 +1384,7 @@ function backToCart(): void {
         <view class="sheet-form-line"><text class="form-label">详细地址<span class="required">*</span></text><input v-model="addressForm.detail" class="sheet-input" maxlength="200" placeholder="街道、门牌号等" placeholder-class="input-placeholder" /></view>
         <view class="sheet-form-line"><text class="form-label">姓名<span class="required">*</span></text><input v-model="addressForm.name" class="sheet-input" maxlength="32" placeholder="请输入" placeholder-class="input-placeholder" /></view>
         <view class="sheet-form-line"><text class="form-label">手机号<span class="required">*</span></text><input v-model="addressForm.phone" class="sheet-input" type="number" maxlength="11" placeholder="请输入" placeholder-class="input-placeholder" /></view>
-        <text class="sheet-tip">已尝试按当前位置自动填入所在地区，可手动修改</text>
+        <text class="sheet-tip">{{ addressTipText }}</text>
         <view class="sheet-submit" @click="saveAddress">保存地址</view>
       </view>
     </view>
@@ -1510,9 +1531,8 @@ function backToCart(): void {
 .quote-hint { display: block; margin-top: 12rpx; color: #86909c; font-size: 23rpx; }
 .quote-error { display: block; margin-top: 12rpx; color: #f53f3f; font-size: 23rpx; }
 .shop-empty { display: block; padding: 40rpx 0; color: #86909c; font-size: 25rpx; text-align: center; }
-/* 省市区三级联动：与其它 sheet 表单行同构，靠 padding 对齐 */
-.sheet-picker { flex: 1; min-width: 0; padding: 20rpx 0; }
-.sheet-picker-value { color: #222; font-size: 27rpx; }
-.sheet-picker-placeholder { color: #bbb; font-size: 27rpx; }
-.sheet-tip { display: block; margin-top: 16rpx; color: #86909c; font-size: 22rpx; }
+/* 省市区三级联动：必须与 .sheet-input 保持同一套间距与字号，否则文字会与左侧标签贴在一起 */
+.sheet-picker { flex: 1; min-width: 0; margin-left: 24rpx; padding: 20rpx 0; }
+.sheet-picker-value { color: #333; font-size: 25rpx; }
+.sheet-picker-placeholder { color: #bbb; font-size: 25rpx; }
 </style>
