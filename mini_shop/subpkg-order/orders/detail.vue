@@ -4,7 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
-import { getOrderProgress, type DeliveryProgress } from '@/api/delivery-order'
+import { confirmReceiveDelivery, getOrderProgress, type DeliveryProgress } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
 import { isApiRequestError } from '@/utils/request'
 import { cleanDigits, cleanText, validateMobile, validateText } from '@/utils/input-validation'
@@ -287,6 +287,16 @@ async function loadAddressChangeRequest(orderId: string): Promise<void> {
 const deliveryProgress = ref<DeliveryProgress | null>(null)
 
 /**
+ * 是否显示「确认收货」（同城配送）。
+ * 同城订单**不会**在骑手送达时自动完成：任务送达后订单主状态仍是「履约中」（status=1），
+ * 必须由用户确认才收口为「已完成」——所以在 `pickupType === 2 && node === 'DELIVERED'`
+ * 时补这个入口，否则订单会永远停在履约中（2026-09-19 全流程实测发现的断链）。
+ */
+const canConfirmDelivery = computed(
+  () => order.value?.pickupType === 2 && deliveryProgress.value?.node === 'DELIVERED' && order.value?.status === 1,
+)
+
+/**
  * 加载同城配送进度（进度条 + 骑手姓名 + 明文手机号 + 承诺送达时间）。
  * 只有配送单才有数据；非配送单/接口报错一律静默隐藏，不影响订单详情主体。
  */
@@ -459,12 +469,19 @@ watch(addressChangeForm, () => {
   }
 }, { deep: true })
 
-async function action(type: 'cancel' | 'receive' | 'refund'): Promise<void> {
+async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'): Promise<void> {
   if (!order.value || actionLoading.value) return
   actionLoading.value = true
   try {
     if (type === 'cancel') await cancelOrder(order.value.id)
     if (type === 'receive') await receiveOrder(order.value.id)
+    // 同城配送确认收货：物流的 /order/receive 对同城单无效，必须走同城专用接口
+    if (type === 'confirm-delivery') {
+      await confirmReceiveDelivery(String(order.value.orderNo || ''))
+      uni.showToast({ title: '已确认收货', icon: 'success' })
+      await load(String(order.value.id))
+      return
+    }
     if (type === 'refund') {
       await refundOrder(order.value.id)
       uni.showToast({ title: '退款申请已提交', icon: 'success' })
@@ -597,7 +614,7 @@ onUnload(() => {
         </view>
       </view>
 
-      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
+      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->

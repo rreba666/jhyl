@@ -49,3 +49,13 @@ export function getOrderProgress(orderNo: string): Promise<DeliveryProgress> {
 export function getOrderRider(orderNo: string): Promise<DeliveryRider> {
   return request<DeliveryRider>({ url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/rider`, method: 'GET' })
 }
+
+/**
+ * 确认收货（同城配送 §5.1 第 9 步）。
+ * ⚠️ 同城订单**不会**在骑手送达时自动完成：任务 `DELIVERED` 后订单主状态仍是「履约中」，
+ * 必须由用户调这个接口才收口为「已完成」（2026-09-19 全流程实测）。
+ * 物流订单用的是另一个接口 `POST /api/order/receive/{orderId}`，两者不可互换。
+ */
+export function confirmReceiveDelivery(orderNo: string): Promise<void> {
+  return request<void>({ url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/confirm-receive`, method: 'POST' })
+}

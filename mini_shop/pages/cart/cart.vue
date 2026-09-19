@@ -157,7 +157,7 @@ onShow(() => { loading.value = true; void refreshList() })
             <view class="ifoot">
               <view v-if="!editMode" class="stp">
                 <text class="qty-label">数量：</text>
-                <view class="stp-b" @click="onChangeQty(it, -1)"><image class="stp-i" :src="it.quantity <= 1 ? '/static/cart/del.png' : '/static/cart/del_no.png'" mode="aspectFit" /></view>
+                <view class="stp-b" @click="it.quantity <= 1 ? onRemove(it.cartId) : onChangeQty(it, -1)"><image class="stp-i" :src="it.quantity <= 1 ? '/static/cart/del.png' : '/static/cart/del_no.png'" mode="aspectFit" /></view>
                 <view class="stp-n"><text class="stp-nt">{{ it.quantity }}</text></view>
                 <view class="stp-b" @click="onChangeQty(it, 1)"><image class="stp-i" src="/static/cart/add.png" mode="aspectFit" /></view>
               </view>

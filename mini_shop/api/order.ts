@@ -53,8 +53,12 @@ export interface OrderSummary {
   payExpireTime?: string
   /** 第一件商品名（列表卡片标题，待后端在列表接口补字段） */
   firstProductName?: string
-  /** 物流送达状态（待收货订单）：0=已发货(运输中)，1=已送达(待确认收货) */
-  deliveryStatus?: number
+  /**
+   * 送达状态：**物流订单是数字**（0=已发货(运输中) / 1=已送达(待确认收货)）；
+   * **同城配送订单是字符串**（配送节点，如 `DELIVERED` / `COMPLETED`）。
+   * 两个形态口径不同，判断前务必先看 `pickupType`（2026-09-19 全流程实测）。
+   */
+  deliveryStatus?: number | string
 }
 
 export interface OrderDetailItem {

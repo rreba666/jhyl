@@ -2,6 +2,7 @@
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
 import { cancelOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
+import { confirmReceiveDelivery } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
 import { isLoggedIn } from '@/utils/auth'
@@ -145,6 +146,24 @@ async function receive(order: OrderSummary): Promise<void> {
   finally { actionLoading.value = null }
 }
 
+/**
+ * 确认收货（同城配送）。
+ * ⚠️ 同城订单在骑手送达后主状态仍是「履约中」，**必须**用户确认才收口为「已完成」；
+ * 且物流用的 `receiveOrder`(`/api/order/receive`) 对同城单无效，要走同城专用接口。
+ * 同城的 `deliveryStatus` 是字符串节点（`DELIVERED`），与物流的数字口径不同。
+ */
+async function receiveDelivery(order: OrderSummary): Promise<void> {
+  if (actionLoading.value) return
+  actionLoading.value = `confirm:${order.id}`
+  const confirmed = await new Promise<boolean>((resolve) => {
+    uni.showModal({ title: '提示', content: '确认已收到商品吗？', success: (res) => resolve(res.confirm), fail: () => resolve(false) })
+  })
+  if (!confirmed) { actionLoading.value = null; return }
+  try { await confirmReceiveDelivery(order.orderNo); uni.showToast({ title: '已确认收货', icon: 'success' }); await load(true) }
+  catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '确认收货失败', icon: 'none' }) }
+  finally { actionLoading.value = null }
+}
+
 /** 申请退款（自提订单）。 */
 async function refund(order: OrderSummary): Promise<void> {
   if (actionLoading.value) return
@@ -275,6 +294,11 @@ onShow(() => {
               <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
               <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '退款' }}</text>
               <text class="btn primary" @click.stop="openDetail(order)">去自提</text>
+            </template>
+            <!-- 同城配送：此前这里没有任何按钮（只判了物流 0 / 自提 1），卡片点不动；补「查看详情」+ 送达后的「确认收货」 -->
+            <template v-if="order.pickupType === 2">
+              <text class="btn outline" @click.stop="openDetail(order)">查看详情</text>
+              <text v-if="order.status === 1 && order.deliveryStatus === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>
             </template>
           </view>
         </view>
