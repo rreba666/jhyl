@@ -52,7 +52,11 @@ function selectProduct(): void {
 .product-card { display: flex; overflow: hidden; border-radius: 16rpx; background: #fff; }
 .product-card-grid { flex-direction: column; width: 100%; }
 .product-card-list { flex-direction: row; width: 100%; min-height: 272rpx; padding: 0; box-sizing: border-box; }
-.product-image { flex-shrink: 0; background: #cc0000; }
+/* 图片占位底色。
+   ⚠️ 这里原本是一个纯深红（全项目仅此一处）：商品图带透明边、或图片还没加载完时，
+   那层红色会沿着图片四周露出来，看起来就像商品图被加了一圈红框（2026-09-19 用户截图反馈）。
+   现改为与分类页 `.category-product-image-wrap` 一致的浅灰占位色。 */
+.product-image { flex-shrink: 0; background: #f5f6f7; }
 .product-card-grid .product-image { width: 100%; height: 366rpx; }
 .product-card-list .product-image { width: 272rpx; height: 272rpx; }
 .product-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: stretch; padding: 16rpx 24rpx 20rpx; box-sizing: border-box; }
