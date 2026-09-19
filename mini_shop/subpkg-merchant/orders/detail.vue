@@ -11,13 +11,11 @@ import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import {
   DELIVERY_STATUS_TEXT,
-  acceptMerchantOrder,
   createMerchantDeliveryTask,
+  finishPreparation,
   getDeliveryStaff,
   getMerchantOrderDetail,
   maskPhone,
-  prepareMerchantOrder,
-  readyMerchantOrder,
   type DeliveryAssignmentType,
   type DeliveryStaffVO,
   type MerchantOrderDetailVO,
@@ -82,10 +80,18 @@ const ASSIGN_OPTIONS: { type: DeliveryAssignmentType; label: string; desc: strin
 const deliveryNode = computed(() => String(order.value?.deliveryStatus || ''))
 /** 只有同城配送订单需要商家履约（物流/自提不走这套）。 */
 const isSameCity = computed(() => order.value?.pickupType === 2)
-const canAccept = computed(() => isSameCity.value && deliveryNode.value === 'WAIT_ACCEPT')
-const canFinishPrepare = computed(() => isSameCity.value && ['ACCEPTED', 'PREPARING'].includes(deliveryNode.value))
+/**
+ * 可「备货完成」的阶段。
+ * ⚠️ **包含 `WAIT_ACCEPT`（待接单）** —— 2026-09-19 用户反馈：订单一多不可能一单一单点
+ * 「接单 → 备货完成 → 安排配送」，商家只该按一个「备货完成」；
+ * 接单与开始备货这两步由 `finishPreparation()` 自动补齐（见 `api/merchant.ts`）。
+ */
+const canFinishPrepare = computed(
+  () => isSameCity.value && ['WAIT_ACCEPT', 'ACCEPTED', 'PREPARING'].includes(deliveryNode.value),
+)
+/** 已备货完成、还没派单时，可手动安排配送（指派骑手 / 商家自送）；批量场景默认已自动发布领取。 */
 const canAssign = computed(() => isSameCity.value && deliveryNode.value === 'WAIT_ASSIGN')
-const showActions = computed(() => canAccept.value || canFinishPrepare.value || canAssign.value)
+const showActions = computed(() => canFinishPrepare.value || canAssign.value)
 
 /** 统一动作执行：提交 → toast → 重新拉详情（状态会随之后退）。 */
 async function runAction(task: () => Promise<unknown>, successText: string): Promise<void> {
@@ -102,20 +108,16 @@ async function runAction(task: () => Promise<unknown>, successText: string): Pro
   }
 }
 
-/** 接单。 */
-function acceptOrder(): void {
-  void runAction(() => acceptMerchantOrder(orderNo.value), '已接单')
-}
-
 /**
- * 备货完成。
- * 后端状态机要求 `prepare` → `ready` 两步，这里串起来 —— 商家只需要点一次「备货完成」。
+ * 备货完成 —— 商家端**主路径**。
+ * 按当前状态补齐前置步骤（接单 / 开始备货），最后**自动发布到本店待领取池**给骑手抢单；
+ * 想指定骑手或自送时，备货完成后用「安排配送」。
  */
 function finishPreparing(): void {
-  void runAction(async () => {
-    if (deliveryNode.value === 'ACCEPTED') await prepareMerchantOrder(orderNo.value)
-    await readyMerchantOrder(orderNo.value)
-  }, '已备货完成，可安排配送')
+  void runAction(
+    () => finishPreparation(orderNo.value, deliveryNode.value, 'PUBLISH_CLAIM'),
+    '已备货完成，已发布给骑手',
+  )
 }
 
 /** 打开安排配送弹层。 */
@@ -416,8 +418,7 @@ function goBack(): void {
 
     <!-- 履约动作栏（仅同城配送、且处于可操作阶段时出现） -->
     <view v-if="showActions" class="action-bar">
-      <view v-if="canAccept" class="action-btn" :class="{ disabled: acting }" @click="acceptOrder">{{ acting ? '处理中…' : '接单' }}</view>
-      <view v-else-if="canFinishPrepare" class="action-btn" :class="{ disabled: acting }" @click="finishPreparing">{{ acting ? '处理中…' : '备货完成' }}</view>
+      <view v-if="canFinishPrepare" class="action-btn" :class="{ disabled: acting }" @click="finishPreparing">{{ acting ? '处理中…' : '备货完成' }}</view>
       <view v-else-if="canAssign" class="action-btn" @click="openAssign">安排配送</view>
     </view>
 

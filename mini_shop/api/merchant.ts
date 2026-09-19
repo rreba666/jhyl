@@ -352,6 +352,35 @@ export function getDeliveryStaff(): Promise<DeliveryStaffVO[]> {
   return request<DeliveryStaffVO[]>({ url: '/api/merchant/delivery/staff/delivery', method: 'GET' })
 }
 
+/**
+ * 「备货完成」的完整动作链（商家端**主路径**，2026-09-19 新增）。
+ *
+ * 后端状态机是 `接单 → 开始备货 → 备货完成 → 建配送任务` 共四步，
+ * 但订单一多商家不可能一单一单点（用户反馈："不可能一个一个点接单发送"）——
+ * 商家的心智只有"货备好了"。所以这里按订单**当前状态**把前面的步骤补齐，最后建配送任务：
+ *
+ * | 当前 `deliveryStatus` | 执行 |
+ * |---|---|
+ * | `WAIT_ACCEPT` | accept → prepare → ready → 建任务 |
+ * | `ACCEPTED` | prepare → ready → 建任务 |
+ * | `PREPARING` | ready → 建任务 |
+ * | `WAIT_ASSIGN` | 直接建任务 |
+ *
+ * @param currentStatus 订单当前 `deliveryStatus`（不传则按 `WAIT_ACCEPT` 从头走）
+ * @param assignmentType 派单方式，默认「发布领取」（批量场景用这个；详情页可传其它）
+ */
+export async function finishPreparation(
+  orderNo: string,
+  currentStatus?: string | null,
+  assignmentType: DeliveryAssignmentType = 'PUBLISH_CLAIM',
+): Promise<void> {
+  const node = String(currentStatus || 'WAIT_ACCEPT')
+  if (node === 'WAIT_ACCEPT') await acceptMerchantOrder(orderNo)
+  if (node === 'WAIT_ACCEPT' || node === 'ACCEPTED') await prepareMerchantOrder(orderNo)
+  if (node !== 'WAIT_ASSIGN') await readyMerchantOrder(orderNo)
+  await createMerchantDeliveryTask({ orderNo, assignmentType })
+}
+
 /** 同城履约状态 → 中文文案（骑手胶囊 / 详情状态头）。 */
 export const DELIVERY_STATUS_TEXT: Record<string, string> = {
   WAIT_ACCEPT: '待接单',

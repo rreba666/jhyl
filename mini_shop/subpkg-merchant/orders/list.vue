@@ -10,6 +10,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
+  finishPreparation,
   getMerchantOrders,
   type MerchantOrderCardVO,
   type MerchantOrderTab,
@@ -195,6 +196,99 @@ function applyFilter(): void {
   filterVisible.value = false
   void loadList(true)
 }
+
+// ===== 批量备货（2026-09-19 新增）=====
+// 用户反馈：订单多的时候不可能一单一单点「接单 → 备货完成 → 安排配送」。
+// 列表页因此支持批量：勾选若干单 → 一次「备货完成」→ 自动发布到本店待领取池（骑手抢单）。
+
+/** 是否处于批量模式。 */
+const batchMode = ref(false)
+/** 已选订单号集合。 */
+const selectedNos = ref<Set<string>>(new Set())
+/** 批量执行中（防重复点击）。 */
+const batchRunning = ref(false)
+/** 批量进度文案（如「正在处理 3/8」）。 */
+const batchProgress = ref('')
+
+/** 该单是否可批量备货：同城配送、且处于「备货完成」之前的任一阶段。 */
+function selectable(order: MerchantOrderCardVO): boolean {
+  if (order.pickupType !== 2) return false
+  return ['WAIT_ACCEPT', 'ACCEPTED', 'PREPARING'].includes(String(order.deliveryStatus || ''))
+}
+
+/** 当前列表里可备货的订单。 */
+const selectableOrders = computed(() => orders.value.filter((order) => selectable(order)))
+const selectedCount = computed(() => selectedNos.value.size)
+const allSelected = computed(
+  () => selectableOrders.value.length > 0 && selectableOrders.value.every((order) => selectedNos.value.has(order.orderNo)),
+)
+
+/** 进入 / 退出批量模式。 */
+function toggleBatchMode(): void {
+  batchMode.value = !batchMode.value
+  selectedNos.value = new Set()
+}
+
+/** 勾选 / 取消某一单。 */
+function toggleSelect(orderNo: string): void {
+  const next = new Set(selectedNos.value)
+  if (next.has(orderNo)) next.delete(orderNo)
+  else next.add(orderNo)
+  selectedNos.value = next
+}
+
+/** 全选 / 取消全选（只作用于可备货的订单）。 */
+function toggleSelectAll(): void {
+  selectedNos.value = allSelected.value ? new Set() : new Set(selectableOrders.value.map((order) => order.orderNo))
+}
+
+/** 卡片点击：批量模式勾选，普通模式进详情。 */
+function onCardTap(order: MerchantOrderCardVO): void {
+  if (!batchMode.value) {
+    goDetail(order)
+    return
+  }
+  if (selectable(order)) toggleSelect(order.orderNo)
+}
+
+/**
+ * 批量备货完成：逐单跑「补齐前置状态 → 备货完成 → 建配送任务（发布领取）」。
+ * 后端没有批量接口，所以**顺序**调用（避免并发打爆），带进度显示；
+ * 每单独立捕获错误，最后汇总成功 / 失败数量并刷新列表。
+ */
+async function runBatchPrepare(): Promise<void> {
+  if (batchRunning.value || !selectedCount.value) return
+  const targets = orders.value.filter((order) => selectedNos.value.has(order.orderNo))
+  batchRunning.value = true
+  let done = 0
+  const failures: string[] = []
+  try {
+    for (const order of targets) {
+      batchProgress.value = `正在处理 ${done + 1}/${targets.length}`
+      try {
+        await finishPreparation(order.orderNo, order.deliveryStatus)
+        done += 1
+      } catch {
+        failures.push(order.orderNo)
+      }
+    }
+  } finally {
+    batchRunning.value = false
+    batchProgress.value = ''
+  }
+  if (failures.length) {
+    uni.showModal({
+      title: '部分订单未完成',
+      content: `成功 ${done} 单，失败 ${failures.length} 单。可稍后重试，或进详情手动处理。`,
+      showCancel: false,
+    })
+  } else {
+    uni.showToast({ title: `已完成 ${done} 单备货`, icon: 'success' })
+  }
+  selectedNos.value = new Set()
+  batchMode.value = false
+  await loadList(true)
+}
 </script>
 
 <template>
@@ -215,6 +309,7 @@ function applyFilter(): void {
           />
           <text v-if="keyword" class="search-clear" @click="onClearSearch">×</text>
         </view>
+        <text class="batch-entry" @click="toggleBatchMode">{{ batchMode ? '取消' : '批量' }}</text>
       </view>
       <view class="tab-bar">
         <scroll-view class="tabs-scroll" scroll-x :show-scrollbar="false">
@@ -246,12 +341,33 @@ function applyFilter(): void {
           或 :style（不会透传到组件根节点）都产生不了外边距。
           2026-09-19 因此改了两轮都没生效，最终用包裹层解决。
         -->
-        <view v-for="order in orders" :key="order.orderNo" class="list-item">
-          <OrderCard :order="order" @click="goDetail" />
+        <view v-for="order in orders" :key="order.orderNo" class="list-item" @click="onCardTap(order)">
+          <OrderCard :order="order" />
+          <!-- 批量模式：勾选圈（绝对定位在卡片上，不改动 OrderCard 组件本身） -->
+          <view
+            v-if="batchMode && selectable(order)"
+            class="select-dot"
+            :class="{ 'is-checked': selectedNos.has(order.orderNo) }"
+          >
+            <text v-if="selectedNos.has(order.orderNo)" class="select-check">✓</text>
+          </view>
         </view>
         <view class="list-footer">{{ loadingMore ? '加载中…' : (orders.length >= total ? '没有更多了' : '上拉加载更多') }}</view>
       </template>
     </scroll-view>
+
+    <!-- 批量操作栏（批量模式才出现） -->
+    <view v-if="batchMode" class="batch-bar">
+      <view class="batch-all" @click="toggleSelectAll">
+        <view class="select-dot" :class="{ 'is-checked': allSelected }">
+          <text v-if="allSelected" class="select-check">✓</text>
+        </view>
+        <text class="batch-all-text">全选（{{ selectableOrders.length }} 单可备货）</text>
+      </view>
+      <view class="batch-run" :class="{ disabled: batchRunning || !selectedCount }" @click="runBatchPrepare">
+        {{ batchRunning ? batchProgress : `备货完成（${selectedCount}）` }}
+      </view>
+    </view>
 
     <!-- 筛选弹层 -->
     <view v-if="filterVisible" class="mask mask-bottom" @click="closeFilter">
@@ -553,4 +669,17 @@ function applyFilter(): void {
   background: linear-gradient(90deg, #ff9301 0%, #ff6a01 50%, #ff4202 100%);
   color: #ffffff;
 }
+/* ===== 批量备货（2026-09-19：订单一多就不可能一单一单点）===== */
+.batch-entry { flex: none; margin-left: 18rpx; padding: 0 20rpx; height: 56rpx; line-height: 56rpx; border-radius: 28rpx; color: #ff5500; background: #fff4e8; font-size: 25rpx; }
+/* 勾选圈绝对定位在卡片上（组件标签没有盒模型，所以定位放在包裹层） */
+.list-item { position: relative; }
+.select-dot { position: absolute; top: 18rpx; right: 18rpx; z-index: 2; display: flex; align-items: center; justify-content: center; width: 40rpx; height: 40rpx; border: 2rpx solid #d7dbe0; border-radius: 50%; background: #ffffff; box-sizing: border-box; }
+.select-dot.is-checked { border-color: #ff5500; background: #ff5500; }
+.select-check { color: #ffffff; font-size: 24rpx; line-height: 1; }
+.batch-bar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 16rpx 23rpx calc(16rpx + env(safe-area-inset-bottom)); background: #ffffff; box-shadow: 0 -2rpx 12rpx rgba(29, 33, 41, 0.06); }
+.batch-all { display: flex; align-items: center; }
+.batch-all .select-dot { position: static; margin-right: 12rpx; }
+.batch-all-text { color: #1d2129; font-size: 25rpx; }
+.batch-run { display: flex; align-items: center; justify-content: center; min-width: 300rpx; height: 80rpx; border-radius: 16rpx; color: #ffffff; background: linear-gradient(90deg, #ff9301 0%, #ff4202 100%); font-size: 29rpx; font-weight: 600; }
+.batch-run.disabled { opacity: 0.5; }
 </style>
