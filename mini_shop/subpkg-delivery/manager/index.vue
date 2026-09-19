@@ -61,6 +61,21 @@ async function backToMall(): Promise<void> {
 function goRiderWorkbench(tab?: 'new' | 'picking' | 'delivering' | 'done' | 'exception'): void {
   uni.navigateTo({ url: `/subpkg-delivery/rider/index${tab ? `?tab=${tab}` : ''}` })
 }
+
+/** 进入商家端商品管理（线 1 · 商品管理页）。 */
+function goProducts(): void {
+  uni.navigateTo({ url: '/subpkg-merchant/products/list' })
+}
+
+/** 进入商家端订单管理（线 1 · 订单列表页）。 */
+function goOrders(): void {
+  uni.navigateTo({ url: '/subpkg-merchant/orders/list' })
+}
+
+/** 进入商家端工作台首页（线 1 · 商家端入口）。 */
+function goMerchantHome(): void {
+  uni.navigateTo({ url: '/subpkg-merchant/home/index' })
+}
 </script>
 
 <template>
@@ -76,8 +91,11 @@ function goRiderWorkbench(tab?: 'new' | 'picking' | 'delivering' | 'done' | 'exc
       <button class="entry-btn entry-btn-ghost" @click="goRiderWorkbench()">进入骑手工作台</button>
     </view>
     <view class="card">
-      <text class="card-title">工作台（骨架页）</text>
-      <text class="card-text">本页将承载：订单 / 商品 / 人员 / 规则。店长账号不能被设为骑手，但页内含骑手功能——上方入口即可接单配送。</text>
+      <text class="card-title">商家工作台</text>
+      <text class="card-text">订单 / 商品 / 账单 / 规则。店长账号不能被设为骑手，但页内含骑手功能——上方入口即可接单配送。</text>
+      <button class="entry-btn" @click="goMerchantHome">进入工作台</button>
+      <button class="entry-btn entry-btn-ghost" @click="goOrders">订单管理</button>
+      <button class="entry-btn entry-btn-ghost" @click="goProducts">商品管理</button>
     </view>
     <button class="btn" :disabled="switching" @click="backToMall">{{ switching ? '切换中…' : '返回商城' }}</button>
   </view>

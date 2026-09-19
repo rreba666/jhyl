@@ -209,12 +209,68 @@
       "name": "merchant",
       "pages": [
         {
+          "path": "home/index",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "商家工作台",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
           "path": "apply/apply",
           "style": {
             "navigationStyle": "custom",
             "navigationBarTitleText": "商家入驻",
             "navigationBarBackgroundColor": "#FFFFFF",
             "enablePullDownRefresh": true
+          }
+        },
+        {
+          "path": "products/list",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "商品管理",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "products/edit",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "新增商品",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "products/spec",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "规格",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "orders/list",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "订单管理",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "orders/detail",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "订单详情",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "bill/index",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "账单",
+            "navigationBarBackgroundColor": "#FFFFFF"
           }
         }
       ]

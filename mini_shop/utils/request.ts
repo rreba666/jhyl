@@ -77,6 +77,20 @@ function retryWithoutAuthorization<T>(options: UniApp.RequestOptions, resolve: (
   requestInternal<T>({ ...options, header: removeAuthorizationHeader(options.header) }, false).then(resolve, reject)
 }
 
+/**
+ * 过滤 `data` 中值为 `undefined` 的字段。
+ *
+ * 微信小程序的 `uni.request` 会把 `undefined` 拼成**字面量字符串** `undefined` 发给后端，
+ * 于是后端按字符串校验时报出「时间格式非法: undefined（支持 2026-09-01 或 2026-09-01 10:00:00）」
+ * 「month 格式应为 yyyy-MM，如 2026-09」这类**看起来像后端 bug** 的错误（2026-09-19 实测踩到）。
+ * 这里统一丢弃 `undefined`，让"不传这个参数"真正等于不传；`null` 与空串保持原样（可能是有效语义）。
+ */
+function omitUndefinedData(data: UniApp.RequestOptions['data']): UniApp.RequestOptions['data'] {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data
+  const entries = Object.entries(data as Record<string, unknown>).filter(([, value]) => value !== undefined)
+  return Object.fromEntries(entries) as UniApp.RequestOptions['data']
+}
+
 /** 发起 uni-app 网络请求，统一处理鉴权头和后端错误。 */
 function requestInternal<T = unknown>(options: UniApp.RequestOptions, allowPublicRetry: boolean): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -99,6 +113,8 @@ function requestInternal<T = unknown>(options: UniApp.RequestOptions, allowPubli
 
     uni.request({
       ...options,
+      // 丢弃 undefined 参数，避免被拼成字面量 `undefined` 发给后端（见 omitUndefinedData 注释）
+      data: omitUndefinedData(options.data),
       url: `${API_BASE_URL}${options.url}`,
       timeout: options.timeout ?? 15000,
       header,
@@ -188,4 +204,15 @@ export function uploadFile(filePath: string, name = 'file'): Promise<string> {
       },
     })
   })
+}
+
+/**
+ * 把后端下发的 OSS Key / 相对路径拼成可访问图片 URL（图片代理三级缓存）。
+ * 已是完整 http(s) 地址则原样返回。
+ */
+export function resolveImageUrl(objectKey: string): string {
+  const key = String(objectKey || '').trim()
+  if (!key) return ''
+  if (/^https?:\/\//.test(key)) return key
+  return `${API_BASE_URL}/api/image/${key.replace(/^\/+/, '')}`
 }

@@ -262,7 +262,9 @@ async function goIdentity(item: IdentityItem): Promise<void> {
   try {
     const result = await switchIdentity(item.bindingId)
     uni.setStorageSync('identity_entry', result)
-    if (result.entry === 'MANAGER') uni.navigateTo({ url: '/subpkg-delivery/manager/index' })
+    // 直接进工作台，不经中间页：门店 → 商家端工作台（新的 subpkg-merchant/home），骑手 → 骑手页
+    // （旧的 subpkg-delivery/manager 页不再作为门店入口；身份切换改在工作台顶部箭头里做）
+    if (result.entry === 'MANAGER') uni.navigateTo({ url: '/subpkg-merchant/home/index' })
     else if (result.entry === 'RIDER') uni.navigateTo({ url: '/subpkg-delivery/rider/index' })
     else uni.switchTab({ url: '/pages/index/index' })
   } catch (error) {
