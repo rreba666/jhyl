@@ -694,9 +694,14 @@ onUnload(() => {
           <template v-if="activeTab === 'new'">
             <view class="new-route">
               <view class="distance-bar">
+                <!--
+                  这里原本写死 `0 km`（设计稿的"起点"示意），但它看起来就是个距离值、且恒为 0，
+                  用户会以为定位失效（2026-09-19 反馈）→ 直接标成「取货」。
+                  下方的距离由后端给：有骑手位置时是「距目的地剩余直线距离」，
+                  没位置（如未接单的新任务）时回退 `distanceKm` = 取货点→收货点的总距离。
+                -->
                 <view class="distance-text">
-                  <text class="distance-num">0</text>
-                  <text class="distance-unit">km</text>
+                  <text class="distance-num">取货</text>
                 </view>
                 <image class="distance-rider" src="/static/rider/rider-badge.png" mode="aspectFit" />
                 <view class="distance-text">
