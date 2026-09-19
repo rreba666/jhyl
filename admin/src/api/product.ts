@@ -2,7 +2,7 @@ import { request } from './request'
 import { extractMediaUrl, resolveMediaArray, resolveMediaUrl } from './media'
 import { resolveDividendFund, resolvePromotionFund } from '@/utils/productPricing'
 import type {
-  AdminProductSaveDTO,
+  AdminProductSavePayload,
   CategoryNode,
   ProductDetail,
   ProductFundStatusValue,
@@ -190,7 +190,7 @@ export async function getAdminProductDetail(productId: string): Promise<ProductD
 }
 
 /** 新增或修改商品，是否修改由 payload.id 是否存在决定。 */
-export async function saveAdminProduct(payload: AdminProductSaveDTO): Promise<void> {
+export async function saveAdminProduct(payload: AdminProductSavePayload): Promise<void> {
   const response = await request.post<ProductResponse<null>>('/api/admin/v2/product/save', payload, {
     transformResponse: [(data) => parseProductJson(data)],
   })

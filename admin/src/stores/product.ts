@@ -8,7 +8,7 @@ import type {
   ProductPageResult,
   ProductQueryParams,
   ProductSortBy,
-  AdminProductSaveDTO,
+  AdminProductSavePayload,
 } from '@/types/product'
 
 export const useProductStore = defineStore('product', () => {
@@ -73,7 +73,7 @@ export const useProductStore = defineStore('product', () => {
   }
 
   /** 保存商品并刷新后台列表。 */
-  async function saveProduct(payload: AdminProductSaveDTO): Promise<void> {
+  async function saveProduct(payload: AdminProductSavePayload): Promise<void> {
     saveLoading.value = true
     try {
       await saveAdminProduct(payload)

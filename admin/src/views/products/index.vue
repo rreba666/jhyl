@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type Upload
 import DataTable from '@/components/DataTable.vue'
 import ImageGridUpload from '@/components/ImageGridUpload.vue'
 import { useProductStore } from '@/stores/product'
-import type { AdminProductSaveDTO, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus } from '@/types/product'
+import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus } from '@/types/product'
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
 import { getAdminGoodsBrands } from '@/api/brand'
 import { Delete, Edit, View } from '@element-plus/icons-vue'
@@ -147,6 +147,13 @@ async function openForm(product?: ProductListItem): Promise<void> {
   }
 }
 
+/** 转可选整数：空值 → undefined（提交时不带该字段）；非整数 → undefined（由调用方提示）。 */
+function toOptionalInteger(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined
+  const num = Number(value)
+  return Number.isInteger(num) ? num : undefined
+}
+
 /** 保存商品并根据是否存在 ID 区分新增和编辑。 */
 async function submitForm(): Promise<void> {
   if (!(await formRef.value?.validate().catch(() => false))) return
@@ -163,15 +170,33 @@ async function submitForm(): Promise<void> {
     form.isRecommended = 0
     ElMessage.info('下架商品不能推荐到首页，已自动取消推荐')
   }
+  // 后端 categoryId / goodsBrandId 是 integer：传非数字字符串会被 Jackson 判为「请求体格式错误」
+  // （2026-09-19 实测复现：categoryId="分类A" → code=1000 请求体格式错误）。
+  // 这里提前拦下来给出可读提示，空值则整个字段都不提交。
+  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, skuList: rawSkuList, ...rest } = form
+  const categoryId = toOptionalInteger(rawCategoryId)
+  if (String(rawCategoryId ?? '') !== '' && categoryId === undefined) {
+    ElMessage.error('商品分类参数不合法，请重新选择分类')
+    return
+  }
+  const goodsBrandId = toOptionalInteger(rawBrandId)
+  if (String(rawBrandId ?? '') !== '' && goodsBrandId === undefined) {
+    ElMessage.error('商品品牌参数不合法，请重新选择品牌')
+    return
+  }
   try {
-    const payload = {
-      ...form,
+    const payload: AdminProductSavePayload = {
+      ...rest,
+      ...(categoryId === undefined ? {} : { categoryId }),
+      ...(goodsBrandId === undefined ? {} : { goodsBrandId }),
       status: normalizeBinary(form.status),
       promotionEnabled: normalizeBinary(form.promotionEnabled),
       dividendEnabled: normalizeBinary(form.dividendEnabled),
       isRecommended: normalizeBinary(form.status) === 1 ? normalizeBinary(form.isRecommended) : 0,
       recommendTextEnabled: normalizeBinary(form.status) === 1 && normalizeBinary(form.isRecommended) === 1 ? normalizeBinary(form.recommendTextEnabled) : 0,
       ...(editingId.value ? { id: editingId.value } : { id: undefined }),
+      // 后端 SkuItem 只接受 {specName, price, stock}：不映射字段名的话规格名会被丢弃
+      skuList: rawSkuList.map((sku) => ({ specName: sku.skuName.trim(), price: Number(sku.price), stock: Number(sku.stock) })),
     }
     await store.saveProduct(payload)
     formVisible.value = false

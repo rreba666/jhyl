@@ -88,6 +88,30 @@ export interface AdminProductSaveDTO {
   skuList: ProductSku[]
 }
 
+/**
+ * 提交给 `POST /api/admin/v2/product/save` 的规格项。
+ * ⚠️ 后端 `SkuItem` **只接受 `{specName, price, stock}`**（2026-09-19 复核契约 + 实测）。
+ * 表单模型 `ProductSku` 里的 `skuName` / `specs` / `skuImage` / `enabled` **直接透传会被后端丢弃**
+ * —— 表现是「保存成功但规格名变空」，所以提交前必须映射字段名。
+ */
+export interface AdminSkuSaveItem {
+  specName: string
+  price: number
+  stock: number
+}
+
+/**
+ * 商品保存请求体（与后端 `AdminProductV2SaveDTO` 对齐）。
+ * ⚠️ 后端 `categoryId` / `goodsBrandId` 是 **integer**：传非数字字符串会被 Jackson 判为
+ * **「请求体格式错误」**（2026-09-19 实测复现：`categoryId="分类A"` → `code=1000 请求体格式错误`）。
+ * 所以这里用 number 类型，空值一律**不传该字段**（而不是传空串）。
+ */
+export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList'> {
+  categoryId?: number
+  goodsBrandId?: number
+  skuList: AdminSkuSaveItem[]
+}
+
 export interface CategoryNode {
   id: string
   name: string
