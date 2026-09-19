@@ -39,6 +39,12 @@ export interface ProductCard {
   soldCount: number
   totalStock?: number
   originPlace?: string
+  /**
+   * 后台「推荐文本」开关（首页商品卡描述行）。
+   * 后端可下发 0/1 或 '0'/'1'（也兼容 boolean）；**未下发时视为开启**。
+   * 卡片组件据此决定是否渲染描述行 —— 此前该字段只声明未消费，导致后台关了也不生效。
+   */
+  recommendTextEnabled?: 0 | 1 | '0' | '1' | boolean
 }
 
 export interface ProductPageResult {

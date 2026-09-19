@@ -15,6 +15,16 @@ const emit = defineEmits<{
 
 const imageUrl = computed(() => props.product.mainImage || '/static/figma-home/product-default.png')
 const description = computed(() => props.product.descriptionTitle || props.product.tag || '精选好物，安心品质')
+/**
+ * 后台「推荐文本」开关：关闭时不渲染描述行。
+ * 兼容后端可能下发的 0/1、'0'/'1'、boolean；**未下发（undefined/null/空串）按开启处理**，
+ * 避免老接口或字段缺失时把描述行整片隐藏。
+ */
+const showDescription = computed(() => {
+  const flag = props.product.recommendTextEnabled
+  if (flag === undefined || flag === null || flag === '') return true
+  return flag === 1 || flag === '1' || flag === true
+})
 const price = computed(() => {
   const value = props.product.price
   return Number.isFinite(value) ? value.toFixed(2) : '0.00'
@@ -30,7 +40,7 @@ function selectProduct(): void {
     <image class="product-image" :src="imageUrl" mode="aspectFill" lazy-load />
     <view class="product-copy">
       <text class="product-title">{{ product.name || '精选商品' }}</text>
-      <text class="product-description">{{ description }}</text>
+      <text v-if="showDescription" class="product-description">{{ description }}</text>
       <view class="product-price-row">
         <view class="product-price"><text class="price-symbol">¥</text><text class="price-number">{{ price }}</text></view>
       </view>
