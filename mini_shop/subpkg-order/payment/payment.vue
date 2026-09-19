@@ -196,7 +196,8 @@ const subtotal = computed(() => {
  */
 const deliveryFee = computed(() => {
   if (!existingOrder.value && pickupType.value === 2) return Number(deliveryQuote.value?.deliveryFee || 0)
-  return Number(existingOrder.value?.freightAmount || 0)
+  // ⚠️ 后端订单里 freightAmount 恒为 0，真实运费在 deliveryFee（2026-09-19 实测）
+  return Number(existingOrder.value?.deliveryFee ?? existingOrder.value?.freightAmount ?? 0)
 })
 /** 优惠减免额：历史订单取订单字段，新建订单 = Σ(划线价 - 现价) × 数量。 */
 const discountAmount = computed(() => {
@@ -617,11 +618,12 @@ function formatDistance(km?: number): string {
 }
 
 /**
- * 试算是否用了「发货门店坐标」兜底（收货地址没有定位坐标时）。
- * 这种情况算出来的距离恒为 0 —— 不能只显示「距离 0km」让商家/用户以为就在隔壁，必须说明是按门店估算的。
+ * 试算是否用了「发货门店坐标」这层最后的兜底（收货地址没有定位、页面定位也没拿到时）。
+ * 这种情况算出来的距离恒为 0 —— 不能只显示「距离 0km」让人以为就在隔壁，要说明是按门店估算的。
  */
 const quoteUsingShopFallback = computed(
-  () => pickupType.value === 2 && !!selectedAddress.value && selectedAddress.value.latitude == null && !!selectedShop.value,
+  () => pickupType.value === 2 && !!selectedAddress.value && selectedAddress.value.latitude == null
+    && userLocation.value == null && !!selectedShop.value,
 )
 
 /**
@@ -641,9 +643,9 @@ async function refreshDeliveryQuote(): Promise<void> {
     const quote = await quoteDelivery({
       merchantId: selectedShop.value.id,
       goodsAmount: subtotal.value,
-      // 同城必须有坐标：优先收货地址的定位，其次发货门店坐标（定位失败兜底）
-      receiverLat: address.latitude ?? selectedShop.value.latitude,
-      receiverLng: address.longitude ?? selectedShop.value.longitude,
+      // 坐标优先级：收货地址自身的定位 → 进页面时采到的当前位置 → 发货门店坐标（最后兜底）
+      receiverLat: address.latitude ?? userLocation.value?.latitude ?? selectedShop.value.latitude,
+      receiverLng: address.longitude ?? userLocation.value?.longitude ?? selectedShop.value.longitude,
       address: fullAddress(address),
     })
     deliveryQuote.value = quote
@@ -1119,9 +1121,9 @@ async function submitPayment(): Promise<void> {
         ...(pickupType.value === 2 && selectedShop.value ? {
           // 发货门店：后端 OrderCreateDTO.merchantId 收的就是门店 ID
           merchantId: selectedShop.value.id,
-          // 同城必须带坐标：收货地址定位优先，其次发货门店坐标（定位失败兜底）
-          receiverLat: selectedAddress.value?.latitude ?? selectedShop.value.latitude,
-          receiverLng: selectedAddress.value?.longitude ?? selectedShop.value.longitude,
+          // 同城必须带坐标：收货地址定位 → 当前位置 → 发货门店坐标（依次兜底）
+          receiverLat: selectedAddress.value?.latitude ?? userLocation.value?.latitude ?? selectedShop.value.latitude,
+          receiverLng: selectedAddress.value?.longitude ?? userLocation.value?.longitude ?? selectedShop.value.longitude,
         } : {}),
         ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
       })

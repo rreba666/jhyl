@@ -91,7 +91,8 @@ const amountSummary = computed(() => {
   // 商品总额（订前价/原价总额）：优先订单 totalAmount，缺失回退明细累加
   const subtotal = Number(order.value?.totalAmount || 0)
     || (order.value?.items || []).reduce((sum, item) => sum + (Number(item.subtotal ?? 0) || Number(item.price ?? 0) * Number(item.quantity ?? 1)), 0)
-  const freight = Number(order.value?.freightAmount || 0)
+  // ⚠️ 后端订单里 freightAmount 恒为 0，真实运费在 deliveryFee（2026-09-19 实测：0.00 vs 5.00）
+  const freight = Number(order.value?.deliveryFee ?? order.value?.freightAmount ?? 0)
   // 优惠减免金额（整单累计）
   const discount = Number(order.value?.discountAmount || 0)
   // 实付金额

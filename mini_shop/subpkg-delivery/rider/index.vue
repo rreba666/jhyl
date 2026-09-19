@@ -90,8 +90,14 @@ function maskPhone(phone?: string): string {
 }
 
 /** 任务号短号：设计稿是 #001，这里用列表序号兜底。 */
-function shortNo(index: number): string {
-  return `#${String(index + 1).padStart(3, '0')}`
+/**
+ * 任务短号：取**订单号后 4 位**（与商家端、后台一致）。
+ * ⚠️ 此前是按列表索引本地生成 `#001` —— 同一单在骑手端显示 `#001`、商家端显示 `#4000`，
+ * 对不上单；而且索引会随翻页/筛选变化（2026-09-19 用户反馈）。
+ */
+function shortNo(orderNo?: string): string {
+  const no = String(orderNo || '')
+  return no ? `#${no.slice(-4)}` : '#—'
 }
 
 /** 承诺送达时间 → HH:mm（设计稿「10:13前送达」）；服务端已判超时则明确提示。 */
@@ -667,7 +673,7 @@ onUnload(() => {
         >
           <!-- 头部（设计稿）：新任务/待取货/配送中用短号 `#001`；已完成/异常单用订单号 + 复制 -->
           <view class="card-head">
-            <text v-if="useShortNo" class="order-no">{{ shortNo(index) }}</text>
+            <text v-if="useShortNo" class="order-no">{{ shortNo(task.orderNo) }}</text>
             <view v-else class="order-no-plain">
               <text class="order-no-text">{{ task.orderNo || '—' }}</text>
               <text class="order-no-copy" @click.stop="copyOrderNo(task)"><text class="rider-icon rider-icon-fuzhi" /></text>
@@ -701,7 +707,7 @@ onUnload(() => {
               <view class="new-route-info">
                 <view>
                   <text class="route-name">{{ task.pickupShopName || task.pickupAddress || '取货点' }}</text>
-                  <text class="route-tag">本店自取</text>
+                  <text class="route-tag">到店取货</text>
                 </view>
                 <!-- 地址块（设计稿 01 的 Frame 50：地址 + 商品清单，两者间距 4px） -->
                 <view class="dest-block">

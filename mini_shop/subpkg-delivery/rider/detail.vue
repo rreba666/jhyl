@@ -127,12 +127,13 @@ const distanceText = computed(() => {
   return km != null ? `${Number(km).toFixed(1)}km` : '—'
 })
 /**
- * 订单信息里的短号：设计稿写 `#001`（规则未定，列表用的是序号）。
- * 详情页没有列表下标，这里取任务号末 3 位兜底（等 §六 的短号规则确认后统一改）。
+ * 订单信息里的短号：**订单号后 4 位**，与骑手列表、商家端、后台统一。
+ * ⚠️ 此前详情用「任务号末 3 位」、骑手列表用「列表序号 `#001`」、商家端用「订单号后 4 位」——
+ * 同一单在三处显示三个样（2026-09-19 用户反馈）。
  */
 const shortNoFromTask = computed(() => {
-  const no = String(task.value?.taskNo || '')
-  return no ? `#${no.slice(-3)}` : '#—'
+  const no = String(task.value?.orderNo || '')
+  return no ? `#${no.slice(-4)}` : '#—'
 })
 /** 复制订单号（订单信息行）。 */
 function copyOrderNo(): void {

@@ -57,8 +57,14 @@ export interface OrderSummary {
   receiverAddress?: string
   /** 商品明细列表（列表接口补字段后展示设计稿商品卡片） */
   items?: OrderDetailItem[]
-  /** 配送费（元） */
+  /**
+   * 配送费（元）。
+   * ⚠️ 后端在订单详情/列表里这个字段**恒为 0**，真实运费看下面的 `deliveryFee`
+   * （2026-09-19 实测：同一单 `freightAmount=0.00` 而 `deliveryFee=5.00`，`payAmount` 也是含运费的）。
+   */
   freightAmount?: number
+  /** 配送费（元，**权威字段**）：真实运费，订单详情/列表都会下发。 */
+  deliveryFee?: number
   /** 支付截止时间（格式 yyyy-MM-dd HH:mm:ss，仅待付款订单有值，前端据此倒计时） */
   payExpireTime?: string
   /** 第一件商品名（列表卡片标题，待后端在列表接口补字段） */

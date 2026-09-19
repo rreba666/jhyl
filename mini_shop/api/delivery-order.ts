@@ -60,8 +60,33 @@ export function confirmReceiveDelivery(orderNo: string): Promise<void> {
   return request<void>({ url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/confirm-receive`, method: 'POST' })
 }
 
-/** 配送试算结果（`POST /api/delivery/quote`）。 */
-export interface DeliveryQuote {
+/**
+ * 同城配送节点 → 中文文案（用户端订单列表/详情展示用）。
+ * ⚠️ 同城订单的订单状态很长一段时间都是「已支付/履约中」，**看不出配送进度** ——
+ * 用户端列表因此直接改用这里的配送节点文案（与商家端口径一致）。
+ */
+export const DELIVERY_NODE_TEXT: Record<string, string> = {
+  WAIT_ACCEPT: '待接单',
+  ACCEPTED: '待取货',
+  PREPARING: '备货中',
+  WAIT_ASSIGN: '待派单',
+  ASSIGNED: '骑手待取货',
+  PICKED_UP: '配送中',
+  DELIVERING: '配送中',
+  NEARBY: '即将送达',
+  PAUSED: '配送暂停',
+  DELIVERED: '已送达',
+  COMPLETED: '已完成',
+  EXCEPTION: '配送异常',
+  CANCELLED: '配送已取消',
+}
+
+/** 同城订单的状态文案：按配送节点取，取不到时回退到订单自身的状态文案。 */
+export function deliveryNodeText(node?: string | number | null, fallback = ''): string {
+  return DELIVERY_NODE_TEXT[String(node || '')] || fallback
+}
+
+/** 配送试算结果（`POST /api/delivery/quote`）。 */export interface DeliveryQuote {
   merchantId?: number
   /** 是否可配送；false 时看 `reason`。 */
   canDelivery?: boolean

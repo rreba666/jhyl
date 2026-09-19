@@ -2,7 +2,7 @@
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
 import { cancelOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
-import { confirmReceiveDelivery } from '@/api/delivery-order'
+import { confirmReceiveDelivery, deliveryNodeText } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
 import { isLoggedIn } from '@/utils/auth'
@@ -259,7 +259,7 @@ onShow(() => {
       <!-- 订单列表（其余分类） -->
       <template v-else>
         <view v-for="order in list" :key="order.id" class="order-card" @click="openDetail(order)">
-          <view class="card-head"><text class="card-title">{{ order.pickupType === 1 ? (order.shopName || '门店自提') : order.orderNo }}</text><text class="card-status">{{ order.statusDesc }}</text></view>
+          <view class="card-head"><text class="card-title">{{ order.pickupType === 1 ? (order.shopName || '门店自提') : order.orderNo }}</text><text class="card-status">{{ order.pickupType === 2 ? deliveryNodeText(order.deliveryStatus, order.statusDesc) : order.statusDesc }}</text></view>
           <text class="card-time">{{ order.createTime }}</text>
 
           <!-- 物流状态条（仅待收货，两态：已发货/已送达） -->
