@@ -142,6 +142,16 @@ const amountParts = computed(() => {
   return { int: int || '0', dec: dec || '00' }
 })
 
+/**
+ * 服务分文案（设计稿顶部数据条第三格，一位小数）。
+ * 后端 overview 暂未下发 `serviceScore`，未下发时显示「—」而不是 0 —— 0 会被误读成"真实评分为 0"。
+ * 字段上线后无需改代码即可自动展示。
+ */
+const serviceScoreText = computed(() => {
+  const value = overview.value.serviceScore
+  return value == null ? '—' : Number(value).toFixed(1)
+})
+
 function goOrders(): void {
   uni.navigateTo({ url: '/subpkg-merchant/orders/list' })
 }
@@ -319,9 +329,10 @@ function goBack(): void {
             </view>
           </view>
           <view class="metric-divider" />
+          <!-- 第三格按设计稿是「服务分」（不是净额）；净额口径仍在四宫格「账单」卡里展示 -->
           <view class="metric">
-            <text class="metric-label">净额（订单口径）</text>
-            <text class="metric-value">{{ money(overview.balance) }}</text>
+            <text class="metric-label">服务分</text>
+            <text class="metric-value">{{ serviceScoreText }}</text>
           </view>
         </view>
       </view>

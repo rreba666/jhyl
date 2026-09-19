@@ -435,6 +435,12 @@ export interface MerchantOverviewVO {
   pendingPickupCount?: number
   /** 异常单数（delivery_status=EXCEPTION）。 */
   exceptionCount?: number
+  /**
+   * 服务分（设计稿顶部数据条第三格）。
+   * ⚠️ 后端**暂未下发**该字段（已登记在 `商家端-后端需求-2026-09-18.md` P1-2 / 后端需求汇总-2026-09-19 §七），
+   * 前端按设计稿先占位显示「—」，后端一旦下发即自动展示，不需要再改代码。
+   */
+  serviceScore?: number
 }
 
 /** 商家首页概览。 */
