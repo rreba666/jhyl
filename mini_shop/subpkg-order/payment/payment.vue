@@ -536,11 +536,23 @@ const pickerShops = computed(() => {
 /** 门店弹层标题随配送方式变化。 */
 const shopSheetTitle = computed(() => (pickupType.value === 2 ? '选择发货门店' : '选择门店'))
 
-/** 收货地址完整串：省市区 + 详细地址（省市区缺失时退化为详细地址，兼容旧缓存）。 */
+/**
+ * 收货地址完整串：省市区 + 详细地址。
+ * ⚠️ 去重：用户很容易把省市区又手写进「详细地址」（例如定位已填入省市区，详细地址里又写了一遍
+ * 「江西省九江市柴桑区庐山北路168号」），直接拼接会出现「江西省九江市柴桑区江西省九江市柴桑区」。
+ * 这里按「详细地址里是否已含省市区（或市+区 / 区）」逐级判断，命中就不再重复拼。
+ */
 function fullAddress(address: Address | null): string {
   if (!address) return ''
   const region = [address.province, address.city, address.district].filter(Boolean).join('')
-  return `${region}${address.detail}`.trim()
+  const detail = String(address.detail || '').trim()
+  if (!region) return detail
+  if (detail.includes(region)) return detail
+  const cityDistrict = [address.city, address.district].filter(Boolean).join('')
+  if (cityDistrict && detail.startsWith(cityDistrict)) return `${address.province || ''}${detail}`.trim()
+  const district = String(address.district || '')
+  if (district && detail.startsWith(district)) return `${address.province || ''}${address.city || ''}${detail}`.trim()
+  return `${region}${detail}`
 }
 
 /** region 选择器当前值（必须省市区三段齐全才算已选）。 */

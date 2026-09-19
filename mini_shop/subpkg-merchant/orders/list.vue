@@ -417,10 +417,11 @@ function applyFilter(): void {
   flex: 1;
   min-height: 0;
   box-sizing: border-box;
-  padding: 15rpx 15rpx 40rpx;
+  padding: 23rpx 23rpx 40rpx;
 }
+/* 卡片间距 12px（原 15rpx≈7.8px 太小，多张卡片会糊成一片，看不清是一张还是两张） */
 .list-card {
-  margin-bottom: 15rpx;
+  margin-bottom: 23rpx;
 }
 .state {
   padding: 200rpx 0;
