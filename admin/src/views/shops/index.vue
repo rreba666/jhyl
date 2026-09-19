@@ -20,20 +20,17 @@ const formRef = ref<FormInstance>()
 const form = reactive<ShopCreateDTO>({ name: '', address: '', phone: '', merchantId: '' })
 /**
  * 表单校验规则。
- * 「所属品牌」只在**新增**时必填 —— 漏选会让门店 `merchant_id` 为空，
- * 商家端商品管理会报 `7310 该门店未归属品牌商家`；
- * 编辑时留空表示「不传 merchantId = 不改归属」（契约见 `ShopUpdateDTO`）。
+ * ⚠️ 「所属品牌 `merchantId`」**不做硬性必填**：契约写的是「中控为品牌开店时必填；
+ * **平台自营单店可空**」（`ShopCreateDTO`），线上也确实存在 `merchantId` 为空的平台自营门店。
+ * 漏选品牌会让门店没有归属（商家端商品管理报 `7310`），所以改用**保存时二次确认**兜住误漏，而不是挡住自营门店。
  * 「联系电话 `phone`」必填：订单通知**短信通道**取的就是 `phone`（为空才回退 `contactPhone`），
  * 两个都空会直接记 outbox「商家门店无手机号」——通知发不出去（见后端方案文档 §五）。
  */
-const rules = computed<FormRules>(() => ({
+const rules: FormRules = {
   name: [{ required: true, message: '请输入门店名称', trigger: 'blur' }],
   address: [{ required: true, message: '请输入门店地址', trigger: 'blur' }],
   phone: [{ required: true, message: '请输入门店联系电话（订单短信通知用）', trigger: 'blur' }],
-  merchantId: editingId.value
-    ? []
-    : [{ required: true, message: '请选择所属品牌', trigger: 'change' }],
-}))
+}
 
 // ===== 品牌（商户）维度 =====
 /** 品牌下拉数据（`GET /api/admin/merchants/list`）。 */
@@ -125,6 +122,19 @@ function openForm(shop?: Shop): void {
 async function submitForm(): Promise<void> {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
+  // 新增但没选品牌：**允许**（= 平台自营单店，契约里 `merchantId` 本就「平台自营单店可空」），
+  // 但必须二次确认 —— 绝大多数情况下是「漏选」，漏了会让门店没归属（商家端商品管理报 7310）。
+  if (!editingId.value && !form.merchantId) {
+    try {
+      await ElMessageBox.confirm(
+        '未选择「所属品牌」，将按平台自营单店创建（无品牌归属，商家端看不到该店商品）。确认继续吗？',
+        '确认门店归属',
+        { type: 'warning', confirmButtonText: '按平台自营创建', cancelButtonText: '返回选择品牌' },
+      )
+    } catch {
+      return
+    }
+  }
   try {
     // 编辑时「不传 merchantId = 不改归属」：只有真的选了品牌才带上，避免冲掉已有归属
     const payload: ShopCreateDTO = { name: form.name, address: form.address, phone: form.phone }
@@ -279,7 +289,7 @@ onMounted(() => {
       </DataTable>
     </el-card>
     <el-dialog v-model="formVisible" :title="editingId ? '编辑门店' : '新增门店'" width="520px" append-to-body>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。漏选会让门店没有归属、商家端商品管理报 7310；编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving" @click="submitForm">保存</el-button></template>
     </el-dialog>
   </section>
