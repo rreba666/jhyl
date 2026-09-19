@@ -6,6 +6,7 @@ import { cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/ap
 import { createPrepay, requestPayment, payByBalance, switchToBalance } from '@/api/payment'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { quoteDelivery, type DeliveryQuote } from '@/api/delivery-order'
+import { distanceMeters } from '@/utils/location'
 import { submitInvoice } from '@/api/invoice'
 import { getWalletInfo } from '@/api/user'
 import { getProductDetail } from '@/api/product'
@@ -422,8 +423,116 @@ const deliveryOptions = computed(() => {
   return options
 })
 
-/** 门店弹层数据源：同城配送只列开通了同城配送的门店（`deliveryEnabled !== false`）。 */
-const pickerShops = computed(() => (pickupType.value === 2 ? shops.value.filter((shop) => shop.deliveryEnabled !== false) : shops.value))
+/**
+ * 预试算最多几个门店。
+ * 同城配送的「能不能送」是**按发货门店**算的，而门店列表可能很长，
+ * 所以按「离用户定位的直线距离」升序只试算最近的前几个，避免进页面打一堆请求。
+ */
+const SAME_CITY_QUOTE_LIMIT = 5
+
+/** 进页面时采到的一次定位（用于判断「同城配送」在当前定位下是否可用）。 */
+const userLocation = ref<{ latitude: number; longitude: number } | null>(null)
+/** 预试算结果（key = shopId）：进页面时按用户定位算一次，用于可用性判断与门店过滤。 */
+const shopQuotes = ref<Record<number, DeliveryQuote>>({})
+/** 是否已经跑过预试算（避免 watch 重复触发）。 */
+let sameCityPrepared = false
+/** 定位尝试次数：进页面一次 + 用户主动切到同城最多再补一次，避免反复弹授权框。 */
+let locationAttempts = 0
+
+/** 门店到用户定位的直线距离；没有定位或门店没有坐标时返回极大值（排到最后）。 */
+function shopDistance(shop: EnabledShop): number {
+  if (!userLocation.value || shop.latitude == null || shop.longitude == null) return Number.MAX_SAFE_INTEGER
+  return distanceMeters(userLocation.value, { latitude: Number(shop.latitude), longitude: Number(shop.longitude) })
+}
+
+/**
+ * 当前定位下「同城配送」是否可选。
+ * - 定位拿不到（未授权/失败）→ 返回 true（**不置灰**，避免误拦；真正下单时仍会按收货地址试算拦截）；
+ * - 定位成功但所有试算门店都送不到 → false（选项置灰，点击给提示）；
+ * - 只要有一家能送 → true。
+ */
+const sameCityAvailable = computed(() => {
+  if (!userLocation.value) return true
+  const quotes = Object.values(shopQuotes.value)
+  if (!quotes.length) return true
+  return quotes.some((quote) => quote.canDelivery !== false)
+})
+
+/**
+ * 置灰的具体原因：取预试算里任一「不可送」门店的后端 reason
+ * （后端会带上距离，如「超出配送范围（当前距离约 1397.1 公里）」），展示在页面上而不是塞进 toast（会被截断）。
+ */
+const sameCityUnavailableReason = computed(() => {
+  const blocked = Object.values(shopQuotes.value).find((quote) => quote.canDelivery === false)
+  return blocked?.reason && blocked.reason !== 'ok' ? blocked.reason : '超出同城配送范围'
+})
+
+/**
+ * 进页面时定位一次，并对候选门店并发预试算 —— 外市用户买同城配送必然送不到，
+ * 靠这一步在**下单前**就把「同城配送」置灰，而不是等提交时才报错。
+ * 定位失败静默处理（不弹错、不阻塞），并允许后续切到同城时再补一次定位。
+ */
+async function prepareSameCity(): Promise<void> {
+  locationAttempts += 1
+  try {
+    const located = await new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+      uni.getLocation({
+        type: 'gcj02',
+        success: (res) => resolve({ latitude: Number(res.latitude), longitude: Number(res.longitude) }),
+        fail: () => reject(new Error('定位失败')),
+      })
+    })
+    userLocation.value = located
+  } catch {
+    userLocation.value = null
+    return
+  }
+  const candidates = shops.value.filter((shop) => shop.deliveryEnabled !== false)
+  if (!candidates.length) return
+  const nearest = [...candidates].sort((a, b) => shopDistance(a) - shopDistance(b)).slice(0, SAME_CITY_QUOTE_LIMIT)
+  const results = await Promise.all(nearest.map(async (shop) => {
+    try {
+      const quote = await quoteDelivery({
+        merchantId: shop.id,
+        goodsAmount: subtotal.value,
+        receiverLat: userLocation.value?.latitude,
+        receiverLng: userLocation.value?.longitude,
+      })
+      return quote
+    } catch {
+      return null
+    }
+  }))
+  const map: Record<number, DeliveryQuote> = {}
+  nearest.forEach((shop, index) => {
+    const quote = results[index]
+    if (quote) map[shop.id] = quote
+  })
+  shopQuotes.value = map
+}
+
+/** 门店与模块配置就绪后跑一次预试算（只跑一次）。 */
+watch([shops, moduleConfig], () => {
+  if (sameCityPrepared) return
+  if (!shops.value.length) return
+  if (!deliveryOptions.value.some((option) => option.type === 2)) return
+  sameCityPrepared = true
+  void prepareSameCity()
+})
+
+/**
+ * 门店弹层数据源：同城配送只列开通了同城配送的门店；
+ * 若预试算已出结果，则进一步只列**当前定位能送到**的门店（送不到的列出来也没意义）。
+ */
+const pickerShops = computed(() => {
+  if (pickupType.value !== 2) return shops.value
+  const deliverable = shops.value.filter((shop) => shop.deliveryEnabled !== false)
+  const quotable = deliverable.filter((shop) => {
+    const quote = shopQuotes.value[shop.id]
+    return !quote || quote.canDelivery !== false
+  })
+  return quotable.length ? quotable : deliverable
+})
 /** 门店弹层标题随配送方式变化。 */
 const shopSheetTitle = computed(() => (pickupType.value === 2 ? '选择发货门店' : '选择门店'))
 
@@ -580,7 +689,16 @@ onUnmounted(() => {
 
 /** 切换配送方式，保留两种方式下已经填写的本地内容。 */
 function changePickupType(type: PickupType): void {
+  // 同城配送：当前定位送不到就拦下给提示（选项本身是置灰样式，但仍可点，点了要说明原因）
+  if (type === 2 && !sameCityAvailable.value) {
+    uni.showToast({ title: '当前定位超出同城配送范围，请选择其他配送方式', icon: 'none' })
+    return
+  }
   pickupType.value = type
+  // 之前定位失败过：切到同城时再补一次（用户可能刚在系统里打开定位）；最多补一次，避免反复弹授权框
+  if (type === 2 && !userLocation.value && locationAttempts < 2) {
+    void prepareSameCity()
+  }
 }
 
 /** 模块加载完成后，若当前配送方式已被停用，自动切到第一个可用方式（如只买自提则默认自提）。 */
@@ -1066,13 +1184,15 @@ function backToCart(): void {
             v-for="option in deliveryOptions"
             :key="option.type"
             class="pickup-option"
-            :class="{ active: pickupType === option.type }"
+            :class="{ active: pickupType === option.type, disabled: option.type === 2 && !sameCityAvailable }"
             @click="changePickupType(option.type)"
           >
             <view class="radio" :class="{ active: pickupType === option.type }"><view class="radio-dot" /></view>
             <text>{{ option.label }}</text>
           </view>
         </view>
+        <!-- 超出同城范围：把后端给的具体距离显示出来（toast 会被截断，这里不会） -->
+        <text v-if="!sameCityAvailable" class="quote-error">{{ sameCityUnavailableReason }}，请选择其他配送方式</text>
       </view>
 
       <view v-show="pickupType === 0 || pickupType === 2" class="section address-section">
@@ -1385,6 +1505,8 @@ function backToCart(): void {
 .type-choice.active { color: #222; font-weight: 600; }
 .drawer-fields { min-height: 0; }
 /* ===== 同城配送：试算提示与地址表单省市区 ===== */
+/* 超出同城配送范围时的置灰样式：仍可点击（点了给「请选择其他配送方式」的提示） */
+.pickup-option.disabled { opacity: 0.45; }
 .quote-hint { display: block; margin-top: 12rpx; color: #86909c; font-size: 23rpx; }
 .quote-error { display: block; margin-top: 12rpx; color: #f53f3f; font-size: 23rpx; }
 .shop-empty { display: block; padding: 40rpx 0; color: #86909c; font-size: 25rpx; text-align: center; }
