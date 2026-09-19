@@ -697,6 +697,14 @@ watch(() => route.query.deliveryStatus, () => {
   void loadOrders()
 })
 
+/**
+ * 支持 `?tab=fee` 直达「配送费配置」页签。
+ * 来源：配送工作台的「配送规则」面板是只读的，那里的「去设置配送费」按钮会带 `tab=fee` 跳过来。
+ */
+watch(() => route.query.tab, (tab) => {
+  if (typeof tab === 'string' && tab) activeTab.value = tab
+}, { immediate: true })
+
 onMounted(async () => {
   void loadMasterSwitch()
   void loadReport()

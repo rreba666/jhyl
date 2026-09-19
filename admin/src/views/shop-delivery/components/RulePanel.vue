@@ -1,13 +1,35 @@
 <script setup lang="ts">
 /**
- * 配送规则面板（只读）：配送费与规则由平台统一设置，商家端不可修改。
+ * 配送规则面板（只读）。
+ *
+ * ⚠️ 口径（2026-09-19 按后端 `V1.21` 校正，原来的提示文案是错的）：
+ * - **配送费**（`feeType` / `feeConfig`）**只能由平台设置**，商家改不了 → 写入口在
+ *   「同城配送管理 → 配送费配置」（`POST /api/admin/delivery/fee-config`），本面板回显的是**平台当前生效值**；
+ * - **其余规则**（范围 / 起送额 / 营业时段 / 时效 / 取消扣费 / 凭证 / 收货码）后端口径是「**商家可配**」
+ *   （`POST /api/merchant/delivery/rules`），但那是 **C 端商家身份**的接口；
+ *   后台侧 `GET /api/admin/delivery/my/rules` **只有只读**，所以这里也改不了
+ *   —— 要在后台代商家改，需要后端补 admin 侧写接口。
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { getMyRules, type DeliveryRule } from '@/api/shop-delivery'
 import { feeTypeLabel } from '@/utils/deliveryStatus'
+import { useAuthStore } from '@/stores/auth'
+import { canAccess } from '@/utils/permission'
+import type { AdminRole } from '@/types/auth'
 
 const props = defineProps<{ shopId: string }>()
+const router = useRouter()
+const auth = useAuthStore()
+
+/** 只有能进「同城配送管理」的角色（超管 / 客服）才给配送费设置的直达入口。 */
+const canEditFee = computed(() => canAccess(auth.role as AdminRole, '/delivery'))
+
+/** 跳「同城配送管理 → 配送费配置」（`?tab=fee` 由该页的 watch 处理）。 */
+function goFeeConfig(): void {
+  router.push({ path: '/delivery', query: { tab: 'fee' } })
+}
 
 const rule = ref<DeliveryRule | null>(null)
 const loading = ref(false)
@@ -44,12 +66,15 @@ defineExpose({ loadRule })
 <template>
   <el-card shadow="never" class="content-card" v-loading="loading">
     <el-alert
-      title="配送规则与配送费由平台统一设置，商家端只读；如需调整请联系平台运营。"
+      title="配送费由平台统一设置（商家不可改）；其余规则后端目前只提供商家侧写入接口，本面板为只读视图。"
       type="info"
       :closable="false"
       show-icon
       class="tip"
     />
+    <div v-if="canEditFee" class="tip-actions">
+      <el-button size="small" type="primary" plain @click="goFeeConfig">去「配送费配置」修改配送费</el-button>
+    </div>
     <el-descriptions v-if="rule" :column="2" border>
       <el-descriptions-item label="配送启用">{{ onOff(rule.enabled) }}</el-descriptions-item>
       <el-descriptions-item label="最远配送距离">{{ rule.maxDistanceKm != null ? `${rule.maxDistanceKm} km` : '—' }}</el-descriptions-item>
@@ -71,5 +96,6 @@ defineExpose({ loadRule })
 
 <style scoped>
 .content-card { margin-bottom: 16px; }
-.tip { margin-bottom: 16px; }
+.tip { margin-bottom: 12px; }
+.tip-actions { margin-bottom: 16px; }
 </style>

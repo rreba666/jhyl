@@ -343,6 +343,19 @@ function identityTagType(row: StaffAccount): 'primary' | 'success' | 'warning' |
   return 'info'
 }
 
+/**
+ * 该人员是否**需要**「工号 + 密码」。
+ *
+ * 纯骑手走微信登录（只绑 `userId` / `openid`），**不需要工号** —— 所以列表里不给它标「未发号」、
+ * 也不给「发号」按钮（否则看起来像"没配置好"）；工号密码只服务于
+ * **PC 控制台**（店主 `MERCHANT_OWNER`）与 **H5 核销页**（店长 `MANAGER` / 核销店员 `VERIFIER`）。
+ * 表单侧的同类判断是 `needAccount`（看当前勾选的身份），本函数看的是**行上已有的身份集合**。
+ */
+function rowNeedsAccount(row: StaffAccount): boolean {
+  const ids = row.identities || []
+  return ids.some((id) => id === 'MERCHANT_OWNER' || id === 'MANAGER' || id === 'VERIFIER')
+}
+
 async function loadList(): Promise<void> {
   try { await store.fetchList() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '人员台账查询失败') }
 }
@@ -435,7 +448,10 @@ watch(() => route.query.shopId, (value) => {
         <el-table-column label="工号" min-width="130">
           <template #default="{ row }">
             <span v-if="row.username">{{ row.username }}</span>
-            <el-tag v-else size="small" type="warning" effect="plain">未发号</el-tag>
+            <!-- ⚠️ 纯骑手**不需要工号**（走微信登录：绑 userId/openid），列表里不该标「未发号」——会误导成"没配置好"。
+                 只有需要密码登录的身份（店主/店长/核销店员）未发号时才提示。 -->
+            <el-tag v-else-if="rowNeedsAccount(row)" size="small" type="warning" effect="plain">未发号</el-tag>
+            <span v-else class="muted">—</span>
           </template>
         </el-table-column>
         <el-table-column prop="phone" label="手机号" width="130" />
@@ -461,7 +477,7 @@ watch(() => route.query.shopId, (value) => {
               </template>
               <template v-else>
                 <el-button size="small" type="primary" @click="openEditIdentity(row)"><el-icon><Edit /></el-icon>改身份</el-button>
-                <el-button v-if="!row.accountIssued" size="small" type="warning" plain @click="issueAccount(row)">发号</el-button>
+                <el-button v-if="rowNeedsAccount(row) && !row.accountIssued" size="small" type="warning" plain @click="issueAccount(row)">发号</el-button>
                 <el-dropdown trigger="click" @command="(cmd: string) => { if (cmd === 'password') viewPassword(row); else if (cmd === 'history') viewHistory(row); else if (cmd === 'bind') bindWechat(row); else if (cmd === 'unbind') unbindWechat(row); else if (cmd === 'reset') resetPassword(row); else if (cmd === 'delete') removeRow(row) }">
                   <el-button size="small">更多<el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>

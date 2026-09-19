@@ -5,6 +5,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyRiderStats, getMyStaff, toggleMyStaff, type DeliveryStaff, type ShopRiderStats } from '@/api/shop-delivery'
+import { riderStatsColumnLabel } from '@/utils/deliveryStatus'
 
 const props = defineProps<{ shopId: string }>()
 
@@ -127,8 +128,9 @@ defineExpose({ loadStaff, loadStats })
         <el-button :loading="statsLoading" @click="loadStats">查询</el-button>
       </div>
     </div>
+    <!-- 后端返回的是动态字段结构，列头用中英映射表翻译（未知字段回退原 key，不会再裸出英文列名） -->
     <el-table v-loading="statsLoading" :data="stats?.riders || []" border size="small" max-height="420">
-      <el-table-column v-for="key in riderColumns" :key="key" :prop="key" :label="key" min-width="130" />
+      <el-table-column v-for="key in riderColumns" :key="key" :prop="key" :label="riderStatsColumnLabel(key)" min-width="130" />
     </el-table>
     <el-empty v-if="!statsLoading && !(stats?.riders || []).length" description="暂无业绩数据" />
   </el-card>
