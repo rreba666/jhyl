@@ -13,6 +13,12 @@ export interface Shop {
   /** 所属商户（商户管理员登录时为本人商户；平台/客服可见）。 */
   merchantId?: number
   merchantName?: string
+  /**
+   * 经营联系人电话（`ShopVO.contactPhone`）。
+   * 订单通知的**短信通道**取号顺序是 `phone` → 为空回退本字段；
+   * 两个都空时后端记 outbox「商家门店无手机号」，短信发不出去。
+   */
+  contactPhone?: string
   /** 门店状态（0 待启用 / 1 启用 / 2 停用）——来自商家端 C1（门店 + 统计）口径。 */
   shopStatus?: number
   /** 店长数 / 骑手数 / 已绑定微信用户数（v8 §6.1 C1 统计；需后端在门店列表返回）。 */

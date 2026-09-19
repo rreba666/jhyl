@@ -23,10 +23,13 @@ const form = reactive<ShopCreateDTO>({ name: '', address: '', phone: '', merchan
  * 「所属品牌」只在**新增**时必填 —— 漏选会让门店 `merchant_id` 为空，
  * 商家端商品管理会报 `7310 该门店未归属品牌商家`；
  * 编辑时留空表示「不传 merchantId = 不改归属」（契约见 `ShopUpdateDTO`）。
+ * 「联系电话 `phone`」必填：订单通知**短信通道**取的就是 `phone`（为空才回退 `contactPhone`），
+ * 两个都空会直接记 outbox「商家门店无手机号」——通知发不出去（见后端方案文档 §五）。
  */
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: '请输入门店名称', trigger: 'blur' }],
   address: [{ required: true, message: '请输入门店地址', trigger: 'blur' }],
+  phone: [{ required: true, message: '请输入门店联系电话（订单短信通知用）', trigger: 'blur' }],
   merchantId: editingId.value
     ? []
     : [{ required: true, message: '请选择所属品牌', trigger: 'change' }],
@@ -53,6 +56,30 @@ const visiblePageSize = computed(() => (brandMode.value ? Math.max(brandShops.va
 function brandNameOf(shop: Shop): string {
   return shop.merchantName || (shop.merchantId ? `商户${shop.merchantId}` : '平台自营')
 }
+
+// ===== 通知可达性（后端方案文档 §五 / §八-3：引导补齐「门店手机号」与「绑定微信」）=====
+
+/**
+ * 门店可用手机号：优先 `phone`，为空**回退**经营联系人 `contactPhone`
+ * —— 与后端短信取号口径完全一致（后端方案文档 §五）。
+ */
+function shopPhoneOf(shop: Shop): string {
+  return (shop.phone || shop.contactPhone || '').trim()
+}
+
+/**
+ * 当前列表里通知**可能送不到**的门店。
+ *
+ * 订单通知走两条通道，任一断掉都会少一条触达路径：
+ * - **短信**：需要门店至少有一个手机号（`phone`，空则回退 `contactPhone`）；
+ * - **微信订阅消息**：需要该门店有人绑定微信（`boundUserCount > 0`）。
+ *
+ * 两条都断时只剩「铃铛红点」（红点与 openid 无关、恒可用），
+ * 商家很容易以为「没新订单」。所以这里主动提示补齐。
+ */
+const notifyRiskShops = computed<Shop[]>(() => visibleList.value.filter(
+  (shop) => !shopPhoneOf(shop) || !shop.boundUserCount,
+))
 
 /** 加载品牌下拉（失败静默，不影响门店列表）。 */
 async function loadBrands(): Promise<void> {
@@ -207,6 +234,16 @@ onMounted(() => {
     <div class="page-heading"><div><h1>门店管理</h1><p>维护自提门店的基础信息和营业状态；列表按【所属品牌】展示，可切换品牌只看该品牌门店。</p></div><el-button type="primary" @click="openForm()">新增门店</el-button></div>
     <el-card shadow="never" class="content-card">
       <div class="toolbar"><div><strong>门店列表</strong><span class="toolbar-count">共 {{ visibleTotal }} 条</span></div><div class="toolbar-actions"><el-select v-model="brandFilter" clearable filterable placeholder="全部品牌" style="width: 200px" @change="onBrandChange"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><el-input v-model="store.keyword" placeholder="门店ID/名称" clearable class="search-input" @keyup.enter="searchShops" @clear="searchShops" /><el-button type="primary" @click="searchShops">搜索</el-button><span v-if="selected.length" class="selection-tip">已选择 {{ selected.length }} 项</span><el-button size="small" type="danger" plain :disabled="!deletableSelected.length || store.actionLoading" :loading="store.actionLoading" @click="removeSelected"><el-icon><Delete /></el-icon>批量删除</el-button><el-button size="small" type="success" plain :disabled="!restorableSelected.length || store.actionLoading" :loading="store.actionLoading" @click="restoreSelected"><el-icon><RefreshLeft /></el-icon>批量恢复</el-button><el-button :loading="store.loading" @click="loadList">刷新</el-button></div></div>
+      <!-- 通知可达性引导（后端方案文档 §八-3）：两条通道任一断掉都主动提示，避免商家以为「没新订单」 -->
+      <el-alert
+        v-if="notifyRiskShops.length"
+        class="notify-alert"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="`当前列表有 ${notifyRiskShops.length} 家门店的通知可能送不到`"
+        description="订单通知走「微信订阅消息 + 短信」两条通道：门店需至少填一个手机号（联系电话，为空回落经营联系人电话），且该门店需有人绑定微信；两条都断时只剩铃铛红点。点「编辑」补齐手机号，绑定微信在「店员管理」里做。"
+      />
       <p v-if="brandMode" class="muted brand-tip">按品牌查看：数据来自「品牌下门店」接口（该品牌全部门店，不分页）；要回到全部门店请清空品牌。</p>
       <DataTable :data="visibleList" :loading="store.loading" :total="visibleTotal" :page="visiblePage" :page-size="visiblePageSize" empty-text="暂无门店数据" @selection-change="selected = $event" @page-change="store.page = $event; selected = []; void loadList()" @size-change="store.pageSize = $event; store.page = 1; selected = []; void loadList()">
         <el-table-column label="所属品牌" min-width="170">
@@ -220,6 +257,14 @@ onMounted(() => {
         <el-table-column prop="name" label="门店名称" min-width="180" />
         <el-table-column prop="address" label="地址" min-width="260" />
         <el-table-column prop="phone" label="联系电话" width="140" />
+        <el-table-column label="通知可达性" min-width="190">
+          <template #default="{ row }">
+            <div class="notify-cell">
+              <el-tag :type="shopPhoneOf(row) ? 'success' : 'danger'" effect="light" size="small">{{ shopPhoneOf(row) ? '手机号已填' : '缺手机号' }}</el-tag>
+              <el-tag :type="row.boundUserCount ? 'success' : 'danger'" effect="light" size="small">{{ row.boundUserCount ? '已绑微信' : '无人绑微信' }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="人员（店长/骑手/已绑微信）" min-width="190">
           <template #default="{ row }">
             <span v-if="row.managerCount != null || row.riderCount != null || row.boundUserCount != null">
@@ -234,7 +279,7 @@ onMounted(() => {
       </DataTable>
     </el-card>
     <el-dialog v-model="formVisible" :title="editingId ? '编辑门店' : '新增门店'" width="520px" append-to-body>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。漏选会让门店没有归属、商家端商品管理报 7310；编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /></el-form-item></el-form>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。漏选会让门店没有归属、商家端商品管理报 7310；编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving" @click="submitForm">保存</el-button></template>
     </el-dialog>
   </section>
@@ -252,4 +297,7 @@ onMounted(() => {
 .brand-tip { margin: 0 0 10px; font-size: 13px; }
 .brand-id { margin-left: 6px; font-size: 12px; }
 .field-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+/* 通知可达性引导 */
+.notify-alert { margin-bottom: 12px; }
+.notify-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 </style>
