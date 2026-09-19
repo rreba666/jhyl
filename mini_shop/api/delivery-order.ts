@@ -59,3 +59,36 @@ export function getOrderRider(orderNo: string): Promise<DeliveryRider> {
 export function confirmReceiveDelivery(orderNo: string): Promise<void> {
   return request<void>({ url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/confirm-receive`, method: 'POST' })
 }
+
+/** 配送试算结果（`POST /api/delivery/quote`）。 */
+export interface DeliveryQuote {
+  merchantId?: number
+  /** 是否可配送；false 时看 `reason`。 */
+  canDelivery?: boolean
+  /** 不可配送的原因（可配送时为 'ok'）。 */
+  reason?: string
+  /** 配送费（元）。 */
+  deliveryFee?: number
+  /** 起送金额（元）。 */
+  minOrderAmount?: number
+  /** 预计备货分钟。 */
+  estimatedPrepareMinutes?: number
+  /** 预计配送分钟。 */
+  estimatedDeliveryMinutes?: number
+  /** 距离（km）。 */
+  distanceKm?: number
+}
+
+/**
+ * 同城配送试算：确认订单页选好「发货门店 + 收货地址」后调用，
+ * 用于展示真实配送费、距离、预计送达时间，并判断该地址是否在配送范围内。
+ */
+export function quoteDelivery(payload: {
+  merchantId: number
+  goodsAmount: number
+  receiverLat?: number
+  receiverLng?: number
+  address?: string
+}): Promise<DeliveryQuote> {
+  return request<DeliveryQuote>({ url: '/api/delivery/quote', method: 'POST', data: payload })
+}

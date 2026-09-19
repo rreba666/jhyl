@@ -13,6 +13,11 @@ export interface EnabledShop {
   latitude?: number
   /** 经度 */
   longitude?: number
+  /**
+   * 该门店是否开通同城配送（`/api/shop/all` 实际会返回，用于「同城配送」时过滤可发货门店）。
+   * 注意可空：老接口/未配置时按「不排除」处理（`!== false` 才展示）。
+   */
+  deliveryEnabled?: boolean
 }
 
 /** 查询 C 端可选的启用门店。 */

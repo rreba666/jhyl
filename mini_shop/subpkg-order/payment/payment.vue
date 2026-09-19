@@ -5,6 +5,7 @@ import { getCartList, type CartItem } from '@/api/cart'
 import { cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
 import { createPrepay, requestPayment, payByBalance, switchToBalance } from '@/api/payment'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
+import { quoteDelivery, type DeliveryQuote } from '@/api/delivery-order'
 import { submitInvoice } from '@/api/invoice'
 import { getWalletInfo } from '@/api/user'
 import { getProductDetail } from '@/api/product'
@@ -15,7 +16,7 @@ import { isLoggedIn } from '@/utils/auth'
 import { getModules, isModuleEnabled, type ModuleConfig } from '@/utils/config'
 import LoginGuide from '@/components/LoginGuide.vue'
 
-/** 配送方式：0=物流(快速配送) 1=线下自提 2=同城配送（本期不开放下单，仅占位）。 */
+/** 配送方式：0=物流(快速配送) 1=线下自提 2=同城配送（2026-09-19 起开放下单：需选发货门店 + 填收货地址，配送费走试算）。 */
 type PickupType = 0 | 1 | 2
 type InvoiceType = 'personal' | 'company'
 const PAYMENT_CONTACT_NAME_MAX_LENGTH = 32
@@ -27,7 +28,15 @@ const PAYMENT_INVOICE_EMAIL_MAX_LENGTH = 254
 interface Address {
   name: string
   phone: string
+  /** 详细地址（街道门牌，用户手填）。 */
   detail: string
+  /** 省 / 市 / 区：region 选择器选，或打开表单时用定位自动填入。 */
+  province: string
+  city: string
+  district: string
+  /** 定位经纬度（同城配送下单必带；定位失败时用发货门店坐标兜底）。 */
+  latitude?: number
+  longitude?: number
 }
 
 const menuTop = ref(0)
@@ -71,7 +80,14 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const addressSheetVisible = ref(false)
 const shopSheetVisible = ref(false)
-const addressForm = reactive<Address>({ name: '', phone: '', detail: '' })
+const addressForm = reactive<Address>({ name: '', phone: '', detail: '', province: '', city: '', district: '' })
+/** 同城配送试算结果（null = 未试算或试算失败）。 */
+const deliveryQuote = ref<DeliveryQuote | null>(null)
+const quoteLoading = ref(false)
+/** 试算失败 / 不可配送的提示文案。 */
+const quoteError = ref('')
+/** 打开地址表单时定位是否成功（失败时同城用发货门店坐标兜底，并在页面提示）。 */
+const locationResolved = ref(false)
 
 const invoiceExpanded = ref(false)
 const invoiceDrawerVisible = ref(false)
@@ -114,6 +130,12 @@ function loadFormCache(): void {
           name: cleanText(cached.address.name),
           phone,
           detail: cleanText(cached.address.detail),
+          // 省市区/经纬度是 2026-09-19 新增字段：旧缓存里没有，缺省给空串避免 undefined 进模板
+          province: cleanText(cached.address.province || ''),
+          city: cleanText(cached.address.city || ''),
+          district: cleanText(cached.address.district || ''),
+          ...(typeof cached.address.latitude === 'number' ? { latitude: cached.address.latitude } : {}),
+          ...(typeof cached.address.longitude === 'number' ? { longitude: cached.address.longitude } : {}),
         }
       }
     }
@@ -165,7 +187,16 @@ const subtotal = computed(() => {
   if (Number.isFinite(orderTotal) && orderTotal > 0) return orderTotal
   return items.value.reduce((sum, item) => sum + Number(item.originalPrice ?? item.price ?? 0) * item.quantity, 0)
 })
-const deliveryFee = computed(() => Number(existingOrder.value?.freightAmount || 0))
+/**
+ * 配送费：
+ * - 历史订单：用订单上的实收运费；
+ * - 新建**同城配送**订单：用试算结果（后端按发货门店 + 收货坐标算），未试算成功时为 0 且提交会被拦截；
+ * - 其它（物流/自提）：由后端下单时计算，前端展示 0。
+ */
+const deliveryFee = computed(() => {
+  if (!existingOrder.value && pickupType.value === 2) return Number(deliveryQuote.value?.deliveryFee || 0)
+  return Number(existingOrder.value?.freightAmount || 0)
+})
 /** 优惠减免额：历史订单取订单字段，新建订单 = Σ(划线价 - 现价) × 数量。 */
 const discountAmount = computed(() => {
   if (existingOrder.value) return Number(existingOrder.value.discountAmount || 0)
@@ -293,6 +324,11 @@ async function loadExistingOrder(): Promise<void> {
         name: detail.receiverName || '',
         phone: detail.receiverPhone || '',
         detail: detail.receiverAddress || '',
+        // 订单详情只回传一个完整地址串、不单独给省市区，这里留空；
+        // 若这单要改成同城配送重新下单，提交校验会提示补全「所在地区」。
+        province: '',
+        city: '',
+        district: '',
       }
     }
     if (detail.shopName) {
@@ -372,14 +408,118 @@ async function loadModuleConfig(): Promise<void> {
   }
 }
 
-/** 可用的配送方式选项（按模块开关过滤；同城配送本期不开放下单，即使开关开启也不渲染）。 */
+/**
+ * 可用的配送方式选项（按模块开关过滤）。
+ * 2026-09-19 起「同城配送」正式开放下单（此前是 samecity 开关占位、代码里硬编码不渲染）：
+ * 选它时要选**发货门店**并填收货地址，配送费由试算接口给出。
+ */
 const deliveryOptions = computed(() => {
   const modules = moduleConfig.value
   const options: { type: PickupType; label: string }[] = []
   if (isModuleEnabled(modules, 'delivery')) options.push({ type: 0, label: '快速配送' })
   if (isModuleEnabled(modules, 'pickup')) options.push({ type: 1, label: '门店自提' })
-  // samecity 本期不开放下单：即使模块开启也不提供「同城配送」选项（docs/plan 口径）
+  if (isModuleEnabled(modules, 'samecity')) options.push({ type: 2, label: '同城配送' })
   return options
+})
+
+/** 门店弹层数据源：同城配送只列开通了同城配送的门店（`deliveryEnabled !== false`）。 */
+const pickerShops = computed(() => (pickupType.value === 2 ? shops.value.filter((shop) => shop.deliveryEnabled !== false) : shops.value))
+/** 门店弹层标题随配送方式变化。 */
+const shopSheetTitle = computed(() => (pickupType.value === 2 ? '选择发货门店' : '选择门店'))
+
+/** 收货地址完整串：省市区 + 详细地址（省市区缺失时退化为详细地址，兼容旧缓存）。 */
+function fullAddress(address: Address | null): string {
+  if (!address) return ''
+  const region = [address.province, address.city, address.district].filter(Boolean).join('')
+  return `${region}${address.detail}`.trim()
+}
+
+/** region 选择器当前值（必须省市区三段齐全才算已选）。 */
+const regionPickerValue = computed(() => [addressForm.province, addressForm.city, addressForm.district].filter(Boolean))
+/** 省市区展示文案（未选时给占位）。 */
+const regionText = computed(() => (regionPickerValue.value.length === 3 ? regionPickerValue.value.join(' ') : '请选择所在地区'))
+
+/** region 三级联动选择器回调：写入省 / 市 / 区。 */
+function onRegionChange(event: { detail?: { value?: string[] } }): void {
+  const [province = '', city = '', district = ''] = event?.detail?.value || []
+  addressForm.province = province
+  addressForm.city = city
+  addressForm.district = district
+}
+
+/**
+ * 用定位自动填入省市区（打开配送地址表单时调用）。
+ *
+ * 只填**用户还没填**的字段（不覆盖手动修改）；任何失败都静默降级为手选 ——
+ * 省市区可以手选，不能因为定位失败就卡住下单。
+ * 微信 `getLocation` 的 `geocode` 会附带 address（省/市/区），但部分基础库或未开通位置服务时拿不到，
+ * 所以这里对字段名也做了兼容取值。
+ */
+async function locateForAddress(): Promise<void> {
+  try {
+    const result = await new Promise<{ latitude: number; longitude: number; address?: Record<string, string> }>((resolve, reject) => {
+      uni.getLocation({
+        type: 'gcj02',
+        geocode: true,
+        success: (res) => resolve(res as unknown as { latitude: number; longitude: number; address?: Record<string, string> }),
+        fail: () => reject(new Error('定位失败')),
+      })
+    })
+    locationResolved.value = true
+    addressForm.latitude = Number(result.latitude)
+    addressForm.longitude = Number(result.longitude)
+    const address = result.address || {}
+    const province = String(address.province || '')
+    const city = String(address.city || '')
+    const district = String(address.district || '')
+    if (!addressForm.province && province) addressForm.province = province
+    if (!addressForm.city && city) addressForm.city = city
+    if (!addressForm.district && district) addressForm.district = district
+  } catch {
+    // 定位被拒 / 超时 / 没返回省市区：静默降级为手选
+    locationResolved.value = false
+  }
+}
+
+/**
+ * 同城配送试算：发货门店 + 收货地址齐了才调，用于展示配送费 / 距离 / 预计送达与可送性。
+ * 试算失败**不静默按 0 收运费** —— 保留错误文案，并在提交时拦截。
+ */
+async function refreshDeliveryQuote(): Promise<void> {
+  if (pickupType.value !== 2 || !selectedShop.value || !selectedAddress.value) {
+    deliveryQuote.value = null
+    quoteError.value = ''
+    return
+  }
+  const address = selectedAddress.value
+  quoteLoading.value = true
+  quoteError.value = ''
+  try {
+    const quote = await quoteDelivery({
+      merchantId: selectedShop.value.id,
+      goodsAmount: subtotal.value,
+      // 同城必须有坐标：优先收货地址的定位，其次发货门店坐标（定位失败兜底）
+      receiverLat: address.latitude ?? selectedShop.value.latitude,
+      receiverLng: address.longitude ?? selectedShop.value.longitude,
+      address: fullAddress(address),
+    })
+    deliveryQuote.value = quote
+    if (quote && quote.canDelivery === false) {
+      quoteError.value = quote.reason && quote.reason !== 'ok' ? quote.reason : '该地址超出配送范围'
+    }
+  } catch {
+    deliveryQuote.value = null
+    quoteError.value = '配送费试算失败，请重试'
+  } finally {
+    quoteLoading.value = false
+  }
+}
+
+/** 同城相关的输入变化时重新试算（300ms 防抖，避免连续选择反复打接口）。 */
+let quoteTimer: ReturnType<typeof setTimeout> | null = null
+watch([pickupType, selectedShop, selectedAddress, subtotal], () => {
+  if (quoteTimer) clearTimeout(quoteTimer)
+  quoteTimer = setTimeout(() => { void refreshDeliveryQuote() }, 300)
 })
 
 /** 读取微信页面参数并初始化页面布局。 */
@@ -471,8 +611,10 @@ function selectPayMethod(method: PayMethod): void {
 
 /** 打开本地地址编辑抽屉。 */
 function openAddressEditor(): void {
-  Object.assign(addressForm, selectedAddress.value || { name: '', phone: '', detail: '' })
+  Object.assign(addressForm, selectedAddress.value || { name: '', phone: '', detail: '', province: '', city: '', district: '' })
   addressSheetVisible.value = true
+  // 打开表单时顺手定位一次：拿到省市区就自动填入（不覆盖用户已填），失败静默
+  void locateForAddress()
 }
 
 /** 校验并保存本地地址。 */
@@ -492,8 +634,19 @@ function saveAddress(): void {
     uni.showToast({ title: detail.message, icon: 'none' })
     return
   }
-  selectedAddress.value = { name: name.value, phone: phone.value, detail: detail.value }
+  selectedAddress.value = {
+    name: name.value,
+    phone: phone.value,
+    detail: detail.value,
+    province: addressForm.province,
+    city: addressForm.city,
+    district: addressForm.district,
+    ...(addressForm.latitude != null ? { latitude: addressForm.latitude } : {}),
+    ...(addressForm.longitude != null ? { longitude: addressForm.longitude } : {}),
+  }
   addressSheetVisible.value = false
+  // 地址变化后重算同城配送费（试算 watch 也会兜一次，这里显式调一次让反馈更即时）
+  void refreshDeliveryQuote()
 }
 
 /** 打开本地门店选择抽屉。 */
@@ -760,6 +913,28 @@ async function submitPayment(): Promise<void> {
     uni.showToast({ title: '请填写完整的自提联系方式', icon: 'none' })
     return
   }
+  // 同城配送：必须先选发货门店、填完整收货地址（含省市区，后端按完整地址与坐标配送）
+  if (!isExistingOrder && pickupType.value === 2 && !selectedShop.value) {
+    uni.showToast({ title: '请选择发货门店', icon: 'none' })
+    openShopPicker()
+    return
+  }
+  if (!isExistingOrder && pickupType.value === 2 && !selectedAddress.value) {
+    uni.showToast({ title: '请先添加配送地址', icon: 'none' })
+    openAddressEditor()
+    return
+  }
+  if (!isExistingOrder && pickupType.value === 2 && selectedAddress.value
+    && !(selectedAddress.value.province && selectedAddress.value.city && selectedAddress.value.district)) {
+    uni.showToast({ title: '请在配送地址里补全所在地区', icon: 'none' })
+    openAddressEditor()
+    return
+  }
+  // 试算说不可送就不放行（超配送范围 / 门店未开配送等），提示以后端 reason 为准
+  if (!isExistingOrder && pickupType.value === 2 && deliveryQuote.value && deliveryQuote.value.canDelivery === false) {
+    uni.showToast({ title: quoteError.value || '该地址超出配送范围', icon: 'none' })
+    return
+  }
   if (!validateCheckoutInputs(isExistingOrder)) {
     return
   }
@@ -779,12 +954,23 @@ async function submitPayment(): Promise<void> {
           ? { items: [{ skuId: directSkuId.value as number, quantity: directQuantity.value }] }
           : { cartIds: selectedCartIds.value }),
         pickupType: pickupType.value,
-        ...(pickupType.value === 0 && selectedAddress.value ? {
+        ...((pickupType.value === 0 || pickupType.value === 2) && selectedAddress.value ? {
           receiverName: selectedAddress.value.name,
           receiverPhone: selectedAddress.value.phone,
-          receiverAddress: selectedAddress.value.detail,
+          // 完整地址 = 省市区 + 详细地址；没填省市区时退化成原来的「只有详细地址」
+          receiverAddress: fullAddress(selectedAddress.value) || selectedAddress.value.detail,
+          ...(selectedAddress.value.province ? { receiverProvince: selectedAddress.value.province } : {}),
+          ...(selectedAddress.value.city ? { receiverCity: selectedAddress.value.city } : {}),
+          ...(selectedAddress.value.district ? { receiverDistrict: selectedAddress.value.district } : {}),
         } : {}),
         ...(pickupType.value === 1 && selectedShop.value ? { pickupShopId: selectedShop.value.id, receiverName: contactName.value.trim(), receiverPhone: contactPhone.value.trim() } : {}),
+        ...(pickupType.value === 2 && selectedShop.value ? {
+          // 发货门店：后端 OrderCreateDTO.merchantId 收的就是门店 ID
+          merchantId: selectedShop.value.id,
+          // 同城必须带坐标：收货地址定位优先，其次发货门店坐标（定位失败兜底）
+          receiverLat: selectedAddress.value?.latitude ?? selectedShop.value.latitude,
+          receiverLng: selectedAddress.value?.longitude ?? selectedShop.value.longitude,
+        } : {}),
         ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
       })
       const id = created.orderId ?? created.id
@@ -889,7 +1075,7 @@ function backToCart(): void {
         </view>
       </view>
 
-      <view v-show="pickupType === 0" class="section address-section">
+      <view v-show="pickupType === 0 || pickupType === 2" class="section address-section">
         <view class="section-row" @click="openAddressEditor">
           <view>
             <view class="row-heading">
@@ -914,6 +1100,23 @@ function backToCart(): void {
           </view>
           <text class="arrow">›</text>
         </view>
+      </view>
+
+      <!-- 同城配送：发货门店（必选）+ 试算结果（配送费 / 距离 / 是否可送） -->
+      <view v-show="pickupType === 2" class="section pickup-section">
+        <view class="section-row" @click="openShopPicker">
+          <view>
+            <text class="section-title">发货门店<span class="required">*</span></text>
+            <text v-if="selectedShop" class="address-value">{{ selectedShop.name }}</text>
+            <text v-if="selectedShop" class="address-detail">{{ selectedShop.address }}</text>
+            <text v-else class="placeholder-text">请选择发货门店</text>
+          </view>
+          <text class="arrow">›</text>
+        </view>
+        <text v-if="quoteError" class="quote-error">{{ quoteError }}</text>
+        <text v-else-if="quoteLoading" class="quote-hint">配送费试算中...</text>
+        <text v-else-if="deliveryQuote" class="quote-hint">距离 {{ deliveryQuote.distanceKm }}km · 预计 {{ deliveryQuote.estimatedDeliveryMinutes }} 分钟送达</text>
+        <text v-else-if="selectedShop && selectedAddress && !locationResolved" class="quote-hint">未获取到定位，配送距离按发货门店估算</text>
       </view>
 
       <view v-show="pickupType === 1" class="section contact-section">
@@ -1031,20 +1234,28 @@ function backToCart(): void {
     <view v-show="addressSheetVisible" class="mask" @click="addressSheetVisible = false">
       <view class="sheet" @click.stop>
         <view class="sheet-head"><text class="sheet-title">配送地址</text><text class="sheet-close" @click="addressSheetVisible = false">×</text></view>
+        <view class="sheet-form-line">
+          <text class="form-label">所在地区<span class="required">*</span></text>
+          <picker mode="region" :value="regionPickerValue" class="sheet-picker" @change="onRegionChange">
+            <text :class="regionPickerValue.length === 3 ? 'sheet-picker-value' : 'sheet-picker-placeholder'">{{ regionText }}</text>
+          </picker>
+        </view>
+        <view class="sheet-form-line"><text class="form-label">详细地址<span class="required">*</span></text><input v-model="addressForm.detail" class="sheet-input" maxlength="200" placeholder="街道、门牌号等" placeholder-class="input-placeholder" /></view>
         <view class="sheet-form-line"><text class="form-label">姓名<span class="required">*</span></text><input v-model="addressForm.name" class="sheet-input" maxlength="32" placeholder="请输入" placeholder-class="input-placeholder" /></view>
         <view class="sheet-form-line"><text class="form-label">手机号<span class="required">*</span></text><input v-model="addressForm.phone" class="sheet-input" type="number" maxlength="11" placeholder="请输入" placeholder-class="input-placeholder" /></view>
-        <view class="sheet-form-line"><text class="form-label">详细地址<span class="required">*</span></text><input v-model="addressForm.detail" class="sheet-input" maxlength="200" placeholder="请输入" placeholder-class="input-placeholder" /></view>
+        <text class="sheet-tip">已尝试按当前位置自动填入所在地区，可手动修改</text>
         <view class="sheet-submit" @click="saveAddress">保存地址</view>
       </view>
     </view>
 
     <view v-show="shopSheetVisible" class="mask" @click="shopSheetVisible = false">
       <view class="sheet shop-sheet" @click.stop>
-        <view class="sheet-head"><text class="sheet-title">选择门店</text><text class="sheet-close" @click="shopSheetVisible = false">×</text></view>
-        <view v-for="shop in shops" :key="shop.id" class="shop-option" :class="{ selected: selectedShop?.id === shop.id }" @click="chooseShop(shop)">
+        <view class="sheet-head"><text class="sheet-title">{{ shopSheetTitle }}</text><text class="sheet-close" @click="shopSheetVisible = false">×</text></view>
+        <view v-for="shop in pickerShops" :key="shop.id" class="shop-option" :class="{ selected: selectedShop?.id === shop.id }" @click="chooseShop(shop)">
           <view><text class="shop-name">{{ shop.name }}</text><text class="shop-address">{{ shop.address }}</text></view>
-          <text class="shop-distance">{{ shop.phone || '支持到店自提' }}</text>
+          <text class="shop-distance">{{ shop.phone || (pickupType === 2 ? '支持同城配送' : '支持到店自提') }}</text>
         </view>
+        <text v-if="!pickerShops.length" class="shop-empty">{{ pickupType === 2 ? '暂无门店开通同城配送' : '暂无可用门店' }}</text>
       </view>
     </view>
 
@@ -1173,4 +1384,13 @@ function backToCart(): void {
 .type-choice { display: flex; align-items: center; color: #555; font-size: 26rpx; }
 .type-choice.active { color: #222; font-weight: 600; }
 .drawer-fields { min-height: 0; }
+/* ===== 同城配送：试算提示与地址表单省市区 ===== */
+.quote-hint { display: block; margin-top: 12rpx; color: #86909c; font-size: 23rpx; }
+.quote-error { display: block; margin-top: 12rpx; color: #f53f3f; font-size: 23rpx; }
+.shop-empty { display: block; padding: 40rpx 0; color: #86909c; font-size: 25rpx; text-align: center; }
+/* 省市区三级联动：与其它 sheet 表单行同构，靠 padding 对齐 */
+.sheet-picker { flex: 1; min-width: 0; padding: 20rpx 0; }
+.sheet-picker-value { color: #222; font-size: 27rpx; }
+.sheet-picker-placeholder { color: #bbb; font-size: 27rpx; }
+.sheet-tip { display: block; margin-top: 16rpx; color: #86909c; font-size: 22rpx; }
 </style>

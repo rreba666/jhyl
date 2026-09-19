@@ -17,9 +17,19 @@ export interface CreateOrderDTO {
   receiverName?: string
   receiverPhone?: string
   receiverAddress?: string
+  /** 收货地址省 / 市 / 区（地址簿或前端解析上送；同城配送下单需要完整地址）。 */
+  receiverProvince?: string
+  receiverCity?: string
+  receiverDistrict?: string
+  /** 收货地址纬度（GCJ-02）——**同城配送必填**，前端定位获取。 */
+  receiverLat?: number
+  /** 收货地址经度（GCJ-02）——**同城配送必填**。 */
+  receiverLng?: number
   remark?: string
   pickupType: PickupType
   pickupShopId?: number
+  /** 发货门店 ID（**同城配送必填**：后端 `OrderCreateDTO.merchantId` 即发货门店）。 */
+  merchantId?: number
 }
 
 export interface OrderSummary {
