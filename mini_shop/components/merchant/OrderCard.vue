@@ -30,6 +30,18 @@ const riderText = computed(() => {
   return status ? `${name}-${status}` : name
 })
 
+/**
+ * 卡片编号**统一显示短号**（后 4 位），与骑手端 / 后台一致。
+ * ⚠️ 原先只有 B 型（进行中配送）显示短号、A 型显示完整订单号，同一种列表里两种编号很混乱
+ * （2026-09-19 用户反馈）；另外原兜底写死 `'001'`，后端一旦不下发 `shortNo` 就会全部撞号。
+ */
+function shortNo(o: MerchantOrderCardVO): string {
+  const provided = String(o.shortNo || '').trim()
+  if (provided) return provided
+  const no = String(o.orderNo || '')
+  return no ? no.slice(-4) : '—'
+}
+
 /** 商品行：列表最多展示 3 行，超出提示。 */
 const displayItems = computed(() => (props.order.items || []).slice(0, 3))
 const hiddenCount = computed(() => {
@@ -77,22 +89,17 @@ function onCopy(): void {
   <view class="card" hover-class="card-pressed" @click="emit('click', order)">
     <!-- 头部 -->
     <view class="head">
-      <!-- B 型：短号 + 骑手胶囊 -->
-      <template v-if="isTypeB">
-        <view class="short-chip">#{{ order.shortNo || '001' }}</view>
-        <view class="rider-pill">
-          <view class="rider-avatar" />
-          <text class="rider-name">{{ riderText }}</text>
-        </view>
-      </template>
-      <!-- A 型：订单号 + 复制 + 状态 -->
-      <template v-else>
-        <view class="order-no-wrap">
-          <text class="order-no">{{ order.orderNo || '—' }}</text>
-          <text class="copy-icon" @click.stop="onCopy">⧉</text>
-        </view>
-        <view class="status" :class="statusClass">{{ cardStatusText }}</view>
-      </template>
+      <!-- 编号统一用短号（点右侧 ⧉ 复制完整订单号），避免同一种卡片两种编号 -->
+      <view class="order-no-wrap">
+        <view class="short-chip">#{{ shortNo(order) }}</view>
+        <text class="copy-icon" @click.stop="onCopy">⧉</text>
+      </view>
+      <!-- B 型：进行中配送 → 显示骑手胶囊；A 型 → 显示状态文案 -->
+      <view v-if="isTypeB" class="rider-pill">
+        <view class="rider-avatar" />
+        <text class="rider-name">{{ riderText }}</text>
+      </view>
+      <view v-else class="status" :class="statusClass">{{ cardStatusText }}</view>
     </view>
 
     <!-- 主体 -->
