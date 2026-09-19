@@ -4,9 +4,9 @@ import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
-import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress, type DeliveryProgress } from '@/api/delivery-order'
+import { confirmReceiveDelivery, deliveryNodeText, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
-import { isApiRequestError } from '@/utils/request'
+import { isApiRequestError, resolveImageUrl } from '@/utils/request'
 import { cleanDigits, cleanText, validateMobile, validateText } from '@/utils/input-validation'
 import LoginGuide from '@/components/LoginGuide.vue'
 // @ts-ignore uqrcode 为 UMD 单文件库（随分包 subpkg-order 打包，避免主包出现未使用的 JS 文件）
@@ -305,6 +305,47 @@ const expectedClock = computed(
 )
 
 /**
+ * 顶部状态横幅文案。
+ * ⚠️ 同城订单优先显示**配送节点**（配送中/已送达…）—— 原来的「已支付」是交易状态，
+ * 订单都在配送中了还写「已支付」，看不出进度（2026-09-19 截图反馈）。
+ */
+const bannerText = computed(() => {
+  if (order.value?.pickupType !== 2) return order.value?.statusDesc || ''
+  return deliveryNodeText(order.value?.deliveryStatus, order.value?.statusDesc || '')
+})
+
+/** 送达照片（骑手送达时拍的）；未送达或接口无数据时为空。 */
+const deliveryProofs = ref<DeliveryProofVO[]>([])
+
+/** 拉取送达凭证。C 端接口按下单人校验，失败静默（不等于没有送达照片）。 */
+async function loadDeliveryProofs(orderNo?: string): Promise<void> {
+  if (!orderNo) { deliveryProofs.value = []; return }
+  try {
+    const list = await getOrderProofs(orderNo)
+    deliveryProofs.value = (Array.isArray(list) ? list : []).filter((item) => item?.objectKey)
+  } catch {
+    deliveryProofs.value = []
+  }
+}
+
+/** 预览送达照片。 */
+function previewProof(current: string): void {
+  const urls = deliveryProofs.value.map((item) => resolveImageUrl(String(item.objectKey || ''))).filter(Boolean)
+  if (!urls.length) return
+  uni.previewImage({ urls, current })
+}
+
+/** 复制骑手手机号（小程序不能直接给个人发消息，复制后可用微信/短信联系）。 */
+function copyRiderPhone(): void {
+  const phone = String(deliveryProgress.value?.riderPhone || '')
+  if (!phone) {
+    uni.showToast({ title: '暂无骑手联系方式', icon: 'none' })
+    return
+  }
+  uni.setClipboardData({ data: phone, success: () => uni.showToast({ title: '骑手号码已复制', icon: 'none' }) })
+}
+
+/**
  * 是否显示「确认收货」（同城配送）。
  * 同城订单**不会**在骑手送达时自动完成：任务送达后订单主状态仍是「履约中」（status=1），
  * 必须由用户确认才收口为「已完成」——所以在 `pickupType === 2 && node === 'DELIVERED'`
@@ -345,7 +386,7 @@ async function load(orderId: string, silent = false): Promise<void> {
   if (!silent) loading.value = true
   try {
     order.value = await getOrderDetail(orderId)
-    await Promise.all([loadPickupCode(orderId), loadPickupShop(), loadAfterSaleFlag(orderId), loadAddressChangeRequest(orderId), loadDeliveryProgress(order.value?.orderNo)])
+    await Promise.all([loadPickupCode(orderId), loadPickupShop(), loadAfterSaleFlag(orderId), loadAddressChangeRequest(orderId), loadDeliveryProgress(order.value?.orderNo), loadDeliveryProofs(order.value?.orderNo)])
   }
   catch (error) { if (!silent) errorMessage.value = error instanceof Error ? error.message : '订单详情加载失败' }
   finally {
@@ -571,7 +612,7 @@ onUnload(() => {
     <view v-show="loading" class="state">加载中...</view><view v-show="!loading && errorMessage" class="state error">{{ errorMessage }}</view>
     <scroll-view v-show="!loading && !errorMessage && order" class="content" scroll-y>
       <!-- 状态横幅（居中标签） -->
-      <view class="status-banner"><text class="status-banner-text">{{ order?.statusDesc }}</text></view>
+      <view class="status-banner"><text class="status-banner-text">{{ bannerText }}</text></view>
 
       <!-- 同城配送进度 + 骑手（仅有配送数据时展示；进度只展示不伪造） -->
       <!-- 同城订单但还没有配送进度时，也给一句阶段文案（否则整块消失，看不出到哪一步） -->
@@ -589,7 +630,24 @@ onUnload(() => {
         </view>
         <view v-if="deliveryProgress.riderName" class="delivery-rider">
           <text class="delivery-rider-name">配送骑手：{{ deliveryProgress.riderName }}</text>
-          <text class="delivery-call" @click="callRider">联系骑手</text>
+          <view class="delivery-actions">
+            <text class="delivery-call" @click="callRider">拨打电话</text>
+            <text class="delivery-call" @click="copyRiderPhone">复制号码</text>
+          </view>
+        </view>
+        <!-- 送达照片（骑手送达时拍的，用户本人可看；小程序不能给个人发消息，这里只能看凭证） -->
+        <view v-if="deliveryProofs.length" class="delivery-proofs">
+          <text class="delivery-proofs-title">送达照片</text>
+          <view class="delivery-proof-list">
+            <image
+              v-for="(proof, index) in deliveryProofs"
+              :key="`${proof.objectKey}-${index}`"
+              class="delivery-proof-image"
+              :src="resolveImageUrl(String(proof.objectKey || ''))"
+              mode="aspectFill"
+              @click="previewProof(resolveImageUrl(String(proof.objectKey || '')))"
+            />
+          </view>
         </view>
       </view>
 
@@ -688,4 +746,12 @@ onUnload(() => {
 .address-change-header { position: relative; display: flex; align-items: center; justify-content: center; min-height: 70rpx; }.address-change-title { color: #222; font-size: 30rpx; font-weight: 700; }.address-change-close { position: absolute; top: 50%; right: 0; color: #888; font-size: 42rpx; font-weight: 300; line-height: 1; transform: translateY(-50%); }
 .address-change-field { display: flex; align-items: center; min-height: 78rpx; margin-top: 16rpx; padding: 0 22rpx; background: #f7f7f7; box-sizing: border-box; }.address-change-label { flex: 0 0 132rpx; color: #333; font-size: 25rpx; white-space: nowrap; }.address-change-required { margin-left: 4rpx; color: #d40000; }.address-change-input { flex: 1; min-width: 0; height: 78rpx; color: #333; font-size: 25rpx; }
 .address-change-reason-field { margin-top: 16rpx; padding: 20rpx 22rpx; background: #f7f7f7; box-sizing: border-box; }.address-change-reason-field .address-change-label { display: block; }.address-change-textarea { width: 100%; min-height: 140rpx; margin-top: 14rpx; color: #333; font-size: 25rpx; line-height: 1.5; }.address-change-submit { display: flex; align-items: center; justify-content: center; height: 82rpx; margin-top: 24rpx; color: #fff; background: #050505; border-radius: 6rpx; font-size: 28rpx; }.address-change-submit.disabled { opacity: .55; pointer-events: none; }
+/* 骑手联系动作：拨号 + 复制号码（小程序没有给个人发消息的能力） */
+.delivery-actions { display: flex; align-items: center; }
+.delivery-actions .delivery-call { margin-left: 24rpx; }
+/* 送达照片：用户本人可看（防纠纷） */
+.delivery-proofs { margin-top: 18rpx; padding-top: 18rpx; border-top: 1rpx solid #f2f3f7; }
+.delivery-proofs-title { display: block; margin-bottom: 12rpx; color: #86909c; font-size: 23rpx; }
+.delivery-proof-list { display: flex; flex-wrap: wrap; }
+.delivery-proof-image { width: 150rpx; height: 150rpx; margin: 0 12rpx 12rpx 0; border-radius: 10rpx; background: #f2f3f7; }
 </style>

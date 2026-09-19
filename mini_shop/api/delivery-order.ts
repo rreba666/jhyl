@@ -86,6 +86,25 @@ export function deliveryNodeText(node?: string | number | null, fallback = ''): 
   return DELIVERY_NODE_TEXT[String(node || '')] || fallback
 }
 
+/** 送达凭证（照片）行。 */
+export interface DeliveryProofVO {
+  /** 图片 objectKey / URL（拼 URL 用 `resolveImageUrl`）。 */
+  objectKey?: string
+  /** 凭证类型，如 `PHOTO`。 */
+  proofType?: string
+  /** 上传时间。 */
+  createTime?: string
+}
+
+/**
+ * 查看本单的送达凭证（`GET /api/delivery/orders/{orderNo}/proofs`）。
+ * ⚠️ 这是 **C 端**接口（按下单人校验）：用户本人可查、骑手调用会 403
+ * （骑手端要用 `/api/delivery/tasks/{taskId}/proofs`）。
+ */
+export function getOrderProofs(orderNo: string): Promise<DeliveryProofVO[]> {
+  return request<DeliveryProofVO[]>({ url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/proofs`, method: 'GET' })
+}
+
 /** 配送试算结果（`POST /api/delivery/quote`）。 */export interface DeliveryQuote {
   merchantId?: number
   /** 是否可配送；false 时看 `reason`。 */
