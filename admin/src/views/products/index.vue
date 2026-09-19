@@ -79,10 +79,17 @@ function flattenCategories(nodes: CategoryNode[], parent = ''): Array<{ id: stri
   })
 }
 
-/** 复制详情数据到编辑表单，避免弹窗修改列表原数据。 */
+/**
+ * 复制详情数据到编辑表单，避免弹窗修改列表原数据。
+ *
+ * ⚠️ 后端 v2 商品详情**不返回规格名**（`skuList` 只有 `id/price/stock`），
+ * 所以这里给「单规格」商品补默认名「默认」；多规格留空、由保存前校验提示补填 ——
+ * 否则编辑任何商品都会卡在「请完善 SKU 名称」，看起来就像「保存按钮点了没反应」
+ * （2026-09-19 用户反馈；根因=后端详情缺字段，已登记给后端）。
+ */
 function fillForm(detail?: ProductDetail): void {
   const status = normalizeBinary(detail?.status ?? 1)
-  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 新增商品默认使用比例；编辑商品根据已保存金额恢复模式（后端暂无独立模式字段）。
   promotionUseDefault.value = detail ? isDefaultFundAmount(detail.promotionFund, detail.minPrice, getDefaultPromotionFund) : true
   dividendUseDefault.value = detail ? isDefaultFundAmount(detail.dividendFund, detail.minPrice, getDefaultDividendFund) : true
@@ -156,14 +163,19 @@ function toOptionalInteger(value: unknown): number | undefined {
 
 /** 保存商品并根据是否存在 ID 区分新增和编辑。 */
 async function submitForm(): Promise<void> {
-  if (!(await formRef.value?.validate().catch(() => false))) return
+  // 校验失败的字段级红字可能在弹窗滚动区之外 → 用户会以为「点了没反应」，这里补一句可见反馈
+  if (!(await formRef.value?.validate().catch(() => false))) {
+    ElMessage.warning('还有必填项未填写，请检查表单中标红的字段')
+    return
+  }
   if (!form.skuList.length) {
     ElMessage.error('至少需要一条 SKU')
     return
   }
   const invalidSku = form.skuList.find((sku) => !sku.skuName.trim() || sku.price < 0.01 || sku.stock < 0)
   if (invalidSku) {
-    ElMessage.error('请完善 SKU 名称、价格和库存')
+    // 明确指到 SKU 表格（规格名常因「后端详情不返回规格名」而回填为空，用户不看表格会一头雾水）
+    ElMessage.error('请补全 SKU 表格里的「规格名称 / 价格 / 库存」后再保存')
     return
   }
   if (normalizeBinary(form.status) === 0 && normalizeBinary(form.isRecommended) === 1) {

@@ -42,6 +42,13 @@ export interface ProductListItem {
 export interface ProductSku {
   id?: string
   skuName: string
+  /**
+   * 规格名（与商家端接口字段名对齐）。
+   * ⚠️ 后端 **v2 商品详情当前不返回规格名**（`skuList` 只有 `id/price/stock`），
+   * 只有商家端 `GET /api/merchant/products` 返回 `specName`；这里保留可选字段，
+   * 后端补齐后可直接使用（已登记为后端待补）。
+   */
+  specName?: string
   specs: string
   skuImage: string
   price: number
