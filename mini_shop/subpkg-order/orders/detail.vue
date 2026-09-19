@@ -296,6 +296,15 @@ const pendingDeliveryStage = computed(() =>
 )
 
 /**
+ * 承诺送达时刻，只取 `HH:mm`。
+ * ⚠️ 后端下发的是 ISO 串（`2026-09-19T14:34:10`），直接输出会原样显示成那串东西（2026-09-19 截图发现）；
+ * 骑手端同样用正则取 `HH:mm`，这里与它保持一致。同城配送都是当天件，所以不显示日期。
+ */
+const expectedClock = computed(
+  () => String(deliveryProgress.value?.expectedDeliverAt || '').match(/\d{2}:\d{2}/)?.[0] || '',
+)
+
+/**
  * 是否显示「确认收货」（同城配送）。
  * 同城订单**不会**在骑手送达时自动完成：任务送达后订单主状态仍是「履约中」（status=1），
  * 必须由用户确认才收口为「已完成」——所以在 `pickupType === 2 && node === 'DELIVERED'`
@@ -573,7 +582,7 @@ onUnload(() => {
         <view class="delivery-head">
           <text class="delivery-stage">{{ deliveryProgress.stage || '配送中' }}</text>
           <text v-if="deliveryProgress.remainingSeconds != null" class="delivery-eta">剩余 {{ Math.max(0, Math.ceil(deliveryProgress.remainingSeconds / 60)) }} 分钟</text>
-          <text v-else-if="deliveryProgress.expectedDeliverAt" class="delivery-eta">{{ deliveryProgress.expectedDeliverAt }} 前送达</text>
+          <text v-else-if="expectedClock" class="delivery-eta">{{ expectedClock }} 前送达</text>
         </view>
         <view v-if="deliveryProgress.progress != null" class="delivery-bar">
           <view class="delivery-bar-inner" :style="{ width: `${Math.min(100, Math.round(deliveryProgress.progress * 100))}%` }" />
