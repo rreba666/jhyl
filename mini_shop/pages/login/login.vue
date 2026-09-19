@@ -1,7 +1,7 @@
 <template>
   <view v-if="!restoringSession" class="login-page">
     <view class="login-card">
-      <image class="logo" src="/static/logo.png" mode="aspectFit" />
+      <image class="logo" src="/static/logo.webp" mode="aspectFit" />
       <text class="title">欢迎来到商城</text>
       <text class="subtitle">授权手机号后即可开始购物</text>
       <view class="privacy-agreement" @click="privacyAgreed = !privacyAgreed">

@@ -20,11 +20,11 @@ type LayoutMode = 'grid' | 'list'
 
 /** 兜底金刚区（后端未配置时使用）。 */
 const defaultCategories: Array<{ label: string; icon: string; background: string; iconOffset: { left: number; top: number } }> = [
-  { label: '营养膳食', icon: '/static/figma-home/category-nutrition.png', background: '/static/figma-home/category-nutrition-bg.svg', iconOffset: { left: -2, top: 4 } },
-  { label: '风生水起', icon: '/static/figma-home/category-water.png', background: '/static/figma-home/category-water-bg.svg', iconOffset: { left: -2, top: 6 } },
-  { label: '纸定发财', icon: '/static/figma-home/category-paper.png', background: '/static/figma-home/category-paper-bg.svg', iconOffset: { left: -1.5, top: 3 } },
-  { label: '非遗老号', icon: '/static/figma-home/category-heritage.png', background: '/static/figma-home/category-heritage-bg.svg', iconOffset: { left: -1, top: 6 } },
-  { label: '国家地标', icon: '/static/figma-home/category-landmark.png', background: '/static/figma-home/category-landmark-bg.svg', iconOffset: { left: -1, top: 2 } },
+  { label: '营养膳食', icon: '/static/figma-home/category-nutrition.webp', background: '/static/figma-home/category-nutrition-bg.svg', iconOffset: { left: -2, top: 4 } },
+  { label: '风生水起', icon: '/static/figma-home/category-water.webp', background: '/static/figma-home/category-water-bg.svg', iconOffset: { left: -2, top: 6 } },
+  { label: '纸定发财', icon: '/static/figma-home/category-paper.webp', background: '/static/figma-home/category-paper-bg.svg', iconOffset: { left: -1.5, top: 3 } },
+  { label: '非遗老号', icon: '/static/figma-home/category-heritage.webp', background: '/static/figma-home/category-heritage-bg.svg', iconOffset: { left: -1, top: 6 } },
+  { label: '国家地标', icon: '/static/figma-home/category-landmark.webp', background: '/static/figma-home/category-landmark-bg.svg', iconOffset: { left: -1, top: 2 } },
 ]
 
 /** 后端返回的金刚区（含跳转）；为空时用默认。 */
@@ -64,7 +64,7 @@ async function loadHomepage(): Promise<void> {
   const data = await getHomepageData()
   // 大图轮播（V2 heroImages，含点击跳转）；为空回退默认图
   const hero = (data.heroImages || []).filter((item) => Boolean(item.url))
-  heroImages.value = hero.length ? hero : [{ url: '/static/figma-home/hero-banner.png', linkType: 'page', linkValue: '' }]
+  heroImages.value = hero.length ? hero : [{ url: '/static/figma-home/hero-banner.webp', linkType: 'page', linkValue: '' }]
   // 金刚区（V2 kingkong）；为空时用默认（categories 兜底）
   kingkongItems.value = data.kingkong || []
   // 福利区（V2 welfare）
@@ -214,7 +214,7 @@ onShow(() => {
   <view class="home-page">
     <view class="top-shell" :class="{ scrolled: navScrolled }" :style="navStyle">
       <view class="brand-row">
-        <image class="brand-logo" src="/static/figma-home/brand-logo.png" mode="aspectFit" />
+        <image class="brand-logo" src="/static/figma-home/brand-logo.webp" mode="aspectFit" />
       </view>
       <view class="search-row">
         <view class="search-pill" @click="goSearch">
@@ -239,7 +239,7 @@ onShow(() => {
         </swiper-item>
       </swiper>
       <view class="hero-caption">
-        <image class="hero-caption-logo" src="/static/figma-home/hero-caption-logo.png" mode="aspectFit" />
+        <image class="hero-caption-logo" src="/static/figma-home/hero-caption-logo.webp" mode="aspectFit" />
         <text>为美好生活而来，精选好物，让安心品质走进每个家</text>
       </view>
     </view>
@@ -252,7 +252,7 @@ onShow(() => {
 
     <view class="product-section">
       <view class="product-toolbar">
-        <image class="section-logo" src="/static/figma-home/section-logo.png" mode="aspectFit" />
+        <image class="section-logo" src="/static/figma-home/section-logo.webp" mode="aspectFit" />
         <HomeLayoutToggle v-model="layoutMode" />
       </view>
 
@@ -300,7 +300,10 @@ onShow(() => {
 .hero-module { width: calc(100% - 16px); margin-bottom: 12px; padding-bottom: 16rpx; box-sizing: border-box; overflow: hidden; border-radius: 16rpx; background: #148c48; }
 .hero-swiper, .hero-placeholder { width: 100%; height: 280rpx; overflow: hidden; border-radius: 16rpx; }
 .hero-placeholder { background: #f1f2f4; }
-.hero-slide { position: relative; width: 100%; height: 280rpx; overflow: hidden; border-radius: 16rpx; background: #bd2626; }
+/* 占位底色必须用浅灰（与 .hero-placeholder 一致）。
+   原来是一个深红：hero 图带透明边、或还没加载完时会沿图片四周露出，看起来就像给轮播图加了红框
+   —— 与商品卡 .product-image 那个老问题同类（2026-09-19 一并修）。 */
+.hero-slide { position: relative; width: 100%; height: 280rpx; overflow: hidden; border-radius: 16rpx; background: #f1f2f4; }
 .hero-image { display: block; width: 100%; height: 100%; }
 .hero-caption { display: flex; align-items: center; gap: 8rpx; padding: 16rpx 24rpx 0; color: #fff; font-size: 24rpx; line-height: 40rpx; }
 .hero-caption-logo { width: 128rpx; height: 36rpx; flex-shrink: 0; }

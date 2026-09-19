@@ -354,7 +354,7 @@ function goBack(): void {
 /** 配置微信转发卡片，转发后仍回到推广收益页。 */
 onShareAppMessage(() => {
   const path = buildPromotionSharePath('/pages/index/index')
-  return { title: '今华有肽，年轻常在', path, imageUrl: '/static/logo.png' }
+  return { title: '今华有肽，年轻常在', path, imageUrl: '/static/logo.webp' }
 })
 
 /** 捕获推广收益页的原生分享参数，兼容已登录用户扫码后直接补绑定。 */
@@ -383,7 +383,7 @@ onShow(() => {
 <template>
   <view class="page">
     <view class="nav" :style="navStyle">
-      <image class="back-button" src="/static/left_arrow.png" mode="aspectFit" @click="goBack" />
+      <image class="back-button" src="/static/left_arrow.webp" mode="aspectFit" @click="goBack" />
     </view>
 
     <!-- promotion 模块停用：拦截推广/红包（深链防护） -->
@@ -400,7 +400,7 @@ onShow(() => {
         </view>
 
         <view class="balance-card">
-          <image class="promotion-background" src="/static/Promotion/推广背景_slices/推广背景@2x.png" mode="scaleToFill" />
+          <image class="promotion-background" src="/static/Promotion/推广背景_slices/推广背景@2x.webp" mode="scaleToFill" />
           <view class="balance-amount">
             <text class="balance-value" @click="showPromotionIncomeInfo">{{ formatMoney(promotionBalanceAmount) }}</text>
             <text v-if="promotionSettling" class="balance-settling" @click="showPromotionIncomeInfo">结算中</text>
@@ -417,14 +417,14 @@ onShow(() => {
 
         <view class="stats-row">
           <view class="stat-card">
-            <image class="stat-icon-image" src="/static/Promotion/推广金_slices/推广金.png" mode="aspectFit" />
+            <image class="stat-icon-image" src="/static/Promotion/推广金_slices/推广金.webp" mode="aspectFit" />
             <view class="stat-copy">
               <text class="stat-value">{{ totalPromotionText }}</text>
               <text class="stat-label">累计推广（元）</text>
             </view>
           </view>
           <view class="stat-card">
-            <image class="stat-icon-image" src="/static/Promotion/绑定人数_slices/绑定人数.png" mode="aspectFit" />
+            <image class="stat-icon-image" src="/static/Promotion/绑定人数_slices/绑定人数.webp" mode="aspectFit" />
             <view class="stat-copy">
               <text class="stat-value">{{ boundUserCountText }}</text>
               <text class="stat-label">绑定总数（人）</text>

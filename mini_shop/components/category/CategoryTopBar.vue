@@ -26,7 +26,7 @@ function goBack(): void {
   <view class="category-topbar" :class="{ light, fixed }" :style="topbarStyle">
     <view class="category-topbar-row">
       <view class="category-back" @click="goBack">
-        <image class="category-back-icon" src="/static/left_arrow.png" mode="aspectFit" />
+        <image class="category-back-icon" src="/static/left_arrow.webp" mode="aspectFit" />
       </view>
       <text class="category-topbar-title">{{ title }}</text>
       <view class="category-topbar-spacer" />

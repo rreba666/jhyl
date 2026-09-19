@@ -157,7 +157,7 @@ onShow(() => { void refreshData() })
 
 <template>
   <view class="page">
-    <view class="nav" :style="navStyle"><image class="back-button" src="/static/left_arrow.png" mode="aspectFit" @click="goBack" /></view>
+    <view class="nav" :style="navStyle"><image class="back-button" src="/static/left_arrow.webp" mode="aspectFit" @click="goBack" /></view>
 
     <!-- promotion 模块停用：拦截平台红包（深链防护） -->
     <view v-if="!promotionEnabled" class="module-blocked">
@@ -172,7 +172,7 @@ onShow(() => { void refreshData() })
         </view>
 
         <view class="packet-card">
-          <image class="packet-bg" src="/static/bg/红包页背景.jpg" mode="aspectFill" />
+          <image class="packet-bg" src="/static/bg/红包页背景.webp" mode="aspectFill" />
           <text class="packet-amount">{{ formatPoints(bonusAmount) }}</text>
           <view class="convert-btn" :class="{ disabled: converting || bonusAmount <= 0 }" @click="convertBonus">转余额</view>
         </view>

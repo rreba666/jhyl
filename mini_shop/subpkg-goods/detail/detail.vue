@@ -255,7 +255,7 @@ onShow(() => {
 <template>
   <view class="detail-page">
     <view class="nav" :style="navStyle">
-      <image class="back-button" src="/static/left_arrow.png" mode="aspectFit" @click="goBack" />
+      <image class="back-button" src="/static/left_arrow.webp" mode="aspectFit" @click="goBack" />
     </view>
 
     <scroll-view class="detail-scroll" scroll-y :style="{ paddingTop: `${bodyTop}px` }">
@@ -273,8 +273,8 @@ onShow(() => {
           <view class="title-row">
             <text class="name">{{ product?.name }}</text>
             <view class="title-icons">
-              <image class="title-icon" :src="favorite ? '/static/ProductDetails/已收藏_slices/已收藏.png' : '/static/ProductDetails/收藏_slices/收藏.png'" mode="aspectFit" @click="toggleFavorite" />
-              <image class="title-icon" src="/static/ProductDetails/分享_slices/分享.png" mode="aspectFit" @click="openShareSheet" />
+              <image class="title-icon" :src="favorite ? '/static/ProductDetails/已收藏_slices/已收藏.webp' : '/static/ProductDetails/收藏_slices/收藏.webp'" mode="aspectFit" @click="toggleFavorite" />
+              <image class="title-icon" src="/static/ProductDetails/分享_slices/分享.webp" mode="aspectFit" @click="openShareSheet" />
             </view>
           </view>
           <text class="description">{{ product?.description || product?.descriptionTitle || '' }}</text>
@@ -286,8 +286,8 @@ onShow(() => {
           </view>
 
           <view class="tag-row">
-            <view class="tag"><image class="tag-icon" src="/static/ProductDetails/包邮_slices/包邮.png" mode="aspectFit" /><text>包邮</text></view>
-            <view class="tag"><image class="tag-icon" src="/static/ProductDetails/七天无理由_slices/七天无理由.png" mode="aspectFit" /><text>七天无理由</text></view>
+            <view class="tag"><image class="tag-icon" src="/static/ProductDetails/包邮_slices/包邮.webp" mode="aspectFit" /><text>包邮</text></view>
+            <view class="tag"><image class="tag-icon" src="/static/ProductDetails/七天无理由_slices/七天无理由.webp" mode="aspectFit" /><text>七天无理由</text></view>
           </view>
         </view>
 
@@ -299,7 +299,7 @@ onShow(() => {
     </scroll-view>
 
     <view v-show="!loading && !errorMessage && product" class="product-detail-actions">
-      <view class="cart-action" @click="goCart"><image class="cart-icon" src="/static/ProductDetails/购物车_slices/购物车.png" mode="aspectFit" /><text>购物车</text></view>
+      <view class="cart-action" @click="goCart"><image class="cart-icon" src="/static/ProductDetails/购物车_slices/购物车.webp" mode="aspectFit" /><text>购物车</text></view>
       <view class="action-button add-button" @click="addProductToCart">加入购物车</view>
       <view class="action-button buy-button" :class="{ disabled: paymentNavigationLoading }" @click="buyNow">{{ paymentNavigationLoading ? '打开中...' : '立即支付' }}</view>
     </view>

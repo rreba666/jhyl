@@ -13,7 +13,7 @@ const emit = defineEmits<{
   select: [id: string]
 }>()
 
-const imageUrl = computed(() => props.product.mainImage || '/static/figma-home/product-default.png')
+const imageUrl = computed(() => props.product.mainImage || '/static/figma-home/product-default.webp')
 const description = computed(() => props.product.descriptionTitle || props.product.tag || '精选好物，安心品质')
 /**
  * 后台「推荐文本」开关：关闭时不渲染描述行。

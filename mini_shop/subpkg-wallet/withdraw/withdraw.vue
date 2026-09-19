@@ -693,7 +693,7 @@ onUnload(() => {
 <template>
   <view class="page">
     <view class="nav" :style="navStyle">
-      <image class="back-button" src="/static/left_arrow.png" mode="aspectFit" @click="goBack" />
+      <image class="back-button" src="/static/left_arrow.webp" mode="aspectFit" @click="goBack" />
       <text class="nav-title">余额转账</text>
       <view class="nav-spacer" />
     </view>
@@ -707,7 +707,7 @@ onUnload(() => {
     <scroll-view v-if="registeredUser && walletEnabled" class="page-scroll" scroll-y :style="bodyStyle">
       <view class="page-content">
         <view class="hero-card">
-          <image class="hero-card-bg" src="/static/bg/钱包页背景.png" mode="aspectFill" />
+          <image class="hero-card-bg" src="/static/bg/钱包页背景.webp" mode="aspectFill" />
           <text class="hero-label">可转账余额</text>
           <text class="hero-value">{{ formatMoney(availableBalance) }}</text>
           <text class="hero-subtitle">1:1 提现</text>

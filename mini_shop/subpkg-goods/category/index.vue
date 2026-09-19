@@ -40,16 +40,16 @@ const navigationThrottle = createThrottle(500)
 
 /** 内置默认品牌（后台未配置品牌时回退，logo 用本地静态图）。 */
 const DEFAULT_BRANDS = [
-  { name: '胡庆余堂', image: '/static/figma-category/brands/hu-qing-yu-tang.png' },
-  { name: '湖北白鸭', image: '/static/figma-category/brands/hu-bei-bai-ya.png' },
-  { name: '方家铺子', image: '/static/figma-category/brands/fang-jia-pu-zi.png' },
-  { name: '海天', image: '/static/figma-category/brands/hai-tian.png' },
-  { name: '巧媳妇', image: '/static/figma-category/brands/qiao-xi-fu.png' },
-  { name: '火宫殿', image: '/static/figma-category/brands/huo-gong-dian.png' },
-  { name: '义利', image: '/static/figma-category/brands/yi-li.png' },
-  { name: '珠江桥牌', image: '/static/figma-category/brands/zhu-jiang-qiao-pai.png' },
-  { name: '张小泉', image: '/static/figma-category/brands/zhang-xiao-quan.png' },
-  { name: '稻香村', image: '/static/figma-category/brands/dao-xiang-cun.png' },
+  { name: '胡庆余堂', image: '/static/figma-category/brands/hu-qing-yu-tang.webp' },
+  { name: '湖北白鸭', image: '/static/figma-category/brands/hu-bei-bai-ya.webp' },
+  { name: '方家铺子', image: '/static/figma-category/brands/fang-jia-pu-zi.webp' },
+  { name: '海天', image: '/static/figma-category/brands/hai-tian.webp' },
+  { name: '巧媳妇', image: '/static/figma-category/brands/qiao-xi-fu.webp' },
+  { name: '火宫殿', image: '/static/figma-category/brands/huo-gong-dian.webp' },
+  { name: '义利', image: '/static/figma-category/brands/yi-li.webp' },
+  { name: '珠江桥牌', image: '/static/figma-category/brands/zhu-jiang-qiao-pai.webp' },
+  { name: '张小泉', image: '/static/figma-category/brands/zhang-xiao-quan.webp' },
+  { name: '稻香村', image: '/static/figma-category/brands/dao-xiang-cun.webp' },
 ]
 /** 品牌项：id 为空表示兜底品牌（不可按品牌筛选）。 */
 interface BrandItem { id: number | null; name: string; image: string }
@@ -76,10 +76,10 @@ const fallbackCategories: CategoryNode[] = [
 
 const themeConfig = computed(() => {
   const base = theme.value === 'heritage'
-    ? { title: '非遗老号', mode: 'grid' as const, hero: '', className: 'theme-heritage', fallbackImage: '/static/figma-category/product-main-heritage.png', subtitle: '自然植萃麦角硫因&萝卜硫苷内外兼顾多项专利、实验临床', location: '', templateType: 'brandGrid' as const, headImageHeight: 0, backgroundColor: '#fff', categoryNames: ['非遗老号', '非遗老字号'] }
+    ? { title: '非遗老号', mode: 'grid' as const, hero: '', className: 'theme-heritage', fallbackImage: '/static/figma-category/product-main-heritage.webp', subtitle: '自然植萃麦角硫因&萝卜硫苷内外兼顾多项专利、实验临床', location: '', templateType: 'brandGrid' as const, headImageHeight: 0, backgroundColor: '#fff', categoryNames: ['非遗老号', '非遗老字号'] }
     : theme.value === 'landmark'
-      ? { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/landmark-hero.png', className: 'theme-landmark', fallbackImage: '/static/figma-category/product-main-2.png', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
-      : { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/nutrition-hero.png', className: 'theme-nutrition', fallbackImage: '/static/figma-category/product-main-1.png', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
+      ? { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/landmark-hero.webp', className: 'theme-landmark', fallbackImage: '/static/figma-category/product-main-2.webp', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
+      : { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/nutrition-hero.webp', className: 'theme-nutrition', fallbackImage: '/static/figma-category/product-main-1.webp', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
   if (!landing.value) return base
   const l = landing.value
   return {
@@ -327,7 +327,7 @@ onMounted(() => {
     </view>
 
     <view v-else class="heritage-header">
-      <image class="heritage-header-glow" src="/static/design-cuts/figma-category/heritage-header.png" mode="scaleToFill" />
+      <image class="heritage-header-glow" src="/static/design-cuts/figma-category/heritage-header.webp" mode="scaleToFill" />
       <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" :fixed="true" @back="goBack" />
       <view class="brand-strip">
         <scroll-view class="brand-scroll" scroll-x :show-scrollbar="false">
@@ -391,7 +391,7 @@ onMounted(() => {
 
     <view v-if="brandExpanded" class="brand-expanded-layer" @click="brandExpanded = false">
       <view class="brand-expanded-panel" @click.stop>
-        <image class="heritage-header-glow expanded" src="/static/design-cuts/figma-category/heritage-expanded-header.png" mode="scaleToFill" />
+        <image class="heritage-header-glow expanded" src="/static/design-cuts/figma-category/heritage-expanded-header.webp" mode="scaleToFill" />
         <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" @back="goBack" />
         <view class="brand-expanded-grid">
           <view v-for="brand in expandedBrands" :key="brandKey(brand)" class="brand-item" :class="{ selected: selectedBrandKey === brandKey(brand) }" @click="selectBrand(brand)">

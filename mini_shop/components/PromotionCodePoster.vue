@@ -25,9 +25,9 @@ interface PosterCanvasNode {
 }
 
 const PROMOTION_BACKGROUND_PATHS = [
-  '../static/bg/promotion-code-poster.png',
-  '../../static/bg/promotion-code-poster.png',
-  '/static/bg/promotion-code-poster.png',
+  '../static/bg/promotion-code-poster.webp',
+  '../../static/bg/promotion-code-poster.webp',
+  '/static/bg/promotion-code-poster.webp',
 ] as const
 
 const props = defineProps<{
@@ -285,7 +285,7 @@ async function shareToFriend(): Promise<void> {
   <view v-show="modelValue" class="promotion-code-mask" :style="maskStyle" @click="close">
     <view class="promotion-code-dialog" @click.stop>
       <view class="promotion-code-sheet">
-        <image class="promotion-code-bg" src="/static/bg/promotion-code-poster.png" mode="aspectFit" />
+        <image class="promotion-code-bg" src="/static/bg/promotion-code-poster.webp" mode="aspectFit" />
         <text class="promotion-code-close" @click="close">×</text>
         <view v-show="loading" class="promotion-code-loading">推广码生成中...</view>
         <image v-show="!loading && codeUrl" class="promotion-code-image" :src="codeUrl" mode="aspectFit" />

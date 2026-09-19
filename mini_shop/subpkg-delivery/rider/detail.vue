@@ -83,9 +83,9 @@ const stageText = computed(() => ({ picking: '待取货', delivering: '配送中
  * 颜色：当前阶段 = 主色 `#FF5500`、已经过的阶段 = 深灰 `#1D2129`、未到 = 浅灰 `#86909C`。
  */
 const stageNodes = [
-  { key: 'picking', label: '待取货', image: '/static/rider/to-pickup.png' },
-  { key: 'delivering', label: '配送中', image: '/static/rider/delivering.png' },
-  { key: 'done', label: '已完成', image: '/static/rider/completed.png' },
+  { key: 'picking', label: '待取货', image: '/static/rider/to-pickup.webp' },
+  { key: 'delivering', label: '配送中', image: '/static/rider/delivering.webp' },
+  { key: 'done', label: '已完成', image: '/static/rider/completed.webp' },
 ]
 /** 阶段进度：已取消停在第一步（异常态在模板里不渲染阶段指示）。 */
 const stageIndex = computed(() => (stage.value === 'picking' || stage.value === 'cancelled' ? 1 : stage.value === 'delivering' ? 2 : 3))
@@ -456,7 +456,7 @@ onUnload(() => {
           <!-- 异常态：特殊头部（设计稿 12 的 Frame 158/154） -->
           <template v-if="stage === 'exception'">
             <view class="exception-head">
-              <image class="exception-head-bg" src="/static/rider/delivery-issue.jpg" mode="aspectFill" />
+              <image class="exception-head-bg" src="/static/rider/delivery-issue.webp" mode="aspectFill" />
               <view class="exception-head-body">
                 <view class="exception-title-row">
                   <text class="rider-icon rider-icon-jingbao exception-icon" />
