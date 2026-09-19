@@ -856,8 +856,11 @@ onUnload(() => {
 .map-eta { position: absolute; top: 23rpx; left: 23rpx; display: flex; flex-direction: row; align-items: center; height: 50rpx; padding: 0 14rpx; border-radius: 8rpx; background: #fff4e8; }
 .map-eta-dot { width: 12rpx; height: 12rpx; margin-right: 8rpx; border-radius: 50%; background: #ff5500; }
 .map-eta-text { color: #ff5500; font-size: 27rpx; }
-/* 距离气泡：cover-view 对 transform 支持不稳，这里用「固定宽度 + margin-left 负半宽 + 内容居中」代替 left:50%+translateX */
-.map-distance { position: absolute; top: 90rpx; left: 50%; display: flex; flex-direction: row; align-items: center; justify-content: center; width: 340rpx; height: 58rpx; margin-left: -170rpx; border-radius: 9999rpx; background: #fff; }
+/* 距离气泡：改到**左下角**。
+   原来水平居中（top: 90rpx + left: 50% + 负半宽），正好压在地图中央的路线上（用户反馈"挡住地图了"）；
+   现在贴左下：顶部留给「预计送达」，右下留给骑手图标，地图主体完整可见。
+   cover-view 对 transform 支持不稳，所以仍用「固定宽度」写法，只换定位。 */
+.map-distance { position: absolute; bottom: 23rpx; left: 23rpx; display: flex; flex-direction: row; align-items: center; justify-content: center; width: 340rpx; height: 58rpx; border-radius: 9999rpx; background: #fff; }
 .map-distance-text { color: #1d2129; font-size: 21rpx; }
 /* 距离数值在稿中是 11px/510 橙色（同一文本节点里的字符级样式） */
 .map-distance-km { margin-left: 6rpx; color: #ff5500; font-size: 21rpx; font-weight: 500; }
