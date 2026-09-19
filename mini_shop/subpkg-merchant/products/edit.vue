@@ -63,7 +63,8 @@ function fillFromEditCache(): void {
   title.value = cached.name || ''
   if (cached.mainImage) mainImages.value = [cached.mainImage]
   skus.value = (cached.skus || []).map((s) => ({
-    specName: s.skuName || '',
+    // 列表返回的规格名字段是 `specName`（不是 skuName）：读错会让编辑时规格名回填为空，一提交就报「请填写规格名称」
+    specName: s.specName || '',
     price: Number(s.price) || 0,
     stock: Number(s.stock) || 0,
   }))

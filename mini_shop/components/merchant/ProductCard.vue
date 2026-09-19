@@ -48,7 +48,8 @@ const stockText = computed(() => {
 /** 规格文案：取首个启用规格名；多规格追加「等 N 个规格」。 */
 const specText = computed(() => {
   const skus = props.product.skus || []
-  const first = skus[0]?.skuName || ''
+  // 列表返回的规格字段是 specName（2026-09-19 按 api_doc 与真实响应修正，此前误用 skuName）
+  const first = skus[0]?.specName || ''
   const count = props.product.skuCount ?? skus.length
   if (count > 1) return first ? `${first} 等${count}个规格` : `${count}个规格`
   return first

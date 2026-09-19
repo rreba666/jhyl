@@ -61,24 +61,22 @@ export function getMyMerchantApply(): Promise<MerchantApplyVO | null> {
 
 // ===== 商家端 · 商品管理（/api/merchant/products/**） =====
 
-/** SKU 规格明细（列表返回，与新增/编辑请求体 `skus[]` 同构）。 */
+/**
+ * SKU 规格明细（**列表返回**）。
+ * ⚠️ 字段名**以实际响应为准**：`{skuId, specName, price, stock}`。
+ * 2026-09-19 复核 `api_doc.json` 与真实响应后修正 —— 此前这里写的是 `id` / `skuName`，
+ * 导致编辑商品回填时规格名读不到（变成空串，一提交就报「请填写规格名称」）。
+ * 提交用的结构与 `MerchantSkuItem` 一致（`{specName, price, stock}`）。
+ */
 export interface MerchantSkuVO {
   /** SKU ID（下单时标识具体规格）。 */
-  id?: number
-  /** SKU 规格名称（文本摘要，如「大果-5斤装」）。 */
-  skuName?: string
-  /** SKU 规格属性 JSON（结构化，前端据此渲染规格选择器）。 */
-  specs?: string
-  /** SKU 规格图片 URL。 */
-  skuImage?: string
-  /** SKU 售价（下单成交价，元）。 */
+  skuId?: number
+  /** 规格名称（文本摘要，如「大果-5斤装」）。 */
+  specName?: string
+  /** 规格售价（下单成交价，元）。 */
   price?: number
-  /** SKU 划线价/原价（元）。 */
-  originalPrice?: number
   /** 当前库存。 */
   stock?: number
-  /** SKU 是否启用：0=禁用, 1=启用。 */
-  enabled?: number
 }
 
 /** 商品目录列表项（对应 MerchantProductVO）。 */
@@ -435,10 +433,19 @@ export interface MerchantOverviewVO {
   pendingPickupCount?: number
   /** 异常单数（delivery_status=EXCEPTION）。 */
   exceptionCount?: number
+  /** 配送中数（`PICKED_UP/DELIVERING/NEARBY/PAUSED`，同订单页签 DELIVERING）——2026-09-19 后端补齐。 */
+  deliveringCount?: number
+  /** 已完成数（`DELIVERED/COMPLETED` 或自提已核销，同订单页签 DONE）——2026-09-19 后端补齐。 */
+  doneCount?: number
+  /**
+   * 低库存商品数（本店已上架商品中品牌级总量 ≤ 100 件的数量）——2026-09-19 后端补齐。
+   * 阈值 100 目前硬编码在后端；门店未绑定品牌商家时恒为 0。
+   */
+  lowStockCount?: number
   /**
    * 服务分（设计稿顶部数据条第三格）。
-   * ⚠️ 后端**暂未下发**该字段（已登记在 `商家端-后端需求-2026-09-18.md` P1-2 / 后端需求汇总-2026-09-19 §七），
-   * 前端按设计稿先占位显示「—」，后端一旦下发即自动展示，不需要再改代码。
+   * ⚠️ 后端标注为**占位字段（待开发）**：待开发期**不下发该键**（不是 `null` 值），
+   * 前端按「未下发」显示「—」，**不要写 0**（0 会被商家理解成真实评分为 0 分）。
    */
   serviceScore?: number
 }

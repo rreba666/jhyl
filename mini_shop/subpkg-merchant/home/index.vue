@@ -14,10 +14,8 @@ import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   getMerchantOverview,
-  getMerchantOrders,
   getMerchantProducts,
   type MerchantOverviewVO,
-  type MerchantProductVO,
 } from '@/api/merchant'
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
 import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
@@ -36,22 +34,9 @@ const roleSwitching = ref(false)
 const selectedRoleKey = ref('CUSTOMER')
 
 const overview = ref<MerchantOverviewVO>({})
-/** 四宫格计数：商品（已上架 / 待上架 / 库存预警）。 */
+/** 四宫格计数：商品（已上架 / 待上架）。库存预警与订单计数都用后端 overview 的权威字段。 */
 const onSaleCount = ref(0)
 const offSaleCount = ref(0)
-const warningCount = ref(0)
-/** 四宫格计数：订单（配送中 / 已完成；「待配送」由 overview 的待接单+待取货算出）。 */
-const deliveringCount = ref(0)
-const doneCount = ref(0)
-
-/** 库存预警阈值（与商品列表页同一口径：设计稿示例 100，阈值待产品确认）。 */
-const LOW_STOCK_THRESHOLD = 100
-/**
- * 库存预警一次最多统计的在售商品条数。
- * 后端**没有**「库存预警计数」字段、商品列表也不支持按库存筛选，只能在拉回的在售列表里本地过滤，
- * 所以在售商品超过这个条数时计数会偏小 —— 已在后端需求稿登记 `lowStockCount`。
- */
-const LOW_STOCK_SCAN_LIMIT = 100
 
 onLoad(() => {
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
@@ -64,7 +49,6 @@ onShow(() => {
   void loadUser()
   void loadOverview()
   void loadProductCounts()
-  void loadOrderCounts()
 })
 
 /** 问候语按时间段。 */
@@ -84,51 +68,35 @@ async function loadOverview(): Promise<void> {
   }
 }
 
-/**
- * 商品计数（四宫格「新增商品」「商品管理」两张卡，设计稿：已上架/待上架、在售商品/库存预警）。
- * 在售列表顺带算库存预警：一次请求同时拿到「已上架」总数与低库存商品，避免多打一次接口。
- */
+/** 商品计数（四宫格「新增商品」卡：已上架 / 待上架）——两个总数仍来自商品列表接口。 */
 async function loadProductCounts(): Promise<void> {
   try {
     const [onSale, offSale] = await Promise.all([
-      getMerchantProducts({ status: 1, page: 1, pageSize: LOW_STOCK_SCAN_LIMIT }),
+      getMerchantProducts({ status: 1, page: 1, pageSize: 1 }),
       getMerchantProducts({ status: 0, page: 1, pageSize: 1 }),
     ])
     onSaleCount.value = Number(onSale?.total || 0)
     offSaleCount.value = Number(offSale?.total || 0)
-    warningCount.value = (onSale?.list || []).filter((item) => effectiveStock(item) <= LOW_STOCK_THRESHOLD).length
   } catch {
     // 忽略
   }
-}
-
-/** 订单计数（四宫格「订单管理」卡）：只取页签 total，pageSize=1 不拉数据。 */
-async function loadOrderCounts(): Promise<void> {
-  try {
-    const [delivering, done] = await Promise.all([
-      getMerchantOrders({ tab: 'DELIVERING', page: 1, pageSize: 1 }),
-      getMerchantOrders({ tab: 'DONE', page: 1, pageSize: 1 }),
-    ])
-    deliveringCount.value = Number(delivering?.total || 0)
-    doneCount.value = Number(done?.total || 0)
-  } catch {
-    // 忽略
-  }
-}
-
-/** 有效库存（门店库存优先，否则品牌总库存）——与商品列表页同口径。 */
-function effectiveStock(product: MerchantProductVO): number {
-  const value = product.shopStock ?? product.totalStock
-  return value == null ? 0 : Number(value)
 }
 
 /**
- * 「待配送」= 待接单 + 待取货（设计稿口径：尚未被骑手取货的订单都算待配送）。
- * 两个数都在 overview 里，不用额外请求。
+ * 四宫格订单与库存计数：**全部改用后端 `overview` 的权威计数**
+ * （2026-09-19 后端补齐 `deliveringCount` / `doneCount` / `lowStockCount`）。
+ *
+ * 在此之前前端只能自己凑：打 2 个订单列表请求取页签 total 当「配送中/已完成」，
+ * 并拉在售列表在本地按阈值过滤算「库存预警」（在售商品超过 100 条时还会偏小）——
+ * 这些替代方案现已全部删除，同时首页少打 2 个请求。
  */
 const pendingDeliverCount = computed(
   () => Number(overview.value.pendingAcceptCount || 0) + Number(overview.value.pendingPickupCount || 0),
 )
+const deliveringCount = computed(() => Number(overview.value.deliveringCount || 0))
+const doneCount = computed(() => Number(overview.value.doneCount || 0))
+/** 库存预警：后端按「本店已上架且品牌级总量 ≤ 100」统计（阈值硬编码在后端，与商品列表页 Tab 同口径）。 */
+const warningCount = computed(() => Number(overview.value.lowStockCount || 0))
 
 /** 金额格式化：千分位 + 两位小数。 */
 function money(value?: number): string {
