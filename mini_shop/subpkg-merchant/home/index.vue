@@ -13,8 +13,8 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
+  countMerchantProducts,
   getMerchantOverview,
-  getMerchantProducts,
   type MerchantOverviewVO,
 } from '@/api/merchant'
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
@@ -68,15 +68,16 @@ async function loadOverview(): Promise<void> {
   }
 }
 
-/** 商品计数（四宫格「新增商品」卡：已上架 / 待上架）——两个总数仍来自商品列表接口。 */
+/**
+ * 商品计数（四宫格「新增商品」卡：已上架 / 待上架）。
+ * 用 `countMerchantProducts()` 按**返回条数**统计，而不是接口的 `total`
+ * —— 后端 `total` 未按 `status` 过滤，直接读会让「待上架」虚高（门店明明没有未上架商品却显示 1）。
+ */
 async function loadProductCounts(): Promise<void> {
   try {
-    const [onSale, offSale] = await Promise.all([
-      getMerchantProducts({ status: 1, page: 1, pageSize: 1 }),
-      getMerchantProducts({ status: 0, page: 1, pageSize: 1 }),
-    ])
-    onSaleCount.value = Number(onSale?.total || 0)
-    offSaleCount.value = Number(offSale?.total || 0)
+    const [onSale, offSale] = await Promise.all([countMerchantProducts(1), countMerchantProducts(0)])
+    onSaleCount.value = onSale
+    offSaleCount.value = offSale
   } catch {
     // 忽略
   }

@@ -139,6 +139,25 @@ export function updateProductStatus(productId: number, status: 0 | 1): Promise<v
   return request<void>({ url: `/api/merchant/products/${productId}/status?status=${status}`, method: 'PUT' })
 }
 
+/** 前端自算商品数量时一次最多统计多少条（见 `countMerchantProducts` 的口径说明）。 */
+export const PRODUCT_COUNT_SCAN_LIMIT = 100
+
+/**
+ * 统计本店「已上架 / 待上架」商品数。
+ *
+ * ⚠️ **不能直接用接口返回的 `total`**：2026-09-19 实测后端 `total` **未按 `status` 过滤**
+ * （门店只有 1 个上架商品时，`status=0` 仍返回 `total=1` 而 `list` 为空），
+ * 表现就是工作台「新增商品」卡与商品管理页 Tab **同时虚高**：明明没有待上架商品却显示 1。
+ * 所以这里按返回的 `list` 条数统计。
+ *
+ * 局限：商品数超过 `PRODUCT_COUNT_SCAN_LIMIT` 时会偏小 —— 等后端修好 `total` 的过滤
+ * （已登记 `后端需求汇总-2026-09-19.md` §十三）后，这里改回读 `total` 即可。
+ */
+export async function countMerchantProducts(status: 0 | 1): Promise<number> {
+  const result = await getMerchantProducts({ status, page: 1, pageSize: PRODUCT_COUNT_SCAN_LIMIT })
+  return Array.isArray(result?.list) ? result.list.length : 0
+}
+
 /** 设置门店库存。stock 传数值即单独控库存。 */
 export function updateProductStock(productId: number, stock: number): Promise<void> {
   return request<void>({ url: `/api/merchant/products/${productId}/stock?stock=${stock}`, method: 'PUT' })

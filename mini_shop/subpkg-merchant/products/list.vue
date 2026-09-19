@@ -14,6 +14,7 @@ import { computed, reactive, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   batchUpdateProducts,
+  countMerchantProducts,
   getMerchantProducts,
   updateProductPrice,
   updateProductStatus,
@@ -109,27 +110,15 @@ onShow(() => {
 })
 
 /**
- * 按接口返回推算 Tab 数字。
- * ⚠️ 后端 `status` 过滤的 `total` 有 bug（2026-09-19 实测：门店只有 1 个**上架**商品，
- * `status=0` 仍返回 `total=1` 但 `list=[]` —— `total` 没有跟随 status 过滤，恒等于门店商品总数），
- * 直接信 `total` 会让 Tab 显示「仓库中 1」而点进去是空的。
- * 所以：**一条都拿不到 ⇒ 该 Tab 确实没有数据，计 0**；拿得到才用 total（后端修好后自动精确）。
+ * 拉取在售中 / 仓库中的数量（用于 Tab 数字），失败静默置 0。
+ * ⚠️ 走 `countMerchantProducts()` 按**返回条数**统计，不能信接口的 `total`
+ * （后端 `total` 未按 `status` 过滤，会让 Tab 显示「仓库中 1」而点进去是空的）。
  */
-function countOf(res: { list?: MerchantProductVO[]; total?: number } | undefined): number {
-  const list = Array.isArray(res?.list) ? res.list : []
-  if (!list.length) return 0
-  return Number(res?.total || 0)
-}
-
-/** 拉取在售中 / 仓库中的数量（用于 Tab 数字），失败静默置 0。 */
 async function refreshTabCounts(): Promise<void> {
   try {
-    const [onSale, offSale] = await Promise.all([
-      getMerchantProducts({ status: 1, page: 1, pageSize: 1 }),
-      getMerchantProducts({ status: 0, page: 1, pageSize: 1 }),
-    ])
-    tabCounts.onSale = countOf(onSale)
-    tabCounts.offSale = countOf(offSale)
+    const [onSale, offSale] = await Promise.all([countMerchantProducts(1), countMerchantProducts(0)])
+    tabCounts.onSale = onSale
+    tabCounts.offSale = offSale
   } catch {
     // 忽略：Tab 数字不影响主流程
   }
@@ -157,7 +146,7 @@ async function loadList(reset = false): Promise<void> {
     products.value = isFirst ? list : [...products.value, ...list]
     total.value = Number(result?.total || 0)
     // 第一页为空 ⇒ 当前 Tab 确实没有商品：把 total 与 Tab 数字一起归零
-    // （后端 total 未按 status 过滤，见 countOf 注释；列表数据本身是正确的）
+    // （后端 total 未按 status 过滤，见 countMerchantProducts 的口径说明；列表数据本身是正确的）
     if (isFirst && list.length === 0) {
       total.value = 0
       tabCounts[activeTab.value] = 0
