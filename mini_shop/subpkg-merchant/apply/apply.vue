@@ -43,8 +43,12 @@ const statusHint = computed(() => {
   if (!item) return ''
   if (item.status === 0) return '资料已提交，平台正在审核（1–3 个工作日）。'
   if (item.status === 2) return '申请未通过，请按驳回原因修改后重新提交（同名品牌可直接重提）。'
-  if (!item.backendAccountIssued) return '审核已通过，客服正在发放商家账号（工号+密码）。'
-  return '商家账号已发放，请到「我的 → 我的身份」进入门店管理。'
+  // 入驻审核通过会**同时**授予「商家 MERCHANT_OWNER」与「首店店长 MANAGER」两个身份，
+  // 而**店长身份不需要工号**（只有商家主账号卡工号）→ 通过后立刻就能进小程序「门店管理」。
+  // `backendAccountIssued` 只决定能否登 PC 控制台 / H5 核销页，**不阻塞小程序入口**，
+  // 所以两种状态都不该让用户以为"还要等发号"。
+  if (!item.backendAccountIssued) return '审核已通过，已开通「门店管理」，可到「我的 → 我的身份」进入；商家工号（登录 PC 控制台用）由客服另行发放，不影响小程序使用。'
+  return '审核已通过，商家工号已发放；可到「我的 → 我的身份」进入门店管理，工号用于登录 PC 控制台。'
 })
 
 /** 状态栏高度：本页是 navigationStyle: custom，必须自己避开状态栏与右上角胶囊按钮，否则内容会顶头。 */
@@ -166,7 +170,7 @@ async function submit(): Promise<void> {
   }
 }
 
-/** 返回上一页（已发号时引导用户去「我的身份」）。 */
+/** 返回上一页：审核通过后用户可在「我的身份」进入门店管理（不依赖是否已发号）。 */
 function goBack(): void {
   uni.navigateBack()
 }
@@ -204,13 +208,14 @@ function goBack(): void {
         </view>
 
         <text class="hint">{{ statusHint }}</text>
-        <button v-if="apply.status === 1 && apply.backendAccountIssued" class="btn" @click="goBack">去「我的身份」进入门店管理</button>
+        <!-- 审核通过即可进门店管理（走店长身份、免工号）；工号只影响 PC 控制台，不作为入口前置条件 -->
+        <button v-if="apply.status === 1" class="btn" @click="goBack">去「我的身份」进入门店管理</button>
       </view>
 
       <!-- 表单：未申请过 / 已驳回重提 -->
       <view v-else class="card">
         <text class="card-title">商家入驻申请</text>
-        <text class="hint">提交后由平台客服审核；审核通过并发放商家账号（工号+密码）后，可在「我的 → 我的身份」进入门店管理。</text>
+        <text class="hint">提交后由平台客服审核；审核通过即可在「我的 → 我的身份」进入门店管理。商家工号（登录 PC 控制台用）由客服另行发放，不影响小程序使用。</text>
 
         <!-- 驳回后重提：显示上次驳回原因 -->
         <view v-if="apply && apply.status === 2" class="reject-box">

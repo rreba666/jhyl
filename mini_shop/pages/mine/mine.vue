@@ -251,6 +251,25 @@ const showIdentitySection = computed(() => Boolean(
   && (identity.value.identities.length || identity.value.pendingIdentities.length),
 ))
 
+/**
+ * 身份区实际渲染的行：已开通身份在前、待开通占位在后，**并按 targetPage 去重**。
+ *
+ * 为什么必须去重（2026-09-19 后端行为变更）：入驻审核通过会**同时**授予
+ * 「商家（MERCHANT_OWNER）」与「首店店长（MANAGER）」两个身份 —— 店长身份让
+ * `identities[]` 里出现一张**可点**的「门店管理」；而 `pendingIdentities[]` 那个置灰占位
+ * 是按「商家账号有没有发工号」判断的，**未发号期间仍会下发**同名的「门店管理（待开通）」。
+ * 两组直接渲染，用户就会看到两个「门店管理」。
+ * 口径见 docs/商家端-入驻身份与通知-方案架构-2026-09-19.md §十-①。
+ */
+const identityRows = computed<IdentityItem[]>(() => {
+  const owned = identity.value?.identities || []
+  const ownedTargets = new Set(owned.map((item) => item.targetPage || 'CUSTOMER'))
+  const pending = (identity.value?.pendingIdentities || []).filter(
+    (item) => !ownedTargets.has(item.targetPage || 'CUSTOMER'),
+  )
+  return [...owned, ...pending]
+})
+
 /** 点击身份卡：切换身份并按 entry 跳对应工作台（token 不变）。 */
 async function goIdentity(item: IdentityItem): Promise<void> {
   if (item.pending || !item.bindingId) {
@@ -682,29 +701,19 @@ onShow(() => { void refreshData() })
       <view v-if="showIdentitySection" class="identity-section">
         <view class="identity-head"><text class="identity-title">我的身份</text></view>
         <view class="identity-list">
+          <!-- 已开通 + 待开通合并渲染（identityRows 已按 targetPage 去重，避免两个「门店管理」） -->
           <view
-            v-for="(item, index) in (identity?.identities || [])"
-            :key="`i-${item.bindingId ?? index}`"
+            v-for="(item, index) in identityRows"
+            :key="`id-${item.bindingId ?? item.targetPage ?? index}`"
             class="identity-card"
+            :class="{ 'identity-card-pending': item.pending }"
             @click="goIdentity(item)"
           >
             <view class="identity-card-main">
               <text class="identity-label">{{ item.label }}</text>
-              <text class="identity-sub">{{ item.merchantName || item.shopName || '' }}</text>
+              <text class="identity-sub">{{ item.pending ? (item.hint || '等待客服开通账号后即可使用') : (item.merchantName || item.shopName || '') }}</text>
             </view>
-            <text class="identity-action">进入</text>
-          </view>
-          <view
-            v-for="(item, index) in (identity?.pendingIdentities || [])"
-            :key="`p-${index}`"
-            class="identity-card identity-card-pending"
-            @click="goIdentity(item)"
-          >
-            <view class="identity-card-main">
-              <text class="identity-label">{{ item.label }}</text>
-              <text class="identity-sub">{{ item.hint || '等待客服开通账号后即可使用' }}</text>
-            </view>
-            <text class="identity-action">待开通</text>
+            <text class="identity-action">{{ item.pending ? '待开通' : '进入' }}</text>
           </view>
         </view>
       </view>

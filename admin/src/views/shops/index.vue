@@ -17,11 +17,20 @@ const restorableSelected = computed(() => selected.value.filter((shop) => shop.d
 const formVisible = ref(false)
 const editingId = ref<string>()
 const formRef = ref<FormInstance>()
-const form = reactive<ShopCreateDTO>({ name: '', address: '', phone: '' })
-const rules: FormRules = {
+const form = reactive<ShopCreateDTO>({ name: '', address: '', phone: '', merchantId: '' })
+/**
+ * 表单校验规则。
+ * 「所属品牌」只在**新增**时必填 —— 漏选会让门店 `merchant_id` 为空，
+ * 商家端商品管理会报 `7310 该门店未归属品牌商家`；
+ * 编辑时留空表示「不传 merchantId = 不改归属」（契约见 `ShopUpdateDTO`）。
+ */
+const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: '请输入门店名称', trigger: 'blur' }],
   address: [{ required: true, message: '请输入门店地址', trigger: 'blur' }],
-}
+  merchantId: editingId.value
+    ? []
+    : [{ required: true, message: '请选择所属品牌', trigger: 'change' }],
+}))
 
 // ===== 品牌（商户）维度 =====
 /** 品牌下拉数据（`GET /api/admin/merchants/list`）。 */
@@ -72,10 +81,16 @@ async function onBrandChange(): Promise<void> {
   }
 }
 
-/** 清空并打开门店编辑表单。 */
+/** 清空并打开门店编辑表单（编辑时回显所属品牌，便于改归属）。 */
 function openForm(shop?: Shop): void {
   editingId.value = shop?.id
-  Object.assign(form, { name: shop?.name || '', address: shop?.address || '', phone: shop?.phone || '' })
+  Object.assign(form, {
+    name: shop?.name || '',
+    address: shop?.address || '',
+    phone: shop?.phone || '',
+    // merchantId 为 null 表示平台自营单店 → 下拉按空串处理
+    merchantId: shop?.merchantId ? String(shop.merchantId) : '',
+  })
   formVisible.value = true
 }
 
@@ -84,7 +99,10 @@ async function submitForm(): Promise<void> {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
   try {
-    await store.save(editingId.value, { ...form })
+    // 编辑时「不传 merchantId = 不改归属」：只有真的选了品牌才带上，避免冲掉已有归属
+    const payload: ShopCreateDTO = { name: form.name, address: form.address, phone: form.phone }
+    if (form.merchantId) payload.merchantId = form.merchantId
+    await store.save(editingId.value, payload)
     formVisible.value = false
     ElMessage.success(editingId.value ? '门店已更新' : '门店已新增')
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : '门店保存失败') }
@@ -216,7 +234,7 @@ onMounted(() => {
       </DataTable>
     </el-card>
     <el-dialog v-model="formVisible" :title="editingId ? '编辑门店' : '新增门店'" width="520px" append-to-body>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /></el-form-item></el-form>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。漏选会让门店没有归属、商家端商品管理报 7310；编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /></el-form-item></el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving" @click="submitForm">保存</el-button></template>
     </el-dialog>
   </section>
@@ -233,4 +251,5 @@ onMounted(() => {
 /* 品牌维度 */
 .brand-tip { margin: 0 0 10px; font-size: 13px; }
 .brand-id { margin-left: 6px; font-size: 12px; }
+.field-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 </style>

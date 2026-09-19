@@ -25,6 +25,13 @@ export interface ShopCreateDTO {
   name: string
   address: string
   phone: string
+  /**
+   * 所属品牌商家 ID（V1.17 新增）。
+   * 新增门店：中控为品牌开店时必填，平台自营单店可空；
+   * 编辑门店：**不传 = 不改归属**，传了 = 改到该品牌。
+   * 门店 `merchant_id` 为空时，商家端商品管理会报 `7310 该门店未归属品牌商家`。
+   */
+  merchantId?: number | string
 }
 
 export type ShopUpdateDTO = ShopCreateDTO
