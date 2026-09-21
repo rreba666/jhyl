@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
-import { cancelOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
+import { cancelOrder, fastRefundOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
+// 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单详情页共用同一套口径
+import { canFastRefund } from '@/utils/refund-window'
 import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
@@ -257,6 +259,41 @@ async function refund(order: OrderSummary): Promise<void> {
   }
 }
 
+/**
+ * **秒退**（支付后 30 分钟内）：免人工审核、提交后立即原路退款。
+ * 窗口口径见 `utils/refund-window.ts` 的 `canFastRefund`；超出 30 分钟时按钮会变回「退款」（人工审核）。
+ */
+async function refundFast(order: OrderSummary): Promise<void> {
+  if (actionLoading.value) return
+  actionLoading.value = `refund-fast:${order.id}`
+  const confirmed = await new Promise<boolean>((resolve) => {
+    uni.showModal({
+      title: '立即退款',
+      content: '「秒退」提交后立即原路退款，无需客服审核。确定现在退款吗？',
+      success: (res) => resolve(res.confirm),
+      fail: () => resolve(false),
+    })
+  })
+  if (!confirmed) { actionLoading.value = null; return }
+  try {
+    await fastRefundOrder(order.id)
+    uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
+    // 与人工退款保持一致：跳到「退款售后」分类，让用户看到进度
+    activeIndex.value = AFTER_SALE_TAB_INDEX
+    await load(true)
+  } catch (error) {
+    if (isApiRequestError(error) && error.code === 8705) {
+      uni.showToast({ title: '该订单已提交过售后', icon: 'none' })
+      activeIndex.value = AFTER_SALE_TAB_INDEX
+      await load(true)
+      return
+    }
+    uni.showToast({ title: error instanceof Error ? error.message : '退款失败', icon: 'none' })
+  } finally {
+    actionLoading.value = null
+  }
+}
+
 /** 格式化金额：整数去掉小数位。 */
 function formatAmount(value: number): string {
   return Number(value || 0).toFixed(2).replace(/\.00$/, '')
@@ -357,6 +394,8 @@ onShow(() => {
             </template>
             <template v-if="order.status === 1 && order.pickupType === 1">
               <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
+              <!-- 秒退：支付后 30 分钟内可免审核立即退款（与订单详情页同一口径，见 utils/refund-window.ts） -->
+              <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="refundFast(order)">{{ actionLoading === 'refund-fast:' + order.id ? '处理中...' : '立即退款' }}</text>
               <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '退款' }}</text>
               <text class="btn primary" @click.stop="openDetail(order)">去自提</text>
             </template>
@@ -365,6 +404,14 @@ onShow(() => {
                  原来那种直接拿列表字段与节点字符串比较的写法恒假，按钮永远不出现（详见本文件 progressNodeMap 上的注释）。 -->
             <template v-if="order.pickupType === 2">
               <text class="btn outline" @click.stop="openDetail(order)">查看详情</text>
+              <!-- 同城单此前**一个退款入口都没有**（只有查看详情 / 送达后的确认收货）→ 这里补齐：
+                   秒退（支付后 30 分钟内）→「立即退款」；否则 →「申请退款」（人工审核，与自提单一致）。
+                   ⚠️ 只在「未送达」时给退款入口：已送达应走确认收货/售后，避免与确认收货按钮打架。 -->
+              <template v-if="order.status === 1 && progressNodeMap[order.orderNo] !== 'DELIVERED'">
+                <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
+                <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="refundFast(order)">{{ actionLoading === 'refund-fast:' + order.id ? '处理中...' : '立即退款' }}</text>
+                <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '申请退款' }}</text>
+              </template>
               <text v-if="order.pickupType === 2 && order.status === 1 && progressNodeMap[order.orderNo] === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>
             </template>
           </view>

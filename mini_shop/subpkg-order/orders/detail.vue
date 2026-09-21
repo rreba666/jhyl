@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref, watch } from 'vue'
-import { cancelOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
+import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
+// 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
+import { canFastRefund } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
 import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
@@ -556,7 +558,7 @@ watch(addressChangeForm, () => {
   }
 }, { deep: true })
 
-async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'): Promise<void> {
+async function action(type: 'cancel' | 'receive' | 'refund' | 'refund-fast' | 'confirm-delivery'): Promise<void> {
   if (!order.value || actionLoading.value) return
   actionLoading.value = true
   try {
@@ -567,6 +569,14 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'
       await confirmReceiveDelivery(String(order.value.orderNo || ''))
       uni.showToast({ title: '已确认收货', icon: 'success' })
       await load(String(order.value.id))
+      return
+    }
+    // 秒退：支付后 30 分钟内免人工审核、立即原路退款（窗口判断见 utils/refund-window.ts 的 canFastRefund）
+    if (type === 'refund-fast') {
+      await fastRefundOrder(order.value.id)
+      uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
+      // 与人工退款一致：跳到「退款售后」分类看进度
+      uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
       return
     }
     if (type === 'refund') {
@@ -737,7 +747,7 @@ onUnload(() => {
         </view>
       </view>
 
-      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
+      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefund" :disabled="actionLoading" @click="action('refund-fast')">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->

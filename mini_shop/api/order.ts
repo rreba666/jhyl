@@ -72,6 +72,13 @@ export interface OrderSummary {
   deliveryFee?: number
   /** 支付截止时间（格式 yyyy-MM-dd HH:mm:ss，仅待付款订单有值，前端据此倒计时） */
   payExpireTime?: string
+  /**
+   * **支付完成时间**（`yyyy-MM-dd HH:mm:ss`）。
+   * ⚠️ 字段缺口（2026-09-21 实测）：**订单详情接口会下发，订单列表接口不返回**。
+   * 前端用它判断「秒退」窗口（支付后 30 分钟内），列表页暂时退回 `createTime` 近似
+   * —— 详见 `utils/refund-window.ts` 文件头，那里也记了"建议后端在列表补该字段"。
+   */
+  payTime?: string
   /** 第一件商品名（列表卡片标题，待后端在列表接口补字段） */
   firstProductName?: string
   /**
@@ -243,7 +250,20 @@ export function receiveOrder(orderId: number | string): Promise<void> {
   return request<void>({ url: `/api/order/receive/${orderId}`, method: 'POST' })
 }
 
-/** 申请订单退款。 */
+/** 申请订单退款（**人工审核**：提交后进入售后单流程，客服审核通过才到账）。 */
 export function refundOrder(orderId: number | string, reason?: string): Promise<void> {
   return request<void>({ url: `/api/order/refund/${orderId}`, method: 'POST', data: reason ? { reason } : {} })
+}
+
+/**
+ * **秒退**：已支付且未发货/未核销的订单**免人工审核**，提交后立即触发退款（原路退回）。
+ *
+ * 契约：`POST /api/order/refund/fast/{orderId}`（`api_doc.json` 摘要「秒退（已支付未发货，免人工审核）」，
+ * 入参与 `refundOrder` 同为可空的 `OrderRefundDTO`，这里跟随姊妹项目「今华有肽」的用法传空对象）。
+ *
+ * ⚠️ 前端**只在「支付后 30 分钟内」显示秒退入口**（见 `utils/refund-window.ts` 的 `canFastRefund`）——
+ * 这是产品规则；接口本身的窗口以后端为准（若后端拒绝，提示用户改走「申请退款」）。
+ */
+export function fastRefundOrder(orderId: number | string): Promise<void> {
+  return request<void>({ url: `/api/order/refund/fast/${orderId}`, method: 'POST', data: {} })
 }
