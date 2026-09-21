@@ -221,7 +221,58 @@ export async function getMyRiderStats(shopId?: number | string, range = 'DAY'): 
   return unwrap(await request.get<ShopDeliveryResponse<ShopRiderStats>>('/api/admin/delivery/my/rider-stats', { params }), '骑手业绩查询失败')
 }
 
-/** 本店配送规则（**只读**：配送费/规则由平台统一设置）。 */
+/** 本店配送规则（`GET`，返回体与商家端 `GET /api/merchant/delivery/rules` 一致）。 */
 export async function getMyRules(shopId?: number | string): Promise<DeliveryRule | null> {
   return unwrap(await request.get<ShopDeliveryResponse<DeliveryRule>>('/api/admin/delivery/my/rules', { params: shopQuery(shopId) }), '配送规则查询失败')
+}
+
+/**
+ * 配送规则保存入参（`RuleSaveDTO`，2026-09-21 新增的平台写接口）。
+ *
+ * ⚠️ 三条必须守住的口径（摘自 `api_doc.json` 里 `POST /api/admin/delivery/my/rules` 的描述原文）：
+ * 1. **未传字段 = 保持不变**（缺省用 `null` 表示"不改"，**不是**"改回默认值"）；
+ * 2. `businessHours` / `cancelFeePolicy` / `feeConfig` 是 **JSON 列**，接受两种写法：
+ *    字符串简写（如 `09:00-22:00` → 后端自动转成 `{"start":"09:00","end":"22:00"}`）
+ *    或**直接给 JSON 串**（推荐）；
+ * 3. `couponEnabled` / `subsidyEnabled` 是 V1 占位开关，**禁止传 true**（传了报 `1000`）
+ *    —— 所以本前端**刻意不提交这两个字段**，只在页面上只读展示。
+ *
+ * `feeType` / `feeConfig`（配送费）技术上可传，但业务口径是**平台统一配置**，
+ * 写入口在「同城配送管理 → 配送费配置」（`POST /api/admin/delivery/fee-config`），
+ * 本面板不编辑它们，避免出现两个互相打架的入口。
+ */
+export interface RuleSaveDTO {
+  /** `1`=开放该店同城配送（写入 `delivery_rules.enabled` 即等价于"该店能被 C 端选中"）。 */
+  enabled?: number
+  maxDistanceKm?: number
+  minOrderAmount?: number
+  /** JSON 串，如 `{"start":"09:00","end":"22:00"}`。 */
+  businessHours?: string
+  estimatedPrepareMinutes?: number
+  estimatedDeliveryMinutes?: number
+  cancelFeePolicy?: string
+  proofTypes?: string
+  pickupCodeEnabled?: number
+  feeType?: string
+  feeConfig?: string
+}
+
+/**
+ * 保存本店配送规则（**平台写接口**，2026-09-21 新增，对应我方向后端提的需求 §一 P0）。
+ *
+ * **为什么必须补这个入口**：此前口径是"门店配送规则只能由平台设置、后台只读"，但平台侧
+ * **当时并没有写接口**、商家端也没有「配送设置」页 —— 结果是**两端都没有入口**：
+ * 新入驻门店 `delivery_rules` 无记录、`enabled=0`，C 端结算页不列出该店，
+ * **同城单根本下不进来**（V1.22 已改口径并补上本接口）。
+ *
+ * 语义：该店无规则则**创建**、有则**更新**（upsert）；未传字段 = 保持不变。
+ * 权限：`SUPER_ADMIN` / `CUSTOMER_SERVICE`；平台账号**必须带 `shopId`**，商户管理员只能改自己绑定的门店。
+ * 留痕：`operation=ADMIN_DELIVERY_RULES_SAVE`、`targetType=SHOP`，**带前后快照**。
+ * 返回：保存后的完整规则对象（与 `GET` 同结构）—— 调用方可直接回填，**无需二次拉取**。
+ */
+export async function saveMyRules(shopId: number | string | undefined, payload: RuleSaveDTO): Promise<DeliveryRule | null> {
+  return unwrap(
+    await request.post<ShopDeliveryResponse<DeliveryRule>>('/api/admin/delivery/my/rules', payload, { params: shopQuery(shopId) }),
+    '配送规则保存失败',
+  )
 }
