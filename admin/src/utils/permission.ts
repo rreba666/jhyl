@@ -40,18 +40,19 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/dashboard', '/merchant', '/homepage', '/homepage/bottom-recommendation', '/announcement',
     '/users', '/products', '/categories', '/brands', '/delivery', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/profit', '/wallets', '/transfers',
-    '/withdraw', '/logs/verify', '/logs/audit', '/admins', '/merchants', '/settings',
+    '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/admins', '/merchants', '/settings',
   ],
   ADMIN: [
+    // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
     '/dashboard', '/merchant', '/products', '/shops', '/staff', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/logs/verify', '/logs/audit', '/shop-console', '/shop-delivery',
   ],
   CUSTOMER_SERVICE: [
     '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/shops', '/orders', '/orders/pickup',
-    '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify',
+    '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
   ],
   FINANCE: [
-    '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/logs/audit', '/shops',
+    '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/logs/audit', '/logs/ledger', '/shops',
   ],
 }
 
@@ -84,6 +85,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/withdraw': '提现审核',
   '/logs/verify': '核销日志',
   '/logs/audit': '操作追溯',
+  '/logs/ledger': '留痕台账',
   '/settings': '业务设置',
 }
 

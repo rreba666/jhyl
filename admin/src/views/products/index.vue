@@ -4,6 +4,9 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type Upload
 import DataTable from '@/components/DataTable.vue'
 import ImageGridUpload from '@/components/ImageGridUpload.vue'
 import { useProductStore } from '@/stores/product'
+import { useAuthStore } from '@/stores/auth'
+import { getStockDimensions } from '@/api/ledger'
+import type { StockDimension } from '@/types/ledger'
 import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus } from '@/types/product'
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
 import { getAdminGoodsBrands } from '@/api/brand'
@@ -224,6 +227,42 @@ async function showDetail(product: ProductListItem): Promise<void> {
   try { await store.fetchDetail(product.id) } catch (error) { detailVisible.value = false; ElMessage.error(error instanceof Error ? error.message : '商品详情查询失败') }
 }
 
+// ===== 库存动态四维（平台级接口 GET /api/admin/stock-dimension?skuIds=） =====
+const authStore = useAuthStore()
+/** 库存四维为平台级接口（仅超管/客服/财务），商户管理员不可用 → 对 ADMIN 隐藏入口。 */
+const canViewStockDimension = computed(() => Boolean(authStore.role) && authStore.role !== 'ADMIN')
+const dimensionVisible = ref(false)
+const dimensionLoading = ref(false)
+const dimensionRows = ref<StockDimension[]>([])
+
+/** 库存四维数值展示：⚠️ 字段缺失（不存在的 SKU）显示 "—"，不要当 0。 */
+function dimensionNumber(value?: number | null): string {
+  return value === null || value === undefined ? '—' : String(value)
+}
+
+/** 四维字段是否整体缺失（不存在的 SKU 只回 skuId）。 */
+function dimensionMissing(row: StockDimension): boolean {
+  return row.available === undefined && row.locked === undefined && row.inTransit === undefined && row.total === undefined
+}
+
+/** 校验后端口径：total = available + locked（**不含 inTransit**）。 */
+function dimensionTotalMismatch(row: StockDimension): boolean {
+  if (dimensionMissing(row) || row.total === undefined || row.available === undefined || row.locked === undefined) return false
+  return Number(row.total) !== Number(row.available) + Number(row.locked)
+}
+
+/** 查询当前商品全部 SKU 的库存动态四维（可售/锁定/在途/合计）。 */
+async function openStockDimensions(): Promise<void> {
+  const skuIds = (store.detail?.skuList || []).map((sku) => sku.id).filter((id): id is string => Boolean(id))
+  if (!skuIds.length) { ElMessage.warning('该商品暂无可查询的 SKU'); return }
+  dimensionVisible.value = true
+  dimensionRows.value = []
+  dimensionLoading.value = true
+  try { dimensionRows.value = await getStockDimensions(skuIds) }
+  catch (error) { dimensionVisible.value = false; ElMessage.error(error instanceof Error ? error.message : '库存四维查询失败') }
+  finally { dimensionLoading.value = false }
+}
+
 /** 确认并软删除商品。 */
 async function removeProduct(product: ProductListItem): Promise<void> {
   try {
@@ -298,7 +337,7 @@ onMounted(() => {
     <el-card shadow="never" class="filter-card"><el-form inline @submit.prevent="search"><el-form-item label="关键词"><el-input v-model="store.filters.keyword" clearable placeholder="商品ID/名称/产地" /></el-form-item><el-form-item label="分类"><el-select v-model="store.filters.categoryId" clearable placeholder="全部分类"><el-option v-for="option in categoryOptions" :key="option.id" :label="option.label" :value="option.id" /></el-select></el-form-item><el-form-item label="产地"><el-input v-model="store.filters.originPlace" clearable placeholder="精确匹配产地" /></el-form-item><el-form-item label="排序"><el-select v-model="store.filters.sortBy" clearable placeholder="综合排序"><el-option label="销量降序" value="sold_desc" /><el-option label="价格升序" value="price_asc" /><el-option label="价格降序" value="price_desc" /><el-option label="新品降序" value="new_desc" /><el-option label="后台排序" value="sort_order" /></el-select></el-form-item><el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button></el-form-item></el-form></el-card>
     <el-card shadow="never" class="content-card"><div class="toolbar"><span>商品列表</span><span v-if="hasSelection" class="selection-tip">已选择 {{ selected.length }} 项</span><el-button type="danger" plain :disabled="!hasSelection || store.deleteLoading" :loading="store.deleteLoading" @click="removeSelected">批量删除</el-button></div><DataTable :data="store.list" :loading="store.loading" :total="store.total" :page="store.page" :page-size="store.pageSize" @selection-change="selected = $event" @page-change="onPageChange" @size-change="onSizeChange"><el-table-column prop="id" label="商品 ID" width="120" /><el-table-column label="主图" width="80"><template #default="{ row }"><el-image v-if="row.mainImage" :src="row.mainImage" :preview-src-list="[row.mainImage]" class="product-image" preview-teleported /><span v-else>暂无</span></template></el-table-column><el-table-column prop="name" label="商品名称" min-width="180" /><el-table-column label="所属商户/门店" min-width="180"><template #default="{ row }"><div class="shop-list-cell"><span v-if="row.merchantName" class="merchant-name">{{ row.merchantName }}</span><span>{{ formatShopShopNames(row.shopList) }}</span></div></template></el-table-column><el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="normalizeBinary(row.status) ? 'success' : 'info'">{{ normalizeBinary(row.status) ? '上架' : '下架' }}</el-tag></template></el-table-column><el-table-column label="推荐" width="90"><template #default="{ row }"><el-tag :type="normalizeBinary(row.isRecommended) ? 'warning' : 'info'">{{ normalizeBinary(row.isRecommended) ? '推荐' : '不推荐' }}</el-tag></template></el-table-column><el-table-column label="最低价" width="110"><template #default="{ row }">¥ {{ row.minPrice?.toFixed(2) }}</template></el-table-column><el-table-column label="推广资金" width="125"><template #default="{ row }"><span>{{ formatFundAmount(row.promotionFund) }}</span><el-tag size="small" :type="row.promotionEnabled == null ? 'warning' : normalizeBinary(row.promotionEnabled) ? 'success' : 'info'">{{ formatFundEnabled(row.promotionEnabled) }}</el-tag></template></el-table-column><el-table-column label="平台红包" width="125"><template #default="{ row }"><span>{{ formatFundAmount(row.dividendFund) }}</span><el-tag size="small" :type="row.dividendEnabled == null ? 'warning' : normalizeBinary(row.dividendEnabled) ? 'success' : 'info'">{{ formatFundEnabled(row.dividendEnabled) }}</el-tag></template></el-table-column><el-table-column prop="totalStock" label="库存" width="90" /><el-table-column prop="soldCount" label="销量" width="90" /><el-table-column prop="originPlace" label="产地" min-width="130" /><el-table-column label="操作" fixed="right" width="230"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="showDetail(row)"><el-icon><View /></el-icon>详情</el-button><el-button size="small" @click="openForm(row)"><el-icon><Edit /></el-icon>编辑</el-button><el-button size="small" type="danger" @click="removeProduct(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column></DataTable></el-card>
 
-    <el-dialog v-model="detailVisible" title="商品详情" width="900px" append-to-body><el-skeleton v-if="store.detailLoading" :rows="8" animated /><template v-else-if="store.detail"><el-descriptions :column="2" border><el-descriptions-item label="商品名称">{{ store.detail.name }}</el-descriptions-item><el-descriptions-item label="状态">{{ normalizeBinary(store.detail.status) ? '上架' : '下架' }}</el-descriptions-item><el-descriptions-item label="价格">{{ formatPrice(store.detail) }}</el-descriptions-item><el-descriptions-item label="库存">{{ store.detail.totalStock }}</el-descriptions-item><el-descriptions-item label="销量">{{ store.detail.soldCount }}</el-descriptions-item><el-descriptions-item label="产地">{{ store.detail.originPlace }}</el-descriptions-item><el-descriptions-item label="推广资金">¥ {{ store.detail.promotionFund?.toFixed(2) || '0.00' }} / {{ normalizeBinary(store.detail.promotionEnabled) ? '启用' : '禁用' }}</el-descriptions-item><el-descriptions-item label="平台红包">¥ {{ store.detail.dividendFund?.toFixed(2) || '0.00' }} / {{ normalizeBinary(store.detail.dividendEnabled) ? '启用' : '禁用' }}</el-descriptions-item></el-descriptions><el-image v-if="store.detail.mainImage" :src="store.detail.mainImage" class="detail-main-image" fit="contain" /><el-carousel v-if="store.detail.images.length" height="260px"><el-carousel-item v-for="image in store.detail.images" :key="image"><el-image :src="image" fit="contain" class="carousel-image" /></el-carousel-item></el-carousel><video v-if="store.detail.videoUrl" :src="store.detail.videoUrl" controls class="detail-video" /><el-divider>SKU 列表</el-divider><el-table :data="store.detail.skuList" border><el-table-column prop="skuName" label="规格" /><el-table-column prop="specs" label="属性" /><el-table-column prop="price" label="价格" /><el-table-column prop="stock" label="库存" /><el-table-column label="状态"><template #default="{ row }">{{ normalizeBinary(row.enabled) ? '启用' : '禁用' }}</template></el-table-column></el-table><el-divider>商品描述</el-divider><div v-if="store.detail.description" class="product-description" v-html="store.detail.description" /><el-divider v-if="store.detail.detailImages.length">详情图片</el-divider><div class="detail-images"><el-image v-for="image in store.detail.detailImages" :key="image" :src="image" fit="contain" class="detail-image" /></div></template><el-empty v-else description="暂无商品详情" /></el-dialog>
+    <el-dialog v-model="detailVisible" title="商品详情" width="900px" append-to-body><el-skeleton v-if="store.detailLoading" :rows="8" animated /><template v-else-if="store.detail"><el-descriptions :column="2" border><el-descriptions-item label="商品名称">{{ store.detail.name }}</el-descriptions-item><el-descriptions-item label="状态">{{ normalizeBinary(store.detail.status) ? '上架' : '下架' }}</el-descriptions-item><el-descriptions-item label="价格">{{ formatPrice(store.detail) }}</el-descriptions-item><el-descriptions-item label="库存">{{ store.detail.totalStock }}</el-descriptions-item><el-descriptions-item label="销量">{{ store.detail.soldCount }}</el-descriptions-item><el-descriptions-item label="产地">{{ store.detail.originPlace }}</el-descriptions-item><el-descriptions-item label="推广资金">¥ {{ store.detail.promotionFund?.toFixed(2) || '0.00' }} / {{ normalizeBinary(store.detail.promotionEnabled) ? '启用' : '禁用' }}</el-descriptions-item><el-descriptions-item label="平台红包">¥ {{ store.detail.dividendFund?.toFixed(2) || '0.00' }} / {{ normalizeBinary(store.detail.dividendEnabled) ? '启用' : '禁用' }}</el-descriptions-item></el-descriptions><el-image v-if="store.detail.mainImage" :src="store.detail.mainImage" class="detail-main-image" fit="contain" /><el-carousel v-if="store.detail.images.length" height="260px"><el-carousel-item v-for="image in store.detail.images" :key="image"><el-image :src="image" fit="contain" class="carousel-image" /></el-carousel-item></el-carousel><video v-if="store.detail.videoUrl" :src="store.detail.videoUrl" controls class="detail-video" /><el-divider>SKU 列表</el-divider><el-button v-if="canViewStockDimension" size="small" :loading="dimensionLoading" @click="openStockDimensions">库存四维</el-button><el-table :data="store.detail.skuList" border><el-table-column prop="skuName" label="规格" /><el-table-column prop="specs" label="属性" /><el-table-column prop="price" label="价格" /><el-table-column prop="stock" label="库存" /><el-table-column label="状态"><template #default="{ row }">{{ normalizeBinary(row.enabled) ? '启用' : '禁用' }}</template></el-table-column></el-table><el-divider>商品描述</el-divider><div v-if="store.detail.description" class="product-description" v-html="store.detail.description" /><el-divider v-if="store.detail.detailImages.length">详情图片</el-divider><div class="detail-images"><el-image v-for="image in store.detail.detailImages" :key="image" :src="image" fit="contain" class="detail-image" /></div></template><el-empty v-else description="暂无商品详情" /></el-dialog>
 
     <el-dialog v-model="formVisible" class="product-form-dialog" :title="editingId ? '编辑商品' : '新增商品'" width="min(1100px, calc(100vw - 32px))" top="2vh" append-to-body>
       <el-form ref="formRef" class="product-form" :model="form" :rules="rules" label-width="100px">
@@ -333,6 +372,26 @@ onMounted(() => {
         <el-form-item label="SKU" class="form-item-full"><div class="sku-editor"><el-button size="small" @click="addSku">新增 SKU</el-button><el-table :data="form.skuList" border><el-table-column label="规格名称"><template #default="{ row }"><el-input v-model="row.skuName" /></template></el-table-column><el-table-column label="价格"><template #default="{ row }"><el-input-number v-model="row.price" :min="0.01" :precision="2" /></template></el-table-column><el-table-column label="划线价"><template #default="{ row }"><el-input-number v-model="row.originalPrice" :min="0" :precision="2" /></template></el-table-column><el-table-column label="库存"><template #default="{ row }"><el-input-number v-model="row.stock" :min="0" /></template></el-table-column><el-table-column label="启用"><template #default="{ row }"><el-switch v-model="row.enabled" :active-value="1" :inactive-value="0" /></template></el-table-column><el-table-column label="操作" width="90"><template #default="{ $index }"><el-button size="small" type="danger" @click="removeSku($index)"><el-icon><Delete /></el-icon>删除</el-button></template></el-table-column></el-table></div></el-form-item>
       </el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saveLoading" @click="submitForm">保存</el-button></template>
+    </el-dialog>
+
+    <!-- 库存动态四维（平台级）：⚠️ 合计 = 可售 + 锁定，不含在途；不存在的 SKU 只有 skuId -->
+    <el-dialog v-model="dimensionVisible" title="库存动态四维" width="680px" append-to-body>
+      <el-alert type="info" :closable="false" show-icon title="合计 = 可售 + 锁定（不含在途）；在途为实时聚合（已支付未签收且未退款成功），刻意不落列。" />
+      <el-table v-loading="dimensionLoading" :data="dimensionRows" border class="sku-table">
+        <el-table-column prop="skuId" label="SKU ID" width="120" />
+        <el-table-column label="可售"><template #default="{ row }">{{ dimensionNumber(row.available) }}</template></el-table-column>
+        <el-table-column label="锁定"><template #default="{ row }">{{ dimensionNumber(row.locked) }}</template></el-table-column>
+        <el-table-column label="在途"><template #default="{ row }">{{ dimensionNumber(row.inTransit) }}</template></el-table-column>
+        <el-table-column label="合计"><template #default="{ row }">{{ dimensionNumber(row.total) }}</template></el-table-column>
+        <el-table-column label="核对" min-width="180">
+          <template #default="{ row }">
+            <el-tag v-if="dimensionMissing(row)" size="small" type="warning">SKU 不存在（字段缺失）</el-tag>
+            <el-tag v-else-if="dimensionTotalMismatch(row)" size="small" type="danger">合计与「可售+锁定」不符</el-tag>
+            <el-tag v-else size="small" type="success">口径一致</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p class="dimension-hint">如需查某 SKU 的历史库存变动，可在留痕台账按「目标类型=商品 SKU + SKU ID」或时间线查询。</p>
     </el-dialog>
   </section>
 </template>
@@ -371,6 +430,7 @@ onMounted(() => {
 .operator-actions { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .operator-actions :deep(.el-button) { margin-left: 0; padding: 5px 8px; }
 .operator-actions :deep(.el-icon) { margin-right: 4px; }
+.dimension-hint { margin: 12px 0 0; color: #909399; font-size: 12px; line-height: 1.6; }
 @media (max-width: 760px) {
   .product-form { grid-template-columns: minmax(0, 1fr); }
   .product-form .form-item-full { grid-column: auto; }

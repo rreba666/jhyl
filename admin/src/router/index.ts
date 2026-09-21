@@ -187,6 +187,13 @@ const router = createRouter({
           meta: { title: '操作追溯', permission: ['audit:read'], roles: rolesForPath('/logs/audit'), requiresAuth: true },
         },
         {
+          // 留痕台账：跨商户全量视图（含金额/库存），仅平台角色（超管/客服/财务），商户管理员不可见
+          path: 'logs/ledger',
+          name: 'AuditLedger',
+          component: () => import('@/views/logs/ledger.vue'),
+          meta: { title: '留痕台账', permission: ['audit:read'], roles: rolesForPath('/logs/ledger'), requiresAuth: true },
+        },
+        {
           path: 'settings',
           name: 'Settings',
           component: () => import('@/views/settings/index.vue'),

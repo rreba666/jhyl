@@ -6,13 +6,20 @@
  * 说明后端还没有中文口径 —— 请登记到《后端需求汇总》里让后端补 description/enum。
  */
 
-/** 操作方类型（审计日志 / 配送事件的 `operatorType`）。 */
+/**
+ * 操作方类型（审计日志 / 配送事件的 `operatorType`）。
+ * 平台级留痕（留痕台账）会下发 `SUPER_ADMIN` / `MERCHANT` / `DELIVERY_PERSON` / `PLATFORM`，一并收录。
+ */
 export const OPERATOR_TYPE_LABELS: Record<string, string> = {
   STAFF: '店员',
   ADMIN: '管理员',
-  USER: '用户',
-  SYSTEM: '系统',
+  SUPER_ADMIN: '超级管理员',
+  MERCHANT: '商家',
   MERCHANT_PC: '商家 PC',
+  USER: '用户',
+  DELIVERY_PERSON: '配送员',
+  PLATFORM: '平台/系统代理',
+  SYSTEM: '系统',
   SELF: '本人',
 }
 
@@ -65,18 +72,28 @@ export function auditOperationLabel(value?: string | null): string {
   return AUDIT_OPERATION_LABELS[key] || key
 }
 
-/** 操作目标类型（`AuditLogVO.targetType`）。 */
+/**
+ * 操作目标类型（`AuditLogVO.targetType` / 留痕台账 `AuditRecordView.targetType`）。
+ * 留痕的 12 种实测目标类型（`PRODUCT_SKU`/`WAYBILL`/`SCHEMA`/`FINANCE_FLOW`…）已一并收录。
+ */
 export const AUDIT_TARGET_TYPE_LABELS: Record<string, string> = {
   ORDER: '订单',
   STAFF: '人员',
+  ADMIN: '管理员',
   SHOP: '门店',
   PRODUCT: '商品',
+  PRODUCT_SKU: '商品 SKU',
   USER: '用户',
   COUPON: '优惠券',
   MERCHANT: '商户',
+  MERCHANT_APPLY: '商户入驻申请',
   WITHDRAW: '提现',
   AFTER_SALE: '售后',
   DELIVERY_TASK: '配送任务',
+  WAYBILL: '运单',
+  SCHEMA: '数据库迁移',
+  FINANCE_FLOW: '资金流水',
+  SYSTEM: '系统',
   EXPORT: '导出',
 }
 
