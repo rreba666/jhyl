@@ -4,7 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
-import { confirmReceiveDelivery, deliveryNodeText, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
+import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
 import { isApiRequestError, resolveImageUrl } from '@/utils/request'
 import { cleanDigits, cleanText, validateMobile, validateText } from '@/utils/input-validation'
@@ -317,6 +317,34 @@ const bannerText = computed(() => {
 /** 送达照片（骑手送达时拍的）；未送达或接口无数据时为空。 */
 const deliveryProofs = ref<DeliveryProofVO[]>([])
 
+/**
+ * 同城收货码（`GET /api/delivery/orders/{orderNo}/pickup-code`，**仅下单人可查**）。
+ * ⚠️ 门店开启收货码（任务 `pickupCodeRequired=true`）时，骑手**必须**先核销这个码才能送达；
+ * 此前 C 端**零入口**（全项目没调过这个接口）→ 用户看不到码 → 订单永远卡在配送中
+ * （2026-09-21 实测确认）。空串 = 不展示卡片（未开启收货码 / 已完成失效 / 接口报错）。
+ */
+const deliveryPickupCode = ref('')
+
+/**
+ * 拉取同城收货码。
+ * 时机：仅同城（pickupType===2）；履约中（status===1）必须拉，已完成（status===4）也允许拉
+ * （拿到就展示、拿不到就不显示），其它终态不打扰用户。
+ * ⚠️ 接口返回空 / 报错一律**静默隐藏**，绝不弹 toast 打扰用户（未开启收货码、已完成失效、
+ * 越权查询都属于正常业务分支，不是用户需要处理的问题）。
+ */
+async function loadDeliveryPickupCode(): Promise<void> {
+  deliveryPickupCode.value = ''
+  const current = order.value
+  if (!current?.orderNo || current.pickupType !== 2) return
+  if (current.status !== 1 && current.status !== 4) return
+  try {
+    deliveryPickupCode.value = await getDeliveryPickupCode(current.orderNo)
+  } catch {
+    // 静默：见上方注释，报错不等于异常，用户无需知道
+    deliveryPickupCode.value = ''
+  }
+}
+
 /** 拉取送达凭证。C 端接口按下单人校验，失败静默（不等于没有送达照片）。 */
 async function loadDeliveryProofs(orderNo?: string): Promise<void> {
   if (!orderNo) { deliveryProofs.value = []; return }
@@ -386,7 +414,7 @@ async function load(orderId: string, silent = false): Promise<void> {
   if (!silent) loading.value = true
   try {
     order.value = await getOrderDetail(orderId)
-    await Promise.all([loadPickupCode(orderId), loadPickupShop(), loadAfterSaleFlag(orderId), loadAddressChangeRequest(orderId), loadDeliveryProgress(order.value?.orderNo), loadDeliveryProofs(order.value?.orderNo)])
+    await Promise.all([loadPickupCode(orderId), loadPickupShop(), loadAfterSaleFlag(orderId), loadAddressChangeRequest(orderId), loadDeliveryProgress(order.value?.orderNo), loadDeliveryProofs(order.value?.orderNo), loadDeliveryPickupCode()])
   }
   catch (error) { if (!silent) errorMessage.value = error instanceof Error ? error.message : '订单详情加载失败' }
   finally {
@@ -635,8 +663,14 @@ onUnload(() => {
             <text class="delivery-call" @click="copyRiderPhone">复制号码</text>
           </view>
         </view>
-        <!-- 送达照片（骑手送达时拍的，用户本人可看；小程序不能给个人发消息，这里只能看凭证） -->
-        <view v-if="deliveryProofs.length" class="delivery-proofs">
+      </view>
+
+      <!-- 送达照片（骑手送达时拍的，用户本人可看；小程序不能给个人发消息，这里只能看凭证）
+           ⚠️ 2026-09-21 修正：照片区块此前嵌在上面 `v-if="deliveryProgress"` 的卡片内部，
+           而 progress 为 null（后端未进配送中 / 接口这一单没数据）时整块卡片都不渲染 —— 明明有送达照片却看不到。
+           所以照片独立成卡，条件只依赖「同城 + 有照片」，与配送进度解耦。 -->
+      <view v-if="order?.pickupType === 2 && deliveryProofs.length" class="delivery-card">
+        <view class="delivery-proofs">
           <text class="delivery-proofs-title">送达照片</text>
           <view class="delivery-proof-list">
             <image
@@ -657,6 +691,15 @@ onUnload(() => {
         <view class="qr-grid"><view v-for="(row, rowI) in qrModules" :key="rowI" class="qr-row"><view v-for="(cell, colI) in row" :key="colI" class="qr-cell" :class="{ 'is-dark': cell.isBlack }" /></view></view>
         <text class="qrcode-code">{{ pickupCode }}</text>
         <text class="qrcode-tip">到店出示此码给店员扫码核销</text>
+      </view>
+
+      <!-- 同城收货码（仅同城订单；门店开启收货码时骑手必须核销它才能送达，2026-09-21 补入口）
+           ⚠️ 与上面的自提码卡片**互斥**：自提 = pickupType 1、同城 = pickupType 2，两者不会同时出现。
+           接口返回空（未开启收货码 / 已失效 / 报错）时整卡隐藏，不打扰用户。 -->
+      <view v-if="order?.pickupType === 2 && deliveryPickupCode" class="card qrcode-card">
+        <text class="qrcode-title">收货码</text>
+        <text class="qrcode-code">{{ deliveryPickupCode }}</text>
+        <text class="qrcode-tip">请将收货码告知骑手，骑手核销后才能完成送达</text>
       </view>
 
       <!-- 自提信息（仅自提订单） -->
@@ -749,8 +792,10 @@ onUnload(() => {
 /* 骑手联系动作：拨号 + 复制号码（小程序没有给个人发消息的能力） */
 .delivery-actions { display: flex; align-items: center; }
 .delivery-actions .delivery-call { margin-left: 24rpx; }
-/* 送达照片：用户本人可看（防纠纷） */
-.delivery-proofs { margin-top: 18rpx; padding-top: 18rpx; border-top: 1rpx solid #f2f3f7; }
+/* 送达照片：用户本人可看（防纠纷）。
+   2026-09-21 起照片独立成卡（原先嵌在「配送进度」卡内部，progress 为 null 时整块看不到照片），
+   所以去掉了原卡片内做分隔用的 margin-top / padding-top / border-top。 */
+.delivery-proofs { display: block; }
 .delivery-proofs-title { display: block; margin-bottom: 12rpx; color: #86909c; font-size: 23rpx; }
 .delivery-proof-list { display: flex; flex-wrap: wrap; }
 .delivery-proof-image { width: 150rpx; height: 150rpx; margin: 0 12rpx 12rpx 0; border-radius: 10rpx; background: #f2f3f7; }

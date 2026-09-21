@@ -228,6 +228,24 @@ const showProgress = computed(() => ['picking', 'delivering', 'done'].includes(s
 
 /** 商品合计（详情口径优先 goodsAmount）。 */
 const goodsAmount = computed(() => order.value?.goodsAmount ?? order.value?.totalAmount ?? 0)
+
+/**
+ * 配送费文案（2026-09-21 补：商家此前只能看到商品合计，看不到配送费与用户实付）。
+ * 口径选择：0 / null 一律显示「免配送费」而**不隐藏这一行** —— 隐藏会让商家分不清
+ * 「本单没收运费」和「接口没下发这个字段」，而这两种情况商家都需要知道。
+ */
+const deliveryFeeText = computed(() => {
+  const fee = Number(order.value?.deliveryFee ?? 0)
+  return Number.isFinite(fee) && fee > 0 ? `¥${money(fee)}` : '免配送费'
+})
+
+/** 实付金额文案：待付款订单后端可能还没下发 payAmount，此时显示「待支付」而不是「¥0」（避免商家误判成用户没付钱）。 */
+const payAmountText = computed(() => {
+  const amount = order.value?.payAmount
+  if (amount == null) return order.value?.status === 0 ? '待支付' : '—'
+  return `¥${money(amount)}`
+})
+
 /** 送达照片 URL 列表。 */
 const proofUrls = computed(() => (order.value?.proofs || []).map((key) => resolveImageUrl(key)).filter(Boolean))
 
@@ -339,7 +357,8 @@ function goBack(): void {
             <view class="goods-price"><text class="price-yen">¥</text><text class="price-num">{{ money(item.price) }}</text></view>
           </view>
           <view class="total-row">
-            <text class="total-label">合计</text>
+            <!-- 口径标注：这是**商品合计**（goodsAmount），不含配送费；用户实付在下方「订单信息」卡里单列 -->
+            <text class="total-label">商品合计</text>
             <view class="total-amount"><text class="total-yen">¥</text><text class="total-num">{{ money(goodsAmount) }}</text></view>
           </view>
         </view>
@@ -400,6 +419,15 @@ function goBack(): void {
         <view v-if="order.pickupCode" class="info-row">
           <text class="info-label">自提码</text>
           <text class="info-value-text pickup-code">{{ order.pickupCode }}</text>
+        </view>
+        <!-- 配送费 / 实付金额（2026-09-21 补：此前商家只看得到商品合计，看不到运费与用户实付） -->
+        <view class="info-row">
+          <text class="info-label">配送费</text>
+          <text class="info-value-text">{{ deliveryFeeText }}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">实付金额</text>
+          <text class="info-value-text">{{ payAmountText }}</text>
         </view>
         <view v-if="order.remark" class="info-row">
           <text class="info-label">备注</text>

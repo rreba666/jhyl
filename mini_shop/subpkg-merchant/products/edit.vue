@@ -5,12 +5,19 @@
  * 请求体 MerchantProductSaveDTO：title* / mainImages*（≤5）/ description / skus*[{specName,price,stock}] / detailImages / status
  * 范围结论：规格页是独立整页；商品核心是上下架；编辑因无单商品详情接口，仅能回填列表项已有字段（title/mainImage/skus）。
  * 图片上传走 POST /api/common/upload（utils/request 的 uploadFile）。
+ *
+ * ⚠️ 编辑态两条硬规则（2026-09-21 实测后定，详见 doSave / buildPayload 注释）：
+ *   1. **不传 `status`** —— 后端一收到 status 就会连品牌级 `productStatus` 一起改（品牌下所有门店一起下线），
+ *      本店上下架另走 `updateProductStatus()`（PUT /api/merchant/products/{id}/status）；
+ *   2. **description / detailImages 回填不到就不提交** —— 整页覆盖语义下空值会清空线上内容。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   saveMerchantProduct,
   updateMerchantProduct,
+  updateProductStatus,
+  type MerchantProductSaveDTO,
   type MerchantProductVO,
   type MerchantSkuItem,
 } from '@/api/merchant'
@@ -133,6 +140,41 @@ function validate(): string | null {
   return null
 }
 
+/**
+ * 组装保存请求体。
+ *
+ * ⚠️ 防御性处理（2026-09-21）：后端**没有单商品详情 GET 接口**，编辑页只能从列表项缓存回填
+ * `title` / 第 1 张主图 / `skus`，拿不到 `description` 与 `detailImages`；而
+ * `PUT /api/merchant/products/{id}` 是**整页覆盖**语义 —— 把空值放进去会静默清空描述与详情图
+ * （用户反馈：每次编辑都会把描述、详情图清掉，主图从 N 张退化成 1 张）。
+ * 所以**编辑态这两个字段为空就不放进 payload**（不传 = 不修改）。补上后端详情接口后，
+ * 应改回「正常回填 + 正常提交」并删掉这里的条件。
+ */
+function buildPayload(): MerchantProductSaveDTO {
+  const payload: MerchantProductSaveDTO = {
+    title: title.value.trim(),
+    mainImages: mainImages.value,
+    skus: skus.value.map((s) => ({ specName: s.specName.trim(), price: s.price, stock: s.stock })),
+  }
+  const desc = description.value.trim()
+  // 新建态：用户看得到输入框，空就是真的不要描述；编辑态：空只代表「回填不到」，不能当作用户清空
+  if (!productId.value || desc) payload.description = desc
+  if (detailImages.value.length) payload.detailImages = detailImages.value
+  return payload
+}
+
+/**
+ * 保存商品。
+ *
+ * ⚠️ 2026-09-21 真实接口实测：`PUT /api/merchant/products/901155 { status: 0 }` →
+ * 品牌级 `productStatus` 1 → 0（**品牌下所有门店的这件商品一起下线**），且 `skuId` 被重建
+ * （801166 → 801167，SKU 关联漂移）。结论：**编辑态一律不传 `status`**（不传 = 上架状态完全不变）。
+ *
+ * 编辑态的上下架改走**本店专用接口** `updateProductStatus(id, status)`
+ * （`PUT /api/merchant/products/{id}/status`，只改本店 shopStatus）：
+ * 「保存到仓库」= 保存内容 + 本店下架(0)，「保存并上架」= 保存内容 + 本店上架(1)。
+ * 新建态（无 productId）保持原行为：`saveMerchantProduct(payload)` 带 status 建商品。
+ */
 async function doSave(status: 0 | 1): Promise<void> {
   if (saving.value) return
   const err = validate()
@@ -141,19 +183,22 @@ async function doSave(status: 0 | 1): Promise<void> {
     return
   }
   saving.value = true
+  const editingId = productId.value
   try {
-    const payload = {
-      title: title.value.trim(),
-      mainImages: mainImages.value,
-      description: description.value.trim() || undefined,
-      skus: skus.value.map((s) => ({ specName: s.specName.trim(), price: s.price, stock: s.stock })),
-      detailImages: detailImages.value.length ? detailImages.value : undefined,
-      status,
-    }
-    if (productId.value) {
-      await updateMerchantProduct(productId.value, payload)
+    if (!editingId) {
+      // 新建态：status 决定建出来的商品在售还是入仓库（原行为不变）
+      await saveMerchantProduct({ ...buildPayload(), status })
     } else {
-      await saveMerchantProduct(payload)
+      // 编辑态：先存内容（不带 status），再单独改本店上下架状态
+      await updateMerchantProduct(editingId, buildPayload())
+      try {
+        await updateProductStatus(editingId, status)
+      } catch (error) {
+        // 内容已存成功、只有上下架没生效：既不能说「保存失败」（用户会重复提交内容），
+        // 也不能说「保存成功」（状态其实没变）—— 给一句明确文案并留在本页让用户重试。
+        uni.showToast({ title: '内容已保存，但上下架状态未生效，请重试', icon: 'none' })
+        return
+      }
     }
     uni.removeStorageSync(SKUS_STORAGE_KEY)
     uni.removeStorageSync(EDIT_STORAGE_KEY)
@@ -181,6 +226,13 @@ function goBack(): void {
     </view>
 
     <scroll-view class="content" scroll-y>
+      <!-- 编辑态诚实提示（2026-09-21）：后端**没有单商品详情 GET 接口**，本页只能回填标题/第 1 张主图/规格，
+           拿不到 description 与 detailImages —— 提交时这两个字段会被跳过（不覆盖线上内容），
+           所以本页对它们的修改不会生效。补后端详情接口后应改为正常回填并删掉这条提示。 -->
+      <view v-if="productId" class="edit-notice">
+        <text>当前版本编辑不会修改商品描述与详情图；主图只能回填第 1 张，保存后以这 1 张为准</text>
+      </view>
+
       <!-- 卡 1：主图 + 标题 + 描述 -->
       <view class="card">
         <!-- 主图上传 -->
@@ -327,6 +379,16 @@ function goBack(): void {
   padding: 31rpx;
   border-radius: 24rpx;
   background: #ffffff;
+}
+/* 编辑态的限制提示（后端无商品详情接口导致，属诚实告知，非报错） */
+.edit-notice {
+  margin-bottom: 15rpx;
+  padding: 20rpx 23rpx;
+  border-radius: 16rpx;
+  background: #fff4e8;
+  color: #ff6a01;
+  font-size: 25rpx;
+  line-height: 38rpx;
 }
 
 /* 主图上传 */

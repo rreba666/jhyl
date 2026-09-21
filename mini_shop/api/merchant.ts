@@ -396,10 +396,23 @@ export const DELIVERY_STATUS_TEXT: Record<string, string> = {
   COMPLETED: '已完成',
   EXCEPTION: '配送异常',
   CANCELLED: '已取消',
-  CANCEL_REQUESTED: '取消申请中',
+  /**
+   * 用户申请取消、待商家审核。
+   * ⚠️ 2026-09-21：原值是「取消申请中」，与后台 `admin/src/utils/deliveryStatus.ts` 的
+   * 「取消待审核」不一致（同一状态两套文案），这里统一为后台口径 —— 商家端要能一眼看出
+   * 「这单等着我审」，而不是读成一个模糊的进行中状态。
+   */
+  CANCEL_REQUESTED: '取消待审核',
 }
 
-/** 是否为「进行中配送」状态（列表卡片 B 型：短号 + 骑手胶囊）。 */
+/**
+ * 是否为「进行中配送」状态（列表卡片 B 型：短号 + 骑手胶囊）。
+ *
+ * ⚠️ 口径说明（2026-09-21）：`CANCEL_REQUESTED`（取消待审核）**故意不算在内**。
+ * 这个函数的实际作用是「卡片右上角显示骑手胶囊还是状态文案」——
+ * 把它算进来只会把「取消待审核」这句话藏进骑手胶囊（显示成「骑手-取消待审核」），
+ * 商家反而看不到待自己审核的取消申请。订单仍在履约中这件事，由「取消待审核」文案本身表达。
+ */
 export function isActiveDelivery(status?: string | null): boolean {
   return status != null && [
     'ACCEPTED', 'PREPARING', 'WAIT_ASSIGN', 'ASSIGNED',

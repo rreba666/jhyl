@@ -64,6 +64,9 @@ export function confirmReceiveDelivery(orderNo: string): Promise<void> {
  * 同城配送节点 → 中文文案（用户端订单列表/详情展示用）。
  * ⚠️ 同城订单的订单状态很长一段时间都是「已支付/履约中」，**看不出配送进度** ——
  * 用户端列表因此直接改用这里的配送节点文案（与商家端口径一致）。
+ * ⚠️ 2026-09-21 补充：`GET /api/order/list`（**列表**接口）在履约中**不返回**同城的
+ * `deliveryStatus`，只有详情接口才返回字符串节点 —— 列表页必须先 `getOrderProgress()`
+ * 拿 `node` 再翻译（见 `subpkg-order/orders/list.vue` 的 `progressNodeMap`）。
  */
 export const DELIVERY_NODE_TEXT: Record<string, string> = {
   WAIT_ACCEPT: '待接单',
@@ -84,6 +87,40 @@ export const DELIVERY_NODE_TEXT: Record<string, string> = {
 /** 同城订单的状态文案：按配送节点取，取不到时回退到订单自身的状态文案。 */
 export function deliveryNodeText(node?: string | number | null, fallback = ''): string {
   return DELIVERY_NODE_TEXT[String(node || '')] || fallback
+}
+
+/** 同城收货码的原始返回形态（见下方 `normalizeDeliveryPickupCode` 的兼容说明）。 */
+export type DeliveryPickupCodePayload = string | number | { code?: string | number; pickupCode?: string | number } | null
+
+/**
+ * 归一化同城收货码。
+ * ⚠️ 2026-09-21 实测：`GET /api/delivery/orders/{orderNo}/pickup-code` 的 `data` **直接就是字符串码**
+ * （如 `"163843"`），不是对象；但后端历史上同类接口给过 `{ code: "163843" }` 这种包装，
+ * 为了不让展示层因为形态变化整块消失，这里两种都兼容（取不到一律返回空串，由页面静默隐藏）。
+ */
+export function normalizeDeliveryPickupCode(data: unknown): string {
+  if (data == null) return ''
+  if (typeof data === 'string') return data.trim()
+  if (typeof data === 'number') return String(data)
+  if (typeof data === 'object') {
+    const record = data as Record<string, unknown>
+    const value = record.code ?? record.pickupCode ?? ''
+    return value == null ? '' : String(value).trim()
+  }
+  return ''
+}
+
+/**
+ * 查询同城收货码（`GET /api/delivery/orders/{orderNo}/pickup-code`）。
+ * ⚠️ **仅下单人可查**（骑手调会 403）；门店开启收货码时，骑手必须先用该码核销才能送达 ——
+ * 此前 C 端**零入口**，用户看不到码 → 订单永远卡在配送中（2026-09-21 实测确认）。
+ * 门店未开启收货码 / 已完成后失效时返回空，页面按「静默隐藏」处理。
+ */
+export function getDeliveryPickupCode(orderNo: string): Promise<string> {
+  return request<DeliveryPickupCodePayload>({
+    url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/pickup-code`,
+    method: 'GET',
+  }).then((data) => normalizeDeliveryPickupCode(data))
 }
 
 /** 送达凭证（照片）行。 */

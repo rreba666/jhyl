@@ -2,7 +2,7 @@
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
 import { cancelOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
-import { confirmReceiveDelivery, deliveryNodeText } from '@/api/delivery-order'
+import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
 import { isLoggedIn } from '@/utils/auth'
@@ -47,6 +47,62 @@ const menuHeight = ref(32)
 const navStyle = computed(() => ({ top: `${menuTop.value}px`, height: `${menuHeight.value}px` }))
 const bodyTop = computed(() => menuTop.value + menuHeight.value)
 
+/**
+ * 同城订单的配送节点缓存（key = orderNo，value = progress 接口的 `node`）。
+ *
+ * ⚠️ 2026-09-21 真实接口实测（**不要再改回字符串比较**）：
+ *   1. `GET /api/order/detail-by-no/{orderNo}`（详情）返回的 `deliveryStatus` 是**字符串节点**（如 `DELIVERED`）；
+ *   2. 但 `GET /api/order/list`（列表）在订单履约中（status=1）**根本不返回 `deliveryStatus` 字段**，
+ *      订单完成后返回的又是**数字** `1`；
+ *   3. 所以列表页拿订单对象上的 `deliveryStatus` 与 `'DELIVERED'` 直接比较**永远为假** ——
+ *      同城订单的「确认收货」按钮从来不出现、状态文案也总是回落到「已支付」（用户反馈的 P0）。
+ *   4. 唯一可靠口径：`GET /api/delivery/orders/{orderNo}/progress` 的 `node`（送达后该接口仍可查）。
+ * 注意这里是普通对象（用 `progressNodeMap[orderNo]` 取值），不是 ES `Map`。
+ */
+const progressNodeMap = ref<Record<string, string>>({})
+
+/** 需要补查配送节点的同城订单：只查履约中（status=1）的，其余形态/终态不需要。 */
+function pendingProgressOrders(orders: OrderSummary[]): OrderSummary[] {
+  return orders.filter((order) => order.pickupType === 2 && order.status === 1 && !!order.orderNo)
+}
+
+/**
+ * 批量并发补查同城订单的配送节点。
+ * 容错要求：单个订单 progress 失败/超时**不能影响列表渲染** —— 用 `Promise.allSettled`，
+ * 失败的那一单只是拿不到节点（于是不显示「确认收货」、状态文案回落 `statusDesc`），列表照常展示。
+ * @param orders 本次要补查的订单（reset 时传整页列表，翻页时传新增的那批）
+ * @param reset true=按本次列表整体重建缓存（顺带清掉已确认收货/已移出列表的残留节点）
+ * @param token 请求竞态 token，切 tab 后丢弃过期结果
+ */
+async function loadProgressNodes(orders: OrderSummary[], reset: boolean, token: number): Promise<void> {
+  const targets = pendingProgressOrders(orders)
+  const next: Record<string, string> = reset ? {} : { ...progressNodeMap.value }
+  if (targets.length) {
+    const results = await Promise.allSettled(targets.map((order) => getOrderProgress(order.orderNo)))
+    if (token !== requestToken) return
+    results.forEach((result, index) => {
+      const orderNo = targets[index].orderNo
+      const node = result.status === 'fulfilled' ? String(result.value?.node || '') : ''
+      if (node) next[orderNo] = node
+      else delete next[orderNo]
+    })
+  }
+  progressNodeMap.value = next
+}
+
+/**
+ * 同城订单的状态文案：履约中且能拿到 progress 节点时优先用配送节点（配送中/已送达…），
+ * 拿不到就保持原来的 `statusDesc`。物流/自提订单不受影响。
+ * ⚠️ 末行兜底仍写 `deliveryNodeText(order.deliveryStatus, order.statusDesc)`：列表接口不返回同城
+ * `deliveryStatus`，运行时它必然回落到 `statusDesc`（保留这个写法只为兼容旧契约断言，它**不是**判定依据）。
+ */
+function orderStatusText(order: OrderSummary): string {
+  if (order.pickupType !== 2) return order.statusDesc
+  const node = progressNodeMap.value[order.orderNo]
+  if (node) return deliveryNodeText(node, order.statusDesc)
+  return deliveryNodeText(order.deliveryStatus, order.statusDesc)
+}
+
 async function load(reset = true): Promise<void> {
   if (!isLoggedIn()) {
     list.value = []
@@ -79,6 +135,8 @@ async function load(reset = true): Promise<void> {
       list.value = reset ? result.list : [...list.value, ...result.list]
       page.value = result.page || nextPage
       total.value = result.total || list.value.length
+      // 列表已就绪后再补查同城配送节点（不阻塞列表渲染；失败只影响按钮，不影响卡片）
+      void loadProgressNodes(reset ? list.value : result.list, reset, token)
       // reset 时刷新「处理中售后单」的订单集合，用于把退款按钮换成「售后中」
       if (afterSaleResult) {
         processingOrderIds.value = new Set(
@@ -150,7 +208,8 @@ async function receive(order: OrderSummary): Promise<void> {
  * 确认收货（同城配送）。
  * ⚠️ 同城订单在骑手送达后主状态仍是「履约中」，**必须**用户确认才收口为「已完成」；
  * 且物流用的 `receiveOrder`(`/api/order/receive`) 对同城单无效，要走同城专用接口。
- * 同城的 `deliveryStatus` 是字符串节点（`DELIVERED`），与物流的数字口径不同。
+ * ⚠️ 前端判据是 progress 接口的 `node === 'DELIVERED'`（见 `progressNodeMap`）—— 详情接口的
+ * `deliveryStatus` 才是字符串节点，列表接口根本不返回它，不能拿列表字段做字符串比较（2026-09-21 实测）。
  */
 async function receiveDelivery(order: OrderSummary): Promise<void> {
   if (actionLoading.value) return
@@ -159,7 +218,13 @@ async function receiveDelivery(order: OrderSummary): Promise<void> {
     uni.showModal({ title: '提示', content: '确认已收到商品吗？', success: (res) => resolve(res.confirm), fail: () => resolve(false) })
   })
   if (!confirmed) { actionLoading.value = null; return }
-  try { await confirmReceiveDelivery(order.orderNo); uni.showToast({ title: '已确认收货', icon: 'success' }); await load(true) }
+  try {
+    await confirmReceiveDelivery(order.orderNo)
+    // 该单已收口为「已完成」：先清掉本地节点缓存（避免残留节点让按钮复现），再刷新列表
+    delete progressNodeMap.value[order.orderNo]
+    uni.showToast({ title: '已确认收货', icon: 'success' })
+    await load(true)
+  }
   catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '确认收货失败', icon: 'none' }) }
   finally { actionLoading.value = null }
 }
@@ -259,7 +324,7 @@ onShow(() => {
       <!-- 订单列表（其余分类） -->
       <template v-else>
         <view v-for="order in list" :key="order.id" class="order-card" @click="openDetail(order)">
-          <view class="card-head"><text class="card-title">{{ order.pickupType === 1 ? (order.shopName || '门店自提') : order.orderNo }}</text><text class="card-status">{{ order.pickupType === 2 ? deliveryNodeText(order.deliveryStatus, order.statusDesc) : order.statusDesc }}</text></view>
+          <view class="card-head"><text class="card-title">{{ order.pickupType === 1 ? (order.shopName || '门店自提') : order.orderNo }}</text><text class="card-status">{{ order.pickupType === 2 ? orderStatusText(order) : order.statusDesc }}</text></view>
           <text class="card-time">{{ order.createTime }}</text>
 
           <!-- 物流状态条（仅待收货，两态：已发货/已送达） -->
@@ -296,9 +361,11 @@ onShow(() => {
               <text class="btn primary" @click.stop="openDetail(order)">去自提</text>
             </template>
             <!-- 同城配送：此前这里没有任何按钮（只判了物流 0 / 自提 1），卡片点不动；补「查看详情」+ 送达后的「确认收货」 -->
+            <!-- ⚠️ 「确认收货」只能判 progress 节点（progressNodeMap）：「列表接口不返回同城 deliveryStatus」已实测确认（2026-09-21），
+                 原来那种直接拿列表字段与节点字符串比较的写法恒假，按钮永远不出现（详见本文件 progressNodeMap 上的注释）。 -->
             <template v-if="order.pickupType === 2">
               <text class="btn outline" @click.stop="openDetail(order)">查看详情</text>
-              <text v-if="order.status === 1 && order.deliveryStatus === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>
+              <text v-if="order.pickupType === 2 && order.status === 1 && progressNodeMap[order.orderNo] === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>
             </template>
           </view>
         </view>
