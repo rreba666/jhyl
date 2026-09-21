@@ -6,8 +6,14 @@ import {
   formatCoverageRate,
   formatLedgerTime,
   isLedgerChangeRecord,
+  isLedgerOperationKnown,
   isSkippedLedger,
+  LEDGER_BLOCK_OPTIONS,
+  LEDGER_RESULT_OPTIONS,
+  ledgerBlockLabel,
   ledgerCategoryLabel,
+  ledgerOperationLabel,
+  ledgerOperationTooltip,
   ledgerOperatorText,
   ledgerResultMeta,
   ledgerTargetText,
@@ -95,4 +101,35 @@ test('时间展示：ISO 本地时间转可读格式（不做时区换算）', (
 test('覆盖率展示：0.142 → 14.2%', () => {
   assert.equal(formatCoverageRate(0.142), '14.2%')
   assert.equal(formatCoverageRate(null), '—')
+})
+
+test('产生方（block）中文化：实测 12 个值全覆盖，未知值原样回显', () => {
+  assert.equal(LEDGER_BLOCK_OPTIONS.length, 12)
+  assert.equal(ledgerBlockLabel('delivery'), '配送')
+  assert.equal(ledgerBlockLabel('framework'), '框架')
+  assert.equal(ledgerBlockLabel('demo-mall'), '演示商城')
+  assert.equal(ledgerBlockLabel('brand-new-block'), 'brand-new-block')
+  assert.equal(ledgerBlockLabel(null), '—')
+})
+
+test('操作码（operation）中文化：已知码给中文，未知码原样回显 + tooltip 提示后端未收录', () => {
+  assert.equal(ledgerOperationLabel('ORDER_STATUS'), '订单状态变更')
+  assert.equal(ledgerOperationLabel('MANUAL_SET'), '人工设置库存')
+  assert.equal(ledgerOperationLabel('INV-1_MONEY_WITHOUT_ORDER_STATUS'), '不变式1：有支付流水但无订单状态留痕')
+  // ⚠️ operation 是后端自由字符串，未收录必须原样回显（不能显示"未知"）
+  assert.equal(ledgerOperationLabel('BRAND_NEW_CODE'), 'BRAND_NEW_CODE')
+  assert.equal(ledgerOperationLabel(null), '—')
+  assert.equal(isLedgerOperationKnown('ORDER_STATUS'), true)
+  assert.equal(isLedgerOperationKnown('BRAND_NEW_CODE'), false)
+  assert.equal(ledgerOperationTooltip('ORDER_STATUS'), '订单状态变更（ORDER_STATUS）')
+  assert.match(ledgerOperationTooltip('BRAND_NEW_CODE'), /后端未收录/)
+})
+
+test('结果筛选项的中文标签统一取自 ledgerResultMeta（避免下拉与表格两处维护）', () => {
+  assert.deepEqual(LEDGER_RESULT_OPTIONS, [
+    { value: 'SUCCESS', label: '成功' },
+    { value: 'FAILURE', label: '失败' },
+    { value: 'SKIPPED', label: '未改成' },
+    { value: 'INCONSISTENT', label: '不一致' },
+  ])
 })

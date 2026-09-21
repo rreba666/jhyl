@@ -124,6 +124,22 @@ export async function getLedgerTimeline(targetType: string, targetId: string): P
   return list.map(normalizeRecord)
 }
 
+/**
+ * 按**请求链路 ID** 串联同一次 HTTP 请求产生的全部留痕（**按时间升序**，与 `/ledger` 的倒序相反）。
+ * 用途：回答"我刚点了一次按钮，到底改了哪几条数据"。
+ * ⚠️ 文档 §七.3：`requestId` 实测覆盖率仅 14.2%，历史行与定时任务行天然为空 ——
+ * 因此本接口**返回空数组是正常结果**，前端不要当异常。
+ */
+export async function getLedgerByRequest(requestId: string): Promise<LedgerRecord[]> {
+  const id = String(requestId ?? '').trim()
+  if (!id) return []
+  const response = await request.get<LedgerResponse<unknown>>(`/api/admin/ledger/by-request/${encodeURIComponent(id)}`)
+  const data = unwrap(response, '按请求链路查询留痕失败')
+  // 文档写的是"直接返回列表"，这里对"分页对象"做一层兼容，避免后端改成分页后整页报错
+  const records = Array.isArray(data) ? data : ((data as { list?: unknown[] } | null)?.list ?? [])
+  return records.map(normalizeRecord)
+}
+
 /** 台账自检状态（`queryReady` / `writeReady` / `categoryCount` / `requestIdCoverage` / `degraded`）。 */
 export async function getLedgerStatus(): Promise<LedgerStatus> {
   const response = await request.get<LedgerResponse<LedgerStatus>>('/api/admin/ledger/status')

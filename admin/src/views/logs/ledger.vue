@@ -1,22 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { QuestionFilled } from '@element-plus/icons-vue'
 import DataTable from '@/components/DataTable.vue'
 import AuditTimeline from '@/components/audit/AuditTimeline.vue'
 import LedgerDiffTable from '@/components/audit/LedgerDiffTable.vue'
-import { UNIFIED_UNSUPPORTED_FIELDS, useLedgerStore, type LedgerSource, type LedgerUnsupportedField } from '@/stores/ledger'
+import { UNIFIED_UNSUPPORTED_FIELDS, useLedgerStore, type LedgerUnsupportedField } from '@/stores/ledger'
 import { copyToClipboard } from '@/utils/clipboard'
 import {
+  LEDGER_BLOCK_OPTIONS,
   LEDGER_LEGACY_CATEGORY_LABEL,
+  LEDGER_OPERATION_UNKNOWN_HINT,
+  LEDGER_REQUEST_ID_EMPTY,
+  LEDGER_REQUEST_ID_TIP,
+  LEDGER_RESULT_OPTIONS,
   buildLedgerDiff,
   formatCoverageRate,
   formatLedgerTime,
   isLedgerChangeRecord,
+  isLedgerOperationKnown,
   isSkippedLedger,
+  ledgerBlockLabel,
   ledgerCategoryLabel,
+  ledgerOperationLabel,
+  ledgerOperationTooltip,
   ledgerOperatorText,
-  ledgerResultMeta,
   ledgerRawSnapshot,
+  ledgerResultMeta,
   ledgerTargetText,
   ledgerTargetTypeLabel,
   operatorTypeLabel,
@@ -25,12 +35,44 @@ import type { LedgerRecord } from '@/types/ledger'
 
 /**
  * 留痕台账（操作留痕回溯）。
- * - 数据源二选一：`/ledger`（9 类，不含金额）与 `/unified`（含金额 MONEY）；
- * - 仅平台角色可见（SUPER_ADMIN / CUSTOMER_SERVICE / FINANCE），商户管理员看不到（跨商户全量 + 金额/库存）。
- * - 纯查询接口，无实时推送。
+ *
+ * 页面分三个模块，**不再是一张堆满筛选的大表**：
+ * 1. 分类视图 Tab：`全部` / 分类字典顺序逐类 / `含金额的统一台账`（`/unified`）；
+ * 2. 筛选：常用条件（目标 ID / 结果 / 请求链路 ID / 操作时间）在外，其余收进「高级筛选」折叠；
+ * 3. 列表 + 详情抽屉 + 时间线 / 请求链路 / 自检状态三个对话框。
+ *
+ * 数据源二选一：`/ledger`（9 类，不含金额）与 `/unified`（含金额 MONEY）。
+ * 仅平台角色可见（SUPER_ADMIN / CUSTOMER_SERVICE / FINANCE），商户管理员看不到（跨商户全量 + 金额/库存）。
+ * 纯查询接口，无实时推送。
  */
 const store = useLedgerStore()
 const dateRange = ref<[string, string] | null>(null)
+
+/** Tab 名常量：`all` = 全部（不传 categories）；`unified` = 含金额的统一台账；其余 = 分类字典的枚举名。 */
+const ALL_TAB = 'all'
+const UNIFIED_TAB = 'unified'
+/** 当前分类视图 Tab（分类 Tab 承载 `categories` 筛选，见 `onTabChange`）。 */
+const activeTab = ref<string>(ALL_TAB)
+
+/** 当前是否为「某个分类」Tab（此时分类下拉被 Tab 钉住 → 禁用并提示）。 */
+const activeCategoryTab = computed(() => activeTab.value !== ALL_TAB && activeTab.value !== UNIFIED_TAB)
+
+/**
+ * Tab 标签：**只给当前选中的 Tab 追加条数**。
+ * 条数直接用本次查询的 `total` —— 为 10 个分类各查一次条数需要 10 个请求，代价太大，**不额外发请求**。
+ * 查询中不显示条数，避免闪现上一次的旧值。
+ */
+function tabLabel(name: string, label: string): string {
+  if (name !== activeTab.value || store.loading) return label
+  return `${label}（${store.total}）`
+}
+
+/** 列表工具栏的视图标题（切了 Tab 也知道自己正在看哪个模块）。 */
+const activeViewTitle = computed(() => {
+  if (activeTab.value === UNIFIED_TAB) return '含金额的统一台账'
+  if (activeTab.value === ALL_TAB) return '全部留痕记录'
+  return `${ledgerCategoryLabel(activeTab.value, store.categoryLabelMap)} · 留痕记录`
+})
 
 /** 详情抽屉展示的记录（用空白对象兜底，避免模板里到处判空）。 */
 function createEmptyRecord(): LedgerRecord {
@@ -40,6 +82,23 @@ const detail = ref<LedgerRecord>(createEmptyRecord())
 const detailVisible = ref(false)
 const statusVisible = ref(false)
 
+/** 高级筛选折叠面板（默认收起；一旦有已设置项就自动展开，避免"填过的条件藏在折叠里"）。 */
+const advancedOpen = ref<string[]>([])
+
+/**
+ * 高级筛选里"已设置"的项数（折叠标题上的小标签）。
+ * ⚠️ 分类被分类 Tab 钉住时**不算**用户手填的条件，否则每次切分类 Tab 都会把折叠撑开。
+ */
+const advancedActiveCount = computed(() => {
+  const filters = store.filters
+  const categoryActive = !activeCategoryTab.value && filters.categories.length > 0
+  return [categoryActive, Boolean(filters.block), Boolean(filters.operation), Boolean(filters.operatorType), Boolean(filters.operatorId), Boolean(filters.targetType)].filter(Boolean).length
+})
+
+watch(advancedActiveCount, (count) => {
+  if (count > 0 && !advancedOpen.value.includes('advanced')) advancedOpen.value = ['advanced']
+})
+
 /** 按目标查时间线（用独立 ref 保存"已提交"的目标，避免模板里对可空对象取属性）。 */
 const timelineVisible = ref(false)
 const timelineTargetType = ref('ORDER')
@@ -48,13 +107,11 @@ const queriedTargetType = ref('')
 const queriedTargetId = ref('')
 const timelineSearched = ref(false)
 
-/** 结果筛选项（§3.1）。 */
-const RESULT_OPTIONS = [
-  { value: 'SUCCESS', label: '成功' },
-  { value: 'FAILURE', label: '失败' },
-  { value: 'SKIPPED', label: '未改成（SKIPPED）' },
-  { value: 'INCONSISTENT', label: '不一致' },
-]
+/** 请求链路弹窗（点 requestId → 看"这一次请求到底改了哪几条"）。 */
+const requestChainVisible = ref(false)
+const requestChainId = ref('')
+/** 链路条数：null = 尚未读到（标题保持中性），读到后标题写明"同一次请求共 N 条"。 */
+const requestChainTotal = ref<number | null>(null)
 
 /** 操作人类型筛选项（§3.2）。 */
 const OPERATOR_TYPE_OPTIONS = ['ADMIN', 'SUPER_ADMIN', 'MERCHANT', 'MERCHANT_PC', 'STAFF', 'USER', 'DELIVERY_PERSON', 'PLATFORM', 'SYSTEM']
@@ -64,9 +121,6 @@ const TARGET_TYPE_OPTIONS = ['ORDER', 'PRODUCT_SKU', 'DELIVERY_TASK', 'AFTER_SAL
 
 /** 时间线支持的逻辑目标类型（⚠️ 必须是逻辑类型，不是表名）。 */
 const TIMELINE_TARGET_TYPE_OPTIONS = ['ORDER', 'DELIVERY_TASK', 'PRODUCT_SKU', 'AFTER_SALE', 'WAYBILL', 'ADMIN', 'MERCHANT', 'SHOP', 'STAFF']
-
-/** 产生方积木筛选项（§4.1）。 */
-const BLOCK_OPTIONS = ['delivery', 'shop', 'wallet', 'staff', 'platform', 'audit']
 
 /** 该筛选项在当前数据源下是否被后端支持（unified 不支持 block/operation/targetType/requestId）。 */
 function isFilterDisabled(field: LedgerUnsupportedField): boolean {
@@ -119,16 +173,32 @@ async function load(): Promise<void> {
   }
 }
 
-/** 重置筛选（数据源不变）。 */
-async function reset(): Promise<void> {
-  store.resetFilters()
-  dateRange.value = null
+/**
+ * 切换分类视图 Tab（**Tab 就是分类筛选**）。
+ * - 分类 Tab：数据源回到 9 类台账，并把 `categories` 钉成该分类；
+ * - 「全部」Tab：数据源回到 9 类台账，`categories` 置空（仍可在高级筛选里多选交叉筛选）；
+ * - 「含金额的统一台账」Tab：沿用既有 `switchSource('unified')` 逻辑（禁用并清空
+ *   `block`/`operation`/`targetType`/`requestId`，回到第一页）。
+ * ⚠️ **其它筛选条件保持不变**（不因为切 Tab 把用户输入清掉）。
+ */
+async function onTabChange(name: string | number): Promise<void> {
+  const value = String(name)
+  if (value === UNIFIED_TAB) {
+    store.switchSource('unified')
+    store.filters.categories = []
+  } else {
+    store.switchSource('ledger')
+    store.filters.categories = value === ALL_TAB ? [] : [value]
+  }
+  store.page = 1
   await load()
 }
 
-/** 切换数据源：清掉对方不支持的筛选条件后重新查询。 */
-async function onSourceChange(value: string | number | boolean | undefined): Promise<void> {
-  store.switchSource(value as LedgerSource)
+/** 重置筛选：清空全部条件与日期；分类视图回到「全部」（在统一台账 Tab 下则保持统一台账）。 */
+async function reset(): Promise<void> {
+  store.resetFilters()
+  dateRange.value = null
+  activeTab.value = store.source === 'unified' ? UNIFIED_TAB : ALL_TAB
   await load()
 }
 
@@ -150,23 +220,52 @@ function openStatus(): void {
 /** 复制请求链路 ID（后端缺失时不能复制，先提示）。 */
 async function copyRequestId(value?: string | null): Promise<void> {
   if (!value) {
-    ElMessage.warning('该行没有 requestId（历史行/定时任务行天然为空），无法复制')
+    ElMessage.warning('该行没有请求链路 ID（历史行/定时任务行天然为空），无法复制')
     return
   }
   const ok = await copyToClipboard(value)
   ElMessage[ok ? 'success' : 'error'](ok ? '请求链路 ID 已复制' : '复制失败，请手动选择复制')
 }
 
-/** 用请求链路 ID 反查同一次请求的全部留痕。 */
+/** 用请求链路 ID 反查同一次请求的全部留痕（链路可能跨分类 → 回到「全部」Tab 才不会漏行）。 */
 async function filterByRequestId(value?: string | null): Promise<void> {
   if (!value) {
-    ElMessage.warning('该行没有 requestId，无法按请求链路筛选')
+    ElMessage.warning('该行没有请求链路 ID（历史行/定时任务行天然为空），无法按链路筛选')
+    return
+  }
+  if (isFilterDisabled('requestId')) {
+    ElMessage.warning('统一台账不支持按请求链路 ID 筛选（该接口没有 requestId 参数），请用「查看该链路全部留痕」')
     return
   }
   store.filters.requestId = value
+  // 一次请求可能同时改到多个分类，钉着单一分类会漏行 → 回到「全部」Tab
+  store.filters.categories = []
+  activeTab.value = ALL_TAB
   detailVisible.value = false
   await search()
 }
+
+/** 打开「请求链路」对话框（点表格或详情里的 requestId）。 */
+function openRequestChain(value?: string | null): void {
+  if (!value) {
+    ElMessage.warning('该行没有请求链路 ID（历史行/定时任务行天然为空），无法查看链路')
+    return
+  }
+  requestChainTotal.value = null
+  requestChainId.value = value
+  detailVisible.value = false
+  requestChainVisible.value = true
+}
+
+/** 子组件加载完成 → 回填条数（标题写「同一次请求共 N 条」）。 */
+function onRequestChainLoaded(count: number): void {
+  requestChainTotal.value = count
+}
+
+/** 请求链路弹窗标题（读不到条数时保持中性文案，不让"0 条"误导）。 */
+const requestChainTitle = computed(() =>
+  requestChainTotal.value === null ? '同一次请求的留痕（正在读取…）' : `同一次请求共 ${requestChainTotal.value} 条留痕`,
+)
 
 /** 导出 CSV（⚠️ 上限 5000 条：按筛选条件取最新一批，不是全量导出）。 */
 async function exportCsv(): Promise<void> {
@@ -198,7 +297,7 @@ async function reconcile(): Promise<void> {
   }
   try {
     const message = await store.reconcile()
-    ElMessage.success(message || '对账已完成，可筛选“分类=异常”查看结果')
+    ElMessage.success(message || '对账已完成，可切到「异常」Tab 查看结果')
     await load()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '手动对账失败')
@@ -253,50 +352,50 @@ onMounted(() => {
 
     <el-alert v-if="statusWarning" class="status-alert" type="warning" show-icon :closable="false" :title="statusWarning" />
 
+    <!-- 模块 1：分类视图 Tab —— 一次只看一类，不再"一张大表看全部" -->
+    <el-card shadow="never" class="tab-card">
+      <el-tabs v-model="activeTab" class="ledger-tabs" @tab-change="onTabChange">
+        <el-tab-pane :label="tabLabel(ALL_TAB, '全部')" :name="ALL_TAB" />
+        <el-tab-pane
+          v-for="option in store.categories"
+          :key="option.value"
+          :label="tabLabel(option.value, option.label)"
+          :name="option.value"
+        />
+        <el-tab-pane :label="tabLabel(UNIFIED_TAB, '含金额的统一台账')" :name="UNIFIED_TAB" />
+      </el-tabs>
+      <p class="filter-hint">
+        {{ store.sourceHint }}
+        切换 Tab 会按该分类重新查询（回到第 1 页），其它筛选条件保持不变；Tab 上的条数取自本次查询结果（不为每个分类额外发请求）。
+      </p>
+    </el-card>
+
+    <!-- 模块 2：筛选 —— 常用条件在外，其余收进「高级筛选」折叠 -->
     <el-card shadow="never" class="filter-card">
-      <el-form inline @submit.prevent="search">
-        <el-form-item label="数据源">
-          <el-radio-group :model-value="store.source" @change="onSourceChange">
-            <el-radio-button value="ledger">9 类台账</el-radio-button>
-            <el-radio-button value="unified">统一台账（含金额）</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="store.filters.categories" multiple collapse-tags collapse-tags-tooltip clearable placeholder="全部分类（可多选）">
-            <el-option v-for="option in store.categories" :key="option.value" :label="option.label" :value="option.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="产生方">
-          <el-select v-model="store.filters.block" clearable placeholder="全部积木" :disabled="isFilterDisabled('block')">
-            <el-option v-for="block in BLOCK_OPTIONS" :key="block" :label="block" :value="block" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="操作码">
-          <el-input v-model="store.filters.operation" clearable placeholder="精确匹配，如 ORDER_STATUS" :disabled="isFilterDisabled('operation')" />
-        </el-form-item>
-        <el-form-item label="操作人类型">
-          <el-select v-model="store.filters.operatorType" clearable placeholder="全部">
-            <el-option v-for="type in OPERATOR_TYPE_OPTIONS" :key="type" :label="`${operatorTypeLabel(type)}（${type}）`" :value="type" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="操作人 ID">
-          <el-input v-model="store.filters.operatorId" clearable placeholder="操作人 ID" inputmode="numeric" />
-        </el-form-item>
-        <el-form-item label="目标类型">
-          <el-select v-model="store.filters.targetType" clearable filterable placeholder="全部目标" :disabled="isFilterDisabled('targetType')">
-            <el-option v-for="type in TARGET_TYPE_OPTIONS" :key="type" :label="`${ledgerTargetTypeLabel(type)}（${type}）`" :value="type" />
-          </el-select>
-        </el-form-item>
+      <el-form inline class="quick-filter-form" @submit.prevent="search">
         <el-form-item label="目标 ID">
           <el-input v-model="store.filters.targetId" clearable placeholder="订单号/任务号/SKU ID" />
         </el-form-item>
         <el-form-item label="结果">
           <el-select v-model="store.filters.result" clearable placeholder="全部结果">
-            <el-option v-for="option in RESULT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+            <el-option v-for="option in LEDGER_RESULT_OPTIONS" :key="option.value" :label="`${option.label}（${option.value}）`" :value="option.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="请求链路 ID">
-          <el-input v-model="store.filters.requestId" clearable placeholder="requestId（多数历史行为空）" :disabled="isFilterDisabled('requestId')" />
+        <el-form-item>
+          <template #label>
+            <span class="label-with-help">
+              请求链路 ID
+              <el-tooltip placement="top" :content="LEDGER_REQUEST_ID_TIP" :show-after="200">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
+          <el-input
+            v-model="store.filters.requestId"
+            clearable
+            placeholder="一次 HTTP 请求的链路 ID，如 ORD11851213561858"
+            :disabled="isFilterDisabled('requestId')"
+          />
         </el-form-item>
         <el-form-item label="操作时间">
           <el-date-picker
@@ -315,13 +414,61 @@ onMounted(() => {
           <el-button text type="primary" @click="openTimeline()">按目标查时间线</el-button>
         </el-form-item>
       </el-form>
-      <p class="filter-hint">{{ store.sourceHint }} · 操作码为精确匹配，不支持模糊搜索。</p>
+
+      <el-collapse v-model="advancedOpen" class="filter-advanced">
+        <el-collapse-item name="advanced">
+          <template #title>
+            <span class="advanced-title">高级筛选</span>
+            <el-tag v-if="advancedActiveCount" size="small" effect="plain" class="advanced-badge">已设置 {{ advancedActiveCount }} 项</el-tag>
+          </template>
+          <el-form inline class="advanced-filter-form" @submit.prevent="search">
+            <el-form-item label="分类">
+              <el-select
+                v-model="store.filters.categories"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                placeholder="全部分类（可多选）"
+                :disabled="activeCategoryTab"
+              >
+                <el-option v-for="option in store.categories" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
+              <span v-if="activeCategoryTab" class="inline-hint">分类由当前 Tab 决定；需要多选分类请切到「全部」Tab</span>
+            </el-form-item>
+            <el-form-item label="产生方">
+              <el-select v-model="store.filters.block" clearable placeholder="全部产生方" :disabled="isFilterDisabled('block')">
+                <el-option v-for="option in LEDGER_BLOCK_OPTIONS" :key="option.value" :label="`${option.label}（${option.value}）`" :value="option.value" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="操作码">
+              <el-input v-model="store.filters.operation" clearable placeholder="精确匹配，如 ORDER_STATUS" :disabled="isFilterDisabled('operation')" />
+            </el-form-item>
+            <el-form-item label="操作人类型">
+              <el-select v-model="store.filters.operatorType" clearable placeholder="全部">
+                <el-option v-for="type in OPERATOR_TYPE_OPTIONS" :key="type" :label="`${operatorTypeLabel(type)}（${type}）`" :value="type" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="操作人 ID">
+              <el-input v-model="store.filters.operatorId" clearable placeholder="操作人 ID" inputmode="numeric" />
+            </el-form-item>
+            <el-form-item label="目标类型">
+              <el-select v-model="store.filters.targetType" clearable filterable placeholder="全部目标" :disabled="isFilterDisabled('targetType')">
+                <el-option v-for="type in TARGET_TYPE_OPTIONS" :key="type" :label="`${ledgerTargetTypeLabel(type)}（${type}）`" :value="type" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </el-collapse-item>
+      </el-collapse>
+
+      <p class="filter-hint">操作码为精确匹配，不支持模糊搜索（后端未收录中文名的操作码会原样显示英文，可提需求补充）。</p>
     </el-card>
 
+    <!-- 模块 3：列表 -->
     <el-card shadow="never" class="content-card">
       <div class="toolbar">
         <div>
-          <strong>留痕记录</strong>
+          <strong>{{ activeViewTitle }}</strong>
           <span class="toolbar-count">共 {{ store.total }} 条</span>
         </div>
         <span class="toolbar-count">导出上限 5000 条（与 9 类台账同参数，不含金额）</span>
@@ -338,31 +485,63 @@ onMounted(() => {
         @page-change="onPageChange"
         @size-change="onSizeChange"
       >
-        <el-table-column label="时间" width="170">
+        <el-table-column label="时间" width="165">
           <template #default="{ row }">{{ formatLedgerTime(row.createTime) }}</template>
         </el-table-column>
-        <el-table-column label="分类" width="120">
+        <el-table-column label="分类" width="110">
           <template #default="{ row }">
             <el-tag v-if="row.category" size="small" effect="plain">{{ ledgerCategoryLabel(row.category, store.categoryLabelMap) }}</el-tag>
             <el-tag v-else size="small" type="info" effect="plain">{{ LEDGER_LEGACY_CATEGORY_LABEL }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作码" min-width="180">
-          <template #default="{ row }"><span class="code-text">{{ row.operation || '—' }}</span></template>
+        <!-- 操作码：中文名优先，未知码原样回显；列内省略显示，全称与原始码看 tooltip -->
+        <el-table-column min-width="200">
+          <template #header>
+            <span class="label-with-help">
+              操作码
+              <el-tooltip placement="top" :content="`${LEDGER_OPERATION_UNKNOWN_HINT}（如 INV-1_… 这类长码建议看 tooltip 全称）`" :show-after="200">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
+          <template #default="{ row }">
+            <el-tooltip placement="top" :content="ledgerOperationTooltip(row.operation)" :show-after="200">
+              <span class="ellipsis-text" :class="{ 'text-unknown': !isLedgerOperationKnown(row.operation) }">{{ ledgerOperationLabel(row.operation) }}</span>
+            </el-tooltip>
+          </template>
         </el-table-column>
-        <el-table-column label="操作人" min-width="150">
+        <el-table-column label="操作人" min-width="140">
           <template #default="{ row }">
             <span>{{ ledgerOperatorText(row) }}</span>
             <small class="code-text">{{ operatorTypeLabel(row.operatorType) }}</small>
           </template>
         </el-table-column>
-        <el-table-column label="目标" min-width="180">
+        <el-table-column label="目标" min-width="160">
           <template #default="{ row }">{{ ledgerTargetText(row) }}</template>
         </el-table-column>
-        <el-table-column label="结果" width="150">
+        <el-table-column label="结果" width="130">
           <template #default="{ row }">
             <el-tag size="small" :type="ledgerResultMeta(row.result).tag">{{ ledgerResultMeta(row.result).label }}</el-tag>
             <small v-if="isSkippedLedger(row)" class="skipped-hint">本次未改成，前值不可信</small>
+          </template>
+        </el-table-column>
+        <!-- 请求链路 ID：同一次 HTTP 请求的多条留痕共用它；点击查看该链路全部留痕 -->
+        <el-table-column width="190">
+          <template #header>
+            <span class="label-with-help">
+              请求链路 ID
+              <el-tooltip placement="top" :content="LEDGER_REQUEST_ID_TIP" :show-after="200">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
+          <template #default="{ row }">
+            <el-tooltip v-if="row.requestId" placement="top" :content="LEDGER_REQUEST_ID_TIP" :show-after="200">
+              <span class="link-text" @click="openRequestChain(row.requestId)">{{ row.requestId }}</span>
+            </el-tooltip>
+            <el-tooltip v-else placement="top" :content="LEDGER_REQUEST_ID_TIP" :show-after="200">
+              <span class="text-unknown ellipsis-text">{{ LEDGER_REQUEST_ID_EMPTY }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="详情" width="140" fixed="right">
@@ -382,19 +561,30 @@ onMounted(() => {
           {{ ledgerCategoryLabel(detail.category, store.categoryLabelMap) }}
           <span v-if="detail.category" class="code-text">（{{ detail.category }}）</span>
         </el-descriptions-item>
-        <el-descriptions-item label="操作码">{{ detail.operation || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="操作码">
+          <el-tooltip placement="top" :content="ledgerOperationTooltip(detail.operation)" :show-after="200">
+            <span>{{ ledgerOperationLabel(detail.operation) }}</span>
+          </el-tooltip>
+          <span v-if="detail.operation && !isLedgerOperationKnown(detail.operation)" class="code-text">（{{ LEDGER_OPERATION_UNKNOWN_HINT }}）</span>
+          <span v-else-if="detail.operation" class="code-text">（{{ detail.operation }}）</span>
+        </el-descriptions-item>
         <el-descriptions-item label="操作人类型">{{ operatorTypeLabel(detail.operatorType) }}（{{ detail.operatorType || '—' }}）</el-descriptions-item>
         <el-descriptions-item label="操作人 ID">{{ detail.operatorId || '—' }}</el-descriptions-item>
         <el-descriptions-item label="操作人名称">{{ detail.operatorName || '—（系统发起时为 null）' }}</el-descriptions-item>
-        <el-descriptions-item label="产生方积木">{{ detail.block || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="产生方积木">
+          {{ detail.block ? `${ledgerBlockLabel(detail.block)}（${detail.block}）` : '—' }}
+        </el-descriptions-item>
         <el-descriptions-item label="结果">
           <el-tag size="small" :type="ledgerResultMeta(detail.result).tag">{{ ledgerResultMeta(detail.result).label }}</el-tag>
           <span class="code-text">（{{ detail.result || 'null' }}）</span>
         </el-descriptions-item>
         <el-descriptions-item label="请求链路 ID">
-          <span>{{ detail.requestId || '—（历史行/定时任务行为空）' }}</span>
+          <el-tooltip placement="top" :content="LEDGER_REQUEST_ID_TIP" :show-after="200">
+            <span :class="detail.requestId ? '' : 'text-unknown'">{{ detail.requestId || LEDGER_REQUEST_ID_EMPTY }}</span>
+          </el-tooltip>
           <el-button v-if="detail.requestId" link type="primary" @click="copyRequestId(detail.requestId)">复制</el-button>
-          <el-button v-if="detail.requestId" link type="primary" @click="filterByRequestId(detail.requestId)">按此请求号筛选</el-button>
+          <el-button v-if="detail.requestId" link type="primary" @click="openRequestChain(detail.requestId)">查看该链路全部留痕</el-button>
+          <el-button v-if="detail.requestId" link type="primary" @click="filterByRequestId(detail.requestId)">按此请求链路筛选</el-button>
         </el-descriptions-item>
         <el-descriptions-item label="目标类型">{{ detail.targetType ? `${ledgerTargetTypeLabel(detail.targetType)}（${detail.targetType}）` : '—' }}</el-descriptions-item>
         <el-descriptions-item label="目标 ID">{{ detail.targetId || '—' }}</el-descriptions-item>
@@ -444,6 +634,15 @@ onMounted(() => {
       <AuditTimeline v-if="timelineSearched" :target-type="queriedTargetType" :target-id="queriedTargetId" />
     </el-dialog>
 
+    <!-- 请求链路：同一次 HTTP 请求产生的全部留痕（时间升序） -->
+    <el-dialog v-model="requestChainVisible" :title="requestChainTitle" width="860px" append-to-body destroy-on-close>
+      <p class="filter-hint">
+        请求链路 ID：<span class="code-text">{{ requestChainId }}</span>
+        —— 同一次请求产生的多条留痕共用一个 ID，用来回答「我刚点了一次按钮，到底改了哪几条数据」。
+      </p>
+      <AuditTimeline v-if="requestChainId" :request-id="requestChainId" @loaded="onRequestChainLoaded" />
+    </el-dialog>
+
     <!-- 自检状态 -->
     <el-dialog v-model="statusVisible" title="台账自检状态" width="640px" append-to-body>
       <template v-if="!statusView.loaded">
@@ -484,9 +683,30 @@ onMounted(() => {
 <style scoped>
 .heading-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .status-alert { margin-bottom: 16px; }
+.tab-card { margin-bottom: 16px; border: 1px solid var(--vben-border); border-radius: var(--vben-card-radius); background: var(--vben-surface); box-shadow: var(--vben-shadow); }
+.tab-card :deep(.el-card__body) { padding: 16px 20px 4px; }
+.ledger-tabs :deep(.el-tabs__header) { margin-bottom: 6px; }
 .filter-hint { margin: 12px 0 0; color: var(--vben-muted); font-size: 12px; line-height: 1.6; }
+.label-with-help { display: inline-flex; align-items: center; gap: 4px; }
+.help-icon { color: var(--el-text-color-secondary); cursor: help; }
+.filter-advanced { margin-top: 12px; }
+/*
+ * 全局样式把筛选卡片的表单项 margin-bottom 置 0（`.filter-card .el-form-item`），
+ * 筛选条件换行时两行会挤在一起。本页把两个筛选表单改成 flex 换行容器，用 gap 控行距，
+ * **只作用于本页**，不改全局样式。
+ */
+.quick-filter-form, .advanced-filter-form { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 24px; }
+.quick-filter-form .el-form-item, .advanced-filter-form .el-form-item { margin-right: 0; margin-bottom: 0; }
+.advanced-title { font-size: 13px; font-weight: 600; }
+.advanced-badge { margin-left: 8px; }
+.inline-hint { margin-left: 8px; color: var(--vben-muted); font-size: 12px; }
 .code-text { color: var(--el-text-color-secondary); font-size: 12px; }
 .skipped-hint { display: block; margin-top: 2px; color: var(--el-text-color-secondary); font-size: 12px; }
+/* 长枚举（如 INV-1_MONEY_WITHOUT_ORDER_STATUS）列内省略显示，全称靠 tooltip */
+.ellipsis-text { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-unknown { color: var(--el-text-color-secondary); }
+.link-text { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-color-primary); cursor: pointer; }
+.link-text:hover { text-decoration: underline; }
 .raw-json { max-height: 180px; margin: 0; overflow: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
 .detail-alert { margin-top: 12px; }
 .detail-hint { margin: 12px 0 0; color: var(--vben-muted); font-size: 12px; line-height: 1.6; }

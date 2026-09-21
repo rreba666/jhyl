@@ -70,11 +70,14 @@ export const useLedgerStore = defineStore('ledger', () => {
   /** 分类枚举名 → 中文标签（表格"分类"列用）。 */
   const categoryLabelMap = computed(() => buildCategoryLabelMap(categories.value))
 
-  /** 当前数据源的接口说明（页面上给一句人话提示，避免"为什么查不到金额"的困惑）。 */
+  /**
+   * 当前分类视图的一句话说明（展示在页面 Tab 下方，避免"为什么查不到金额 / 为什么筛选项灰了"的困惑）。
+   * ⚠️ 文案里的 Tab 名与 `views/logs/ledger.vue` 的 Tab 标签保持一致（「含金额的统一台账」）。
+   */
   const sourceHint = computed(() =>
     source.value === 'unified'
-      ? '统一台账：在 9 类之外额外合并了金额流水（MONEY），不支持"产生方/操作码/目标类型/请求号"筛选。'
-      : '9 类台账：不含金额流水（MONEY 类请切到"统一台账（含金额）"）。',
+      ? '统一台账：在 9 类之外额外合并了金额流水（MONEY）；该接口不支持「产生方 / 操作码 / 目标类型 / 请求链路 ID」筛选（页面已禁用并清空）。'
+      : '9 类台账：不含金额流水；要看金额（MONEY）请切到「含金额的统一台账」Tab。',
   )
 
   /**

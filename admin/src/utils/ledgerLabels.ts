@@ -59,6 +59,118 @@ export function ledgerCategoryLabel(category: string | null | undefined, labelMa
   return labelMap[category] || category
 }
 
+/**
+ * 产生方积木（`block`）→ 中文。
+ * 依据：`docs/audit-9-categories.md` §4.1 与第二节「真实生产者」列（实测 12 个值）。
+ * 同时导出为下拉选项（`LEDGER_BLOCK_OPTIONS`），筛选下拉与展示共用一份映射，避免两处维护。
+ * ⚠️ 与其它枚举同约定：**未知值原样回显**（不要显示"未知"，方便发现后端新增积木名）。
+ */
+export const LEDGER_BLOCK_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'delivery', label: '配送' },
+  { value: 'shop', label: '门店' },
+  { value: 'wallet', label: '钱包' },
+  { value: 'staff', label: '员工' },
+  { value: 'platform', label: '平台' },
+  { value: 'audit', label: '审计' },
+  { value: 'framework', label: '框架' },
+  { value: 'external', label: '外部服务' },
+  { value: 'promotion', label: '推广' },
+  { value: 'bonus', label: '红包' },
+  { value: 'aftersale', label: '售后' },
+  { value: 'demo-mall', label: '演示商城' },
+]
+
+/** 产生方积木 → 中文映射（由 `LEDGER_BLOCK_OPTIONS` 派生，单一数据源）。 */
+export const LEDGER_BLOCK_LABELS: Record<string, string> = LEDGER_BLOCK_OPTIONS.reduce<Record<string, string>>(
+  (map, option) => {
+    map[option.value] = option.label
+    return map
+  },
+  {},
+)
+
+/** 产生方积木 → 中文；为空显示"—"，未知原样回显。 */
+export function ledgerBlockLabel(value?: string | null): string {
+  const key = String(value ?? '').trim()
+  if (!key) return '—'
+  return LEDGER_BLOCK_LABELS[key] || key
+}
+
+/**
+ * 操作码（`operation`）→ 中文。
+ * ⚠️ `operation` 是**自由字符串、后端未限定枚举**（文档 §一）→ 本表**注定滞后**：
+ * 后端每新增一个操作码，这里查不到就会回退成英文（这是设计上的兜底，不是 bug）。
+ * 因此：**未知值一律原样回显**，并在列上给"后端未收录该操作码的中文名"的 tooltip（提示可提需求）。
+ * 根治方案（请后端在 `AuditRecordView` 上补 `operationDesc`，像 `EmergencyPoolLogVO.typeDesc` 那样）
+ * 见 `docs/留痕台账-后端需求-2026-09-21.md` §9。
+ */
+export const LEDGER_OPERATION_LABELS: Record<string, string> = {
+  ORDER_STATUS: '订单状态变更',
+  DELIVERY_STATUS: '配送状态变更',
+  AFTER_SALE_STATUS: '售后状态变更',
+  ORDER_CREATE: '下单（锁定库存）',
+  PAY_CLEAR_LOCK: '支付清除锁定',
+  REFUND_RESTOCK: '退款回补库存',
+  VERIFY_CLEAR_LOCK: '核销清除锁定',
+  SKU_CREATE: '新增 SKU',
+  MANUAL_SET: '人工设置库存',
+  CREATE_ADMIN: '新增管理员',
+  LOGISTICS_QUERY: '物流轨迹查询',
+  MANUAL_VERIFY: '人工核销',
+  FLYWAY_APPLIED: '数据库迁移',
+  ORDER_PAY: '订单支付',
+  DAILY_FINGERPRINT: '每日留痕指纹',
+  FINGERPRINT_MISMATCH: '留痕指纹不符',
+  'INV-1_MONEY_WITHOUT_ORDER_STATUS': '不变式1：有支付流水但无订单状态留痕',
+  'INV-2_REFUND_WITHOUT_REFUND_STATUS': '不变式2：有退款流水但无退款状态留痕',
+  'INV-3_STOCK_WITHOUT_OPERATION': '不变式3：人造库存变动无后台操作留痕',
+  'INV-4_LOGISTICS_WITHOUT_FULFILLMENT': '不变式4：查过物流但无履约状态留痕',
+}
+
+/** 未知操作码的提示（列 tooltip 用）。 */
+export const LEDGER_OPERATION_UNKNOWN_HINT = '后端未收录该操作码的中文名，可提需求补充字典'
+
+/** 操作码 → 中文；为空显示"—"，**未知原样回显英文操作码**。 */
+export function ledgerOperationLabel(value?: string | null): string {
+  const key = String(value ?? '').trim()
+  if (!key) return '—'
+  return LEDGER_OPERATION_LABELS[key] || key
+}
+
+/** 该操作码是否有中文名（未知 → 页面上给"后端未收录"提示）。 */
+export function isLedgerOperationKnown(value?: string | null): boolean {
+  const key = String(value ?? '').trim()
+  return Boolean(key) && Boolean(LEDGER_OPERATION_LABELS[key])
+}
+
+/**
+ * 操作码列的 tooltip：**中文全称 + 原始操作码**（已知码很长时列内省略显示，全称靠 tooltip）；
+ * 未知码提示"后端未收录"，避免使用者把英文码当成本地 bug。
+ */
+export function ledgerOperationTooltip(value?: string | null): string {
+  const key = String(value ?? '').trim()
+  if (!key) return '—'
+  const label = LEDGER_OPERATION_LABELS[key]
+  if (!label) return `${key}（${LEDGER_OPERATION_UNKNOWN_HINT}）`
+  return `${label}（${key}）`
+}
+
+/**
+ * 结果筛选项（§3.1）：中文标签**统一取自 `ledgerResultMeta`**，避免下拉与表格两处各写一份。
+ */
+export const LEDGER_RESULT_OPTIONS: Array<{ value: string; label: string }> = ['SUCCESS', 'FAILURE', 'SKIPPED', 'INCONSISTENT'].map(
+  (value) => ({ value, label: ledgerResultMeta(value).label }),
+)
+
+/**
+ * 「请求链路 ID」的说明文案（筛选框 tooltip / 表格列 tooltip / 详情抽屉共用一处，避免三处口径不一致）。
+ */
+export const LEDGER_REQUEST_ID_TIP =
+  '一次 HTTP 请求的链路追踪 ID：同一次操作产生的多条留痕共用同一个 ID，用来回答「我刚点了一次按钮，到底改了哪几条数据」。⚠️ 历史行与定时任务行天然为空（实测近 24h 覆盖率仅 14.2%），空值不是数据缺陷。点击 ID 可查看该链路全部留痕。'
+
+/** 请求链路 ID 为空时的展示文案（历史行 / 定时任务行没有 HTTP 请求上下文）。 */
+export const LEDGER_REQUEST_ID_EMPTY = '—（历史行/定时任务行为空）'
+
 /** 订单交易主状态（§3.4）。 */
 export const ORDER_STATUS_LABELS: Record<string, string> = {
   '0': '待支付',
