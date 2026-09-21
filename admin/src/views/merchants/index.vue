@@ -39,9 +39,32 @@ function search(): void {
 async function toggleStatus(row: MerchantVO): Promise<void> {
   const next: 1 | 2 = row.status === 1 ? 2 : 1
   try {
-    await ElMessageBox.confirm(`确认${next === 1 ? '启用' : '停用'}商户“${row.brandName}”吗？`, '状态确认')
-    await toggleMerchantStatus(row.id, next)
-    ElMessage.success(next === 1 ? '商户已启用' : '商户已停用')
+    if (next === 1) {
+      await ElMessageBox.confirm(`确认启用商户“${row.brandName}”吗？`, '状态确认')
+      await toggleMerchantStatus(row.id, 1)
+      ElMessage.success('商户已启用')
+    } else {
+      /**
+       * ⚠️ 停用/驳回**必须**填审核意见（2026-09-21 实测）：
+       * 后端置 2 时不传 `remark` 直接报 `code=1001 驳回/停用品牌必须填写审核意见（remark）`。
+       * 老实现只发 `status` → 「驳回」按钮点了必然报错；且这个原因是入驻申请人
+       * 在小程序「我的入驻申请」里唯一能看到的信息（写回申请单 `auditRemark`），
+       * 不填就等于让商家盲改重提。故这里用 prompt 强制填写、不允许空白。
+       */
+      const { value } = await ElMessageBox.prompt(
+        `确认停用/驳回商户“${row.brandName}”吗？请填写审核意见，该内容会展示给入驻申请人。`,
+        '驳回 / 停用原因',
+        {
+          inputType: 'textarea',
+          inputPlaceholder: '例如：资质不全，请补传营业执照',
+          inputValidator: (text: string) => (text && text.trim() ? true : '必须填写审核意见'),
+          confirmButtonText: '确认停用',
+          cancelButtonText: '取消',
+        },
+      )
+      await toggleMerchantStatus(row.id, 2, value.trim())
+      ElMessage.success('商户已停用')
+    }
     void loadList()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '商户状态更新失败')

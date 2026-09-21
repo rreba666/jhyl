@@ -521,6 +521,27 @@ onMounted(() => {
       <el-button v-if="!isPickupOrder" @click="loadList">刷新</el-button>
     </div>
 
+    <!--
+      同城配送订单**不会**出现在本页：本页的 `pickupType` 是按页面形态硬编码的
+      （自提形态=1，普通订单形态=0，见 loadList 里的说明），`pickupType=2` 没有承载形态。
+      2026-09-21 实测：客服按订单号/手机号在这里搜同城单会"查不到"，容易误判「订单不存在」，
+      故加一条明确指引（同城单在「配送工作台 → 同城订单」里）。
+    -->
+    <el-alert
+      v-if="!isPickupOrder"
+      class="same-city-hint"
+      type="info"
+      :closable="false"
+      show-icon
+      title="同城配送订单不在本页展示"
+    >
+      <template #default>
+        同城配送订单请到
+        <router-link class="same-city-hint-link" to="/delivery">「配送工作台 → 同城订单」</router-link>
+        查看与处理。
+      </template>
+    </el-alert>
+
     <el-card shadow="never" class="filter-card">
       <el-form inline class="order-filter-form">
         <el-form-item label="订单号"><el-input v-model="orderNoInput" placeholder="输入订单号" clearable style="width: 220px" @keyup.enter="searchByOrderNo" @clear="searchByOrderNo" /></el-form-item>
@@ -766,6 +787,10 @@ onMounted(() => {
 .wx-link { margin-left: auto; color: var(--el-color-primary); font-size: 12px; text-decoration: none; }
 /* 发货弹窗：收货信息区 */
 .ship-alert { margin-bottom: 12px; }
+/* 同城订单指引条（普通订单页不承载 pickupType=2，见模板注释） */
+.same-city-hint { margin-bottom: 12px; }
+.same-city-hint-link { color: var(--el-color-primary); text-decoration: none; }
+.same-city-hint-link:hover { text-decoration: underline; }
 .ship-info { margin-bottom: 10px; }
 .ship-info :deep(.el-descriptions__label) { width: 92px; }
 .ship-copy-row { display: flex; align-items: center; gap: 10px; }

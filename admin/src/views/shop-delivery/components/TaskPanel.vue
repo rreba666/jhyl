@@ -22,9 +22,17 @@ const props = defineProps<{ shopId: string }>()
 const tasks = ref<DeliveryTask[]>([])
 const loading = ref(false)
 
-/** 任务是否还能操作（未送达且未取消）。 */
+/**
+ * 任务是否还能操作（未送达且未取消）。
+ *
+ * ⚠️ 2026-09-21 实测：**后端取消后返回的是 `CANCELLED`（双 L）**，不是 `CANCELED`。
+ * 这里原先只排除 `CANCELED`，于是已取消的任务仍被判为"进行中"——操作列继续显示
+ * 暂停/恢复/改派/取消（点了必然被后端拒 `13003`），"未完成数"统计也偏高。
+ * 同项目 `admin/src/utils/deliveryStatus.ts` 早已注明"两种拼写都要兼容"，这里与它对齐。
+ */
 function isActive(row: DeliveryTask): boolean {
-  return row.status !== 'DELIVERED' && row.status !== 'CANCELED'
+  const status = String(row.status ?? '')
+  return status !== 'DELIVERED' && status !== 'CANCELED' && status !== 'CANCELLED'
 }
 
 /**

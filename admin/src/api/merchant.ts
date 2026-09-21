@@ -63,8 +63,18 @@ export async function updateMerchant(id: string, payload: MerchantCreateDTO): Pr
   unwrapResponse(response, '商户更新失败')
 }
 
-/** 启用/停用商户（/status）。 */
-export async function toggleMerchantStatus(id: string, status: 1 | 2): Promise<void> {
-  const response = await request.put<MerchantResponse<null>>(`/api/admin/merchants/${String(id)}/status`, null, { params: { status } })
+/**
+ * 启用/停用商户（/status）。
+ *
+ * ⚠️ 后端契约（2026-09-21 实测确证）：`status=2`（停用品牌，入驻场景即「驳回申请」）时
+ * **`remark` 必填**，不传直接报 `code=1001 驳回/停用品牌必须填写审核意见（remark）`；
+ * 该 remark 会写回申请单，商家在小程序「我的入驻申请」里以 `auditRemark` 看到驳回原因。
+ * `status=1`（启用）不需要 remark。
+ * 老实现只发 `status`，导致后台「驳回」按钮**点了必然报错**、商家也永远看不到原因。
+ */
+export async function toggleMerchantStatus(id: string, status: 1 | 2, remark?: string): Promise<void> {
+  const response = await request.put<MerchantResponse<null>>(`/api/admin/merchants/${String(id)}/status`, null, {
+    params: remark ? { status, remark } : { status },
+  })
   unwrapResponse(response, '商户状态更新失败')
 }
