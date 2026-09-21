@@ -1,8 +1,10 @@
 import { request } from './request'
 import type {
-  LedgerCategoryOption,
+  LedgerOption,
   LedgerPageResult,
   LedgerQueryParams,
+  LedgerReconcileHit,
+  LedgerReconcileResult,
   LedgerRecord,
   LedgerStatus,
   LedgerUnifiedQueryParams,
@@ -11,8 +13,9 @@ import type {
 
 /**
  * 留痕台账（审计台账）接口层。
- * 契约：`docs/audit-9-categories.md` 第四节 / 第八节。
- * ⚠️ 参数名以文档为准（`api_doc.json` 里的 `arg0`~`arg12` 是 Knife4j 未保留编译参数名导致的假象）。
+ * 契约：`docs/audit-9-categories.md` 第四节 / 第八节 + `api_doc.json`（2026-09-21 后端已更新）。
+ * ✅ 2026-09-21 复核 `/v3/api-docs`：参数名**已是真名**（`categories` / `excludeSkipped` …），
+ * `arg0`~`arg12` 的历史假象已消失 —— 原先"以文档为准"的坑不再需要，仍保留本注释作为背景。
  */
 
 /** 后端统一响应体。 */
@@ -56,6 +59,8 @@ function normalizeRecord(item: unknown): LedgerRecord {
     operatorId: String(raw.operatorId ?? ''),
     operatorName: toNullableString(raw.operatorName),
     operation: String(raw.operation ?? ''),
+    // 后端下发的中文名（2026-09-21 新增字段）；为 null 时页面回退前端映射表
+    operationDesc: toNullableString(raw.operationDesc),
     category,
     block: toNullableString(raw.block),
     result: toNullableString(raw.result),
@@ -87,20 +92,42 @@ function normalizePage(value: unknown, page: number, pageSize: number): LedgerPa
   }
 }
 
-/** 分类字典缓存：分类是穷举枚举，一次会话内不必重复拉取（成功后才缓存，失败不污染）。 */
-let categoryCache: LedgerCategoryOption[] | null = null
+/**
+ * 字典加载器工厂（`/categories` `/operations` `/target-types` 三个接口的 schema 相同，共用一套语义）：
+ * - **成功后才写缓存**（失败不污染，下次调用可自动重试）；
+ * - `force=true` 强制刷新（后端新增操作码后用户不必重登）；
+ * - 每项统一归一化为 `{value,label}` 字符串，缺 label 时回退 value（未知枚举原样回显的既有约定）。
+ */
+function createDictionaryLoader(path: string, failureMessage: string): (force?: boolean) => Promise<LedgerOption[]> {
+  let cache: LedgerOption[] | null = null
+  return async function load(force = false): Promise<LedgerOption[]> {
+    if (!force && cache) return cache
+    const response = await request.get<LedgerResponse<LedgerOption[]>>(path)
+    const list = unwrap(response, failureMessage) || []
+    cache = list.map((item) => ({ value: String(item?.value ?? ''), label: String(item?.label ?? item?.value ?? '') }))
+    return cache
+  }
+}
 
 /**
  * 分类字典（下拉框数据源，**不要硬编码枚举**）。
  * 共 10 项 = 9 个业务类 + `ANOMALY`；其中 `MONEY` 只在 `/unified` 能查到。
  */
-export async function getLedgerCategories(force = false): Promise<LedgerCategoryOption[]> {
-  if (!force && categoryCache) return categoryCache
-  const response = await request.get<LedgerResponse<LedgerCategoryOption[]>>('/api/admin/ledger/categories')
-  const list = unwrap(response, '留痕分类查询失败') || []
-  categoryCache = list.map((item) => ({ value: String(item?.value ?? ''), label: String(item?.label ?? item?.value ?? '') }))
-  return categoryCache
-}
+export const getLedgerCategories = createDictionaryLoader('/api/admin/ledger/categories', '留痕分类查询失败')
+
+/**
+ * 操作码中文字典（`GET /api/admin/ledger/operations`，前端需求 §9 的后端落地）。
+ * 用途：筛选下拉的候选项 + 表格/详情的中文名兜底。
+ * ⚠️ **后端已提供权威字典**（`/operations` + 记录上的 `operationDesc`），前端 `utils/ledgerLabels.ts`
+ * 里的硬编码映射表**只作兜底**（断网、字典接口未上线、后端漏下发 `operationDesc` 时仍可读）。
+ */
+export const getLedgerOperations = createDictionaryLoader('/api/admin/ledger/operations', '操作码字典查询失败')
+
+/**
+ * 目标类型权威枚举（`GET /api/admin/ledger/target-types`，前端需求 §8 的后端落地）。
+ * ⚠️ 从前端按文档"实测 12 种"硬编码的做法已废弃：**以本接口返回为准**，取不到时才回退硬编码。
+ */
+export const getLedgerTargetTypes = createDictionaryLoader('/api/admin/ledger/target-types', '目标类型字典查询失败')
 
 /** 9 类台账分页查询（**不含 MONEY**，`categories=MONEY` 会返回 total=0）。 */
 export async function getLedgerList(params: LedgerQueryParams): Promise<LedgerPageResult> {
@@ -188,13 +215,31 @@ function saveBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * CSV 导出（与 `/ledger` 同参数；同参数上限 **5000 条**，按筛选条件取最新一批，不是全量）。
+ * `unified=true` 导出时**会被后端忽略**的筛选参数（`/export` 的接口说明原文）。
+ * ⚠️ 这四项必须在提交前**主动剔除**：否则用户在界面上填了 block/operation/targetType/requestId、
+ * 以为"导出的是当前筛选结果"，实际后端按统一口径忽略它们 → 静默失真（比报错更危险）。
+ */
+const EXPORT_IGNORED_WHEN_UNIFIED = ['block', 'operation', 'targetType', 'requestId'] as const
+
+/**
+ * CSV 导出。
+ * - 默认（`unified=false`）与 `/ledger` 同参数，**不含 MONEY 金额行**；同参数上限 **5000 条**，
+ *   按筛选条件取最新一批，不是全量；
+ * - `unified=true` 时按**统一台账口径**导出（**含 MONEY 金额行**，后端需求 §4 已落地），
+ *   此时只支持 `/unified` 的参数子集，`block` / `operation` / `targetType` / `requestId` 会被忽略
+ *   —— 本函数直接把这四项从查询串里剔除，保证"界面看到的筛选"与"导出用的筛选"一致；
+ * - `excludeSkipped` 两种口径都支持，原样透传。
  * ⚠️ 无权限 / 接口未上线时后端会返回 JSON 而不是 CSV → 这里按 content-type 识别并抛出业务文案，
  * 否则用户会下载到一个内容是报错 JSON 的 ".csv"。
  */
-export async function exportLedgerCsv(params: LedgerQueryParams): Promise<void> {
+export async function exportLedgerCsv(params: LedgerQueryParams, unified = false): Promise<void> {
+  const query: Record<string, unknown> = { ...params, ...(unified ? { unified: true } : {}) }
+  if (unified) {
+    // 剔除统一口径下会被忽略的筛选（见上方注释：不剔除 = 用户误以为按当前筛选导出）
+    for (const field of EXPORT_IGNORED_WHEN_UNIFIED) delete query[field]
+  }
   const response = await request.get<Blob>('/api/admin/ledger/export', {
-    params: compact({ ...params }),
+    params: compact(query),
     responseType: 'blob',
   })
   const contentType = String(response.headers['content-type'] || '')
@@ -212,12 +257,44 @@ export async function exportLedgerCsv(params: LedgerQueryParams): Promise<void> 
 }
 
 /**
+ * 归一化对账结果。
+ * ⚠️ **向后兼容**：该接口 2026-09-21 才从 `ResultString` 改成结构化 `ReconcileResult`。
+ * 若某天后端回退/回滚成纯文本，`unwrap` 会拿到一个字符串 —— 这里不抛错，而是把它整体放进 `note`
+ * 并置 `structured=false`，让页面**只展示后端原文**、不显示"检查了 0 条不变式"这类误导性数字。
+ */
+function normalizeReconcileResult(value: unknown): LedgerReconcileResult {
+  if (typeof value === 'string') {
+    return { since: '', invariantsChecked: 0, inconsistencies: 0, hits: [], note: value || null, structured: false }
+  }
+  const raw = (value || {}) as Record<string, unknown>
+  const hits = Array.isArray(raw.hits) ? raw.hits : []
+  return {
+    since: String(raw.since ?? ''),
+    invariantsChecked: Number(raw.invariantsChecked ?? 0) || 0,
+    inconsistencies: Number(raw.inconsistencies ?? 0) || 0,
+    hits: hits.map((hit): LedgerReconcileHit => {
+      const item = (hit || {}) as Record<string, unknown>
+      return {
+        operation: String(item.operation ?? ''),
+        targetId: String(item.targetId ?? ''),
+        // ⚠️ 后端字段名就是 `described`（api_doc.json / InvariantHit），别按 description 取
+        described: String(item.described ?? ''),
+      }
+    }),
+    note: toNullableString(raw.note),
+    structured: true,
+  }
+}
+
+/**
  * 手动跑一次留痕对账（4 条不变式交叉校验）。
+ * 返回结构化结果（`since` / `invariantsChecked` / `inconsistencies` / `hits` / `note`），
+ * 后端降级成纯文本时 `structured=false` 且原文在 `note`（见 `normalizeReconcileResult`）。
  * ⚠️ 幂等但**不防重**：连点两次会把同一批不一致落两条异常留痕 → 调用方必须防连点 + 二次确认。
  */
-export async function runLedgerReconcile(): Promise<string> {
-  const response = await request.post<LedgerResponse<string>>('/api/admin/ledger/reconcile')
-  return String(unwrap(response, '手动对账失败') ?? '')
+export async function runLedgerReconcile(): Promise<LedgerReconcileResult> {
+  const response = await request.post<LedgerResponse<unknown>>('/api/admin/ledger/reconcile')
+  return normalizeReconcileResult(unwrap(response, '手动对账失败'))
 }
 
 /**

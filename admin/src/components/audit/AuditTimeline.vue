@@ -6,11 +6,11 @@ import {
   buildCategoryLabelMap,
   formatLedgerTime,
   isLedgerChangeRecord,
-  isLedgerOperationKnown,
+  isLedgerOperationKnownRecord,
   isSkippedLedger,
   ledgerCategoryLabel,
-  ledgerOperationLabel,
-  ledgerOperationTooltip,
+  ledgerOperationRecordTooltip,
+  ledgerOperationText,
   ledgerOperatorText,
   ledgerResultMeta,
   ledgerTargetText,
@@ -151,10 +151,13 @@ defineExpose({ reload: loadTimeline })
           <div class="timeline-card">
             <div class="timeline-head">
               <el-tag size="small" effect="plain">{{ ledgerCategoryLabel(record.category, categoryLabels) }}</el-tag>
-              <!-- 操作码中文化：未知码原样回显 + tooltip 提示"后端未收录"（列内省略显示，全称靠 tooltip） -->
-              <el-tooltip placement="top" :content="ledgerOperationTooltip(record.operation)" :show-after="200">
-                <span class="timeline-op" :class="{ 'timeline-op-unknown': !isLedgerOperationKnown(record.operation) }">
-                  {{ ledgerOperationLabel(record.operation) }}
+              <!--
+                操作码中文化：**优先后端下发的 operationDesc**，缺失才回退前端映射表；
+                未知码原样回显 + tooltip 提示"后端未收录"（列内省略显示，全称靠 tooltip）
+              -->
+              <el-tooltip placement="top" :content="ledgerOperationRecordTooltip(record)" :show-after="200">
+                <span class="timeline-op" :class="{ 'timeline-op-unknown': !isLedgerOperationKnownRecord(record) }">
+                  {{ ledgerOperationText(record) }}
                 </span>
               </el-tooltip>
               <el-tag size="small" :type="ledgerResultMeta(record.result).tag">{{ ledgerResultMeta(record.result).label }}</el-tag>

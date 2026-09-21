@@ -1,9 +1,16 @@
 import { auditTargetTypeLabel, operatorTypeLabel } from './labels.ts'
-import type { LedgerCategoryOption, LedgerDiffRow, LedgerRecord } from '../types/ledger.ts'
+import type { LedgerCategoryOption, LedgerDiffRow, LedgerOption, LedgerRecord } from '../types/ledger.ts'
 
 /**
  * 留痕台账的展示翻译层（枚举中文化 + 快照解析 + 「前 → 后」对比构建）。
  * 依据：`docs/audit-9-categories.md` §3.1 结果、§3.2 操作人、§3.3 目标类型、§3.4 状态码翻译表、§七 已知限制。
+ *
+ * ⚠️ 本文件定位（2026-09-21 更新）：**后端已提供权威字典** ——
+ * `GET /api/admin/ledger/operations`（操作码中文字典）、`GET /api/admin/ledger/target-types`（目标类型权威枚举），
+ * 且 `AuditRecordView` 新增 `operationDesc`（操作码中文名，`/ledger` `/unified` `/timeline` `/by-request` 都下发）。
+ * 因此**展示一律优先用后端数据**（`operationDesc` / 字典接口），本文件里的映射表**只作兜底**：
+ * 字典接口未上线、断网、后端漏下发 `operationDesc`、或后端尚未收录该操作码时，页面仍能显示可读中文。
+ * ⚠️ **本表不要删**（删了兜底就没了，风险大于收益）；新增操作码优先请后端补字典，而不是往这里堆。
  *
  * ⚠️ 约定（沿用 `utils/labels.ts`）：**未知枚举一律原样回显**，方便发现后端新增状态。
  */
@@ -98,11 +105,13 @@ export function ledgerBlockLabel(value?: string | null): string {
 
 /**
  * 操作码（`operation`）→ 中文。
- * ⚠️ `operation` 是**自由字符串、后端未限定枚举**（文档 §一）→ 本表**注定滞后**：
+ * ✅ 2026-09-21：后端已按前端需求 §9 落地 —— `AuditRecordView.operationDesc` 直接下发中文名，
+ * 并提供 `GET /api/admin/ledger/operations` 字典。**展示请用 `ledgerOperationText(row)`**（优先 operationDesc），
+ * 本表退化为**兜底**（字典缺失 / 后端漏下发中文名时仍可读）。
+ * ⚠️ `operation` 是**自由字符串、后端未限定枚举** → 本表**注定滞后**：
  * 后端每新增一个操作码，这里查不到就会回退成英文（这是设计上的兜底，不是 bug）。
- * 因此：**未知值一律原样回显**，并在列上给"后端未收录该操作码的中文名"的 tooltip（提示可提需求）。
- * 根治方案（请后端在 `AuditRecordView` 上补 `operationDesc`，像 `EmergencyPoolLogVO.typeDesc` 那样）
- * 见 `docs/留痕台账-后端需求-2026-09-21.md` §9。
+ * 因此：**未知值一律原样回显**，并在列上给"后端未收录该操作码的中文名"的 tooltip。
+ * 需求原文见 `docs/留痕台账-后端需求-2026-09-21.md` §9。
  */
 export const LEDGER_OPERATION_LABELS: Record<string, string> = {
   ORDER_STATUS: '订单状态变更',
@@ -153,6 +162,73 @@ export function ledgerOperationTooltip(value?: string | null): string {
   const label = LEDGER_OPERATION_LABELS[key]
   if (!label) return `${key}（${LEDGER_OPERATION_UNKNOWN_HINT}）`
   return `${label}（${key}）`
+}
+
+/**
+ * 记录级操作码展示：**优先后端下发的 `operationDesc`**，为空才回退前端映射表。
+ * 表格、详情抽屉、时间线三处必须走本函数（单一入口），否则"同一行两个地方显示不一样"。
+ * ⚠️ 后端是操作码全集的唯一持有方 → 它的中文名比前端硬编码表新，永远优先。
+ */
+export function ledgerOperationText(row: Pick<LedgerRecord, 'operation' | 'operationDesc'>): string {
+  const desc = String(row.operationDesc ?? '').trim()
+  if (desc) return desc
+  return ledgerOperationLabel(row.operation)
+}
+
+/**
+ * 记录级操作码 tooltip：中文全称 + 原始操作码（可读性最强的形式）。
+ * - 有 `operationDesc` → `中文名（CODE）`；
+ * - 无 → 回退 `ledgerOperationTooltip`（映射表命中给 `中文名（CODE）`，未命中提示"后端未收录"）。
+ */
+export function ledgerOperationRecordTooltip(row: Pick<LedgerRecord, 'operation' | 'operationDesc'>): string {
+  const code = String(row.operation ?? '').trim()
+  if (!code) return '—'
+  const desc = String(row.operationDesc ?? '').trim()
+  return desc ? `${desc}（${code}）` : ledgerOperationTooltip(code)
+}
+
+/**
+ * 该行的操作码是否有中文名（后端 `operationDesc` 或前端映射表任一命中）。
+ * 未知 → 页面上给"后端未收录"的灰色提示，方便发现后端新增操作码。
+ */
+export function isLedgerOperationKnownRecord(row: Pick<LedgerRecord, 'operation' | 'operationDesc'>): boolean {
+  return Boolean(String(row.operationDesc ?? '').trim()) || isLedgerOperationKnown(row.operation)
+}
+
+/**
+ * 操作码字典（`/ledger/operations`）→ 下拉选项：`中文名（CODE）`。
+ * ⚠️ 与表格列展示同一口径（列里省略号截断、tooltip 给全称），避免"下拉里叫一个名字、选完列里叫另一个"。
+ * `value` 保持原始操作码（后端筛选用它，**不要**把中文名传上去）。
+ */
+export function buildLedgerOperationOptions(dict: LedgerOption[]): LedgerOption[] {
+  return dict.map((item) => ({ value: item.value, label: item.label ? `${item.label}（${item.value}）` : item.value }))
+}
+
+/**
+ * 目标类型字典（`/ledger/target-types`）→ `枚举名: 中文标签` 映射。
+ * 供展示层在**不外发请求**的渲染路径（表格「目标」列等）优先使用后端权威中文名；
+ * ⚠️ 中文名最终仍由 `ledgerTargetTypeLabel`（`labels.ts`）兜底 —— 后端字典里的 label 若为英文枚举名，
+ * 就用映射表翻译，两者取"更像人话"的那个（见 `ledgerTargetTypeText`）。
+ */
+export function buildTargetTypeLabelMap(dict: LedgerOption[]): Record<string, string> {
+  return dict.reduce<Record<string, string>>((map, item) => {
+    if (item.value) map[item.value] = item.label || item.value
+    return map
+  }, {})
+}
+
+/**
+ * 目标类型展示：**优先后端字典的中文名**，没有则回退 `labels.ts` 的映射表。
+ * ⚠️ 判据是"后端 label 与 value 不同"（相同说明后端只回显了枚举名，等于没翻译）。
+ */
+export function ledgerTargetTypeText(value?: string | null, labelMap: Record<string, string> = {}): string {
+  const key = String(value ?? '').trim()
+  if (!key) return '—'
+  const fromServer = labelMap[key]
+  if (fromServer && fromServer !== key) return fromServer
+  // ⚠️ 这里调本地绑定名（文件顶部 `import { auditTargetTypeLabel }`），
+  // 对外导出名是 `ledgerTargetTypeLabel`，模块作用域内**不可**用导出别名调用
+  return auditTargetTypeLabel(key)
 }
 
 /**
