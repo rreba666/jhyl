@@ -349,6 +349,9 @@ onMounted(() => {
 
     <view class="category-products" :class="{ 'products-grid': themeConfig.mode === 'grid' }" :style="{ backgroundColor: themeConfig.backgroundColor || '' }">
       <view v-if="loading" class="category-products-loading">加载中...</view>
+      <!-- 空状态（用户 2026-09-22）：金刚区落地页「没有商品」时**直接提示「暂无商品」**即可 ——
+           这里刻意不用插画空状态（那套只用于骑手端/商家端的三处列表），保持与其它商品类列表一致的轻提示。 -->
+      <view v-else-if="!goods.length" class="category-products-loading">暂无商品</view>
       <view v-else-if="themeConfig.mode === 'grid'" class="category-products-waterfall">
         <view class="category-products-column">
           <view v-for="product in gridLeftProducts" :key="product.id" class="category-product-slot">

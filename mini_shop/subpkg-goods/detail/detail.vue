@@ -45,6 +45,36 @@ const galleryImages = computed(() => {
 /** 没有轮播图时使用商品主图作为静态封面，不把主图混入轮播序列。 */
 const coverImage = computed(() => product.value?.mainImage || galleryImages.value[0] || '')
 
+/**
+ * 详情图列表（后端 `ProductDetailV2VO.detailImages` 下发的是 **OSS 直链数组**）。
+ * ⚠️ 为空时**整块（标题 + 灰底容器）都不渲染**：`.detail-media` 有 `min-height: 520rpx` + 灰底，
+ * 没有图时会留一块灰板，看起来就像"详情图没显示出来"（2026-09-22 用户反馈的观感问题之一）。
+ */
+const detailImageList = computed(() => (product.value?.detailImages || []).filter(Boolean))
+
+/**
+ * 加载失败的详情图 URL 集合。
+ * 长图/超大图在部分机型与基础库上会加载失败（`@error` 不会冒泡，容易被误认为"后端没下发"），
+ * 因此这里单独记下来给一句提示，并且**失败也允许点开**用微信原生预览看原图。
+ * 不需要在商品切换时清空：详情页每次都是新的页面实例。
+ */
+const failedDetailImages = ref<Set<string>>(new Set())
+
+function onDetailImageError(image: string): void {
+  failedDetailImages.value = new Set(failedDetailImages.value).add(image)
+}
+
+/**
+ * 点详情图 → 微信原生预览。
+ * 长图在本页里是按宽度自适应的（`mode="widthFix"`），细节会被压得很小；
+ * 原生预览支持双指缩放，是查看长图内容最可靠的方式（也是渲染失败时的兜底出口）。
+ */
+function previewDetailImage(index: number): void {
+  const urls = detailImageList.value
+  if (!urls.length) return
+  uni.previewImage({ urls, current: urls[index] })
+}
+
 /** 默认选择第一个可用 SKU，详情页暂按该 SKU 进行加购和立即支付。 */
 const selectedSku = computed(() => product.value?.skuList.find((sku) => sku.enabled !== 0) || product.value?.skuList[0])
 
@@ -291,10 +321,24 @@ onShow(() => {
           </view>
         </view>
 
-        <view class="detail-heading"><text>产品详情</text></view>
-        <view class="detail-media">
-          <image v-for="image in product?.detailImages || []" :key="image" class="product-detail-image" :src="image" mode="widthFix" />
-        </view>
+        <!-- 详情图（2026-09-22 加固）：没有详情图时**不渲染这一整块**（避免留灰板）；
+             单张加载失败只标记该张并提示，用户可点图用原生预览看原图 -->
+        <template v-if="detailImageList.length">
+          <view class="detail-heading"><text>产品详情</text></view>
+          <view class="detail-media">
+            <image
+              v-for="(image, index) in detailImageList"
+              :key="image"
+              class="product-detail-image"
+              :class="{ 'is-failed': failedDetailImages.has(image) }"
+              :src="image"
+              mode="widthFix"
+              @click="previewDetailImage(index)"
+              @error="onDetailImageError(image)"
+            />
+            <view v-if="failedDetailImages.size" class="detail-image-tip">有详情图加载失败，点图可查看原图</view>
+          </view>
+        </template>
       </view>
     </scroll-view>
 
@@ -347,6 +391,9 @@ onShow(() => {
 .detail-heading { display: flex; align-items: center; justify-content: center; height: 116rpx; color: #555; background: #fff; font-size: 25rpx; }
 .detail-media { min-height: 520rpx; background: #d6d6d6; }
 .product-detail-image { display: block; width: 100%; height: auto; }
+/* 加载失败的那张：给一块可点的浅灰底 + 保留高度，避免长图失败后整块塌成一条线 */
+.product-detail-image.is-failed { min-height: 240rpx; background: #f2f2f2; }
+.detail-image-tip { padding: 16rpx 0; color: #86909c; font-size: 24rpx; text-align: center; }
 .product-detail-actions { position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: flex; align-items: center; gap: 12rpx; padding: 12rpx 20rpx calc(12rpx + env(safe-area-inset-bottom)); background: #fff; box-sizing: border-box; }
 .cart-action { display: flex; width: 124rpx; flex-shrink: 0; flex-direction: column; align-items: center; justify-content: center; color: #333; font-size: 22rpx; }
 .cart-icon { width: 64rpx; height: 64rpx; margin-bottom: 2rpx; flex-shrink: 0; }
