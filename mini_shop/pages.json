@@ -279,6 +279,38 @@
             "navigationBarTitleText": "账单",
             "navigationBarBackgroundColor": "#FFFFFF"
           }
+        },
+        {
+          "path": "settlement/index",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "结算与提现",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "settlement/flows",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "账户流水",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "settlement/withdraw-list",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "提现记录",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
+          "path": "settlement/withdraw-detail",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "提现详情",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
         }
       ]
     }

@@ -133,6 +133,17 @@ function goProducts(): void {
 function goBill(): void {
   uni.navigateTo({ url: '/subpkg-merchant/bill/index' })
 }
+/**
+ * 是否品牌主体（`MERCHANT_OWNER`）：**只有品牌主体**能看结算账户与提现（提现文档 §1）。
+ * 店长（MANAGER）与店员调 `/api/merchant/settlement/**` 会返回 `13016`，
+ * 所以入口对他们直接隐藏，避免点进去只看得到"没权限"。
+ */
+const isMerchantOwner = computed(() => String(identity.value?.staffRole || '').toUpperCase() === 'MERCHANT_OWNER')
+
+/** 进「结算与提现」：账户卡片 + 提现申请表单 + 账户流水/提现记录入口。 */
+function goSettlement(): void {
+  uni.navigateTo({ url: '/subpkg-merchant/settlement/index' })
+}
 /** 顶部头像：优先用户微信头像，没有则用店铺默认头像（设计切图，放分包不占主包）。 */
 const shopAvatar = computed(() => user.value?.avatarUrl || '/subpkg-merchant/static/shop-avatar-default.png')
 
@@ -396,6 +407,15 @@ function goBack(): void {
             </view>
           </view>
         </view>
+      </view>
+
+      <!-- 结算与提现入口：仅品牌主体可见（店长/店员调结算接口返回 13016） -->
+      <view v-if="isMerchantOwner" class="settle-entry" @click="goSettlement">
+        <view class="settle-text">
+          <text class="settle-title">结算与提现</text>
+          <text class="settle-sub">可提现余额 · 账户流水 · 提现记录</text>
+        </view>
+        <view class="settle-arrow">›</view>
       </view>
     </scroll-view>
 
@@ -825,4 +845,36 @@ function goBack(): void {
   font-weight: 600;
 }
 .role-submit.is-loading { opacity: 0.6; }
+
+/* ===== 结算与提现入口（仅品牌主体可见） ===== */
+.settle-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0;
+  margin-bottom: 23rpx;
+  padding: 31rpx;
+  border-radius: 23rpx;
+  background: #ffffff;
+}
+.settle-text { flex: 1; min-width: 0; }
+.settle-title {
+  display: block;
+  color: #1d2129;
+  font-size: 31rpx;
+  font-weight: 600;
+}
+.settle-sub {
+  display: block;
+  margin-top: 8rpx;
+  color: #86909c;
+  font-size: 23rpx;
+}
+.settle-arrow {
+  flex: none;
+  margin-left: 15rpx;
+  color: #c9cdd4;
+  font-size: 34rpx;
+  line-height: 1;
+}
 </style>
