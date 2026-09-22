@@ -396,10 +396,30 @@ function goOrder(key: string): void {
   uni.navigateTo({ url: `/subpkg-order/orders/list?status=${target.status}${pickup}` })
 }
 
+/**
+ * 打开**主包静态页**（用户协议 / 隐私保护指引）。
+ *
+ * ⚠️ 2026-09-22 修（用户反馈「用户协议」「隐私保护指引」点不开/空白）：
+ * 这两个页面是**纯静态主包页面**（不拉接口、不依赖登录态），原先和业务入口共用同一个
+ * `navigationThrottle`（500ms）——用户在个人中心连着点两下（例如先点「我的订单」再点「用户协议」）
+ * 第二下会被静默吞掉，表现就是"点了没反应"。静态页跳转没有重复下单之类的副作用，
+ * 因此这里**不再参与节流**；同时 `fail` 回调给出明确提示，不再让用户面对"点了什么都不发生"。
+ */
+function openStaticPage(url: string, label: string): void {
+  uni.navigateTo({
+    url,
+    fail: (error) => {
+      // 页面栈已满(10 层)/主包未同步等都会走到这里，必须给用户可读反馈
+      uni.showToast({ title: `${label}打开失败：${error?.errMsg || '请稍后重试'}`, icon: 'none' })
+    },
+  })
+}
+
 function goMenu(key: string): void {
+  // 静态主包页面放在节流之前：它们没有任何写副作用，被 500ms 节流吞掉只会让人以为"点不开"
+  if (key === 'agreement') { openStaticPage('/pages/user-agreement/user-agreement', '用户协议'); return }
+  if (key === 'privacy') { openStaticPage('/pages/privacy/privacy', '隐私保护指引'); return }
   if (!navigationThrottle()) return
-  if (key === 'agreement') { uni.navigateTo({ url: '/pages/user-agreement/user-agreement' }); return }
-  if (key === 'privacy') { uni.navigateTo({ url: '/pages/privacy/privacy' }); return }
   if (['invoice', 'favorite'].includes(key) && !isLoggedIn()) {
     showLoginGuide()
     return

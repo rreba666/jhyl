@@ -28,7 +28,9 @@ test('public browse requests retry once without an expired authorization header'
   assert.match(requestSource, /\/api\/category\/list/)
   assert.match(requestSource, /\/api\/product\/list/)
   assert.match(requestSource, /product.*detail/)
-  assert.match(requestSource, /\/api\/homepage/)
+  // ⚠️ 2026-09-22 修正：公开浏览白名单里的首页接口已升级为 `/api/v2/homepage`
+  // （见 `utils/request.ts` 的 isPublicBrowseRequest），断言还停在 v1 → 这条测试已红了很久（与本次改动无关）。
+  assert.match(requestSource, /\/api\/v2\/homepage/)
   assert.match(requestSource, /announcement/)
   assert.match(requestSource, /\/api\/shop\/all/)
   assert.match(requestSource, /retryWithoutAuthorization/)

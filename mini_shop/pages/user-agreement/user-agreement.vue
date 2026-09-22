@@ -1,4 +1,17 @@
 <script setup lang="ts">
+/**
+ * 用户协议（**纯静态主包页面**：不拉接口、不依赖登录态）
+ *
+ * 2026-09-22 加固（用户反馈「打不开 / 空白」）：
+ * 1. 布局从「根节点 100vh + 绝对定位 scroll-view」改成 **flex 列 + `flex: 1; min-height: 0`**
+ *    —— 这是项目里其它页面（如 `subpkg-order/address/edit`）已经验证稳定的写法，
+ *    绝对定位方案对父容器定位上下文敏感，一旦内容区算不出高度就是整页空白；
+ * 2. 样式**保持不带 `scoped`**：本页类名都带 `agreement-` 唯一前缀，加 scoped 会在小程序端
+ *    给每个节点挂 `data-v` 属性、让这份纯展示页的编译产物更复杂，对"能不能显示"没有收益，
+ *    所以这里只做必要改动（布局），不动样式作用域；
+ * 3. `getMenuButtonBoundingClientRect` 失败时保持默认值，导航栏/内容区都仍有可见尺寸
+ *    （不会因为一次异常把内容挤到屏幕外）。
+ */
 import { computed, onMounted, ref } from 'vue'
 
 type AgreementSection = {
@@ -267,12 +280,13 @@ onMounted(() => {
 </template>
 
 <style>
-.agreement-page { position: relative; height: 100vh; overflow: hidden; background: #f7f8fa; color: #242526; }
-.agreement-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(247, 248, 250, .96); box-sizing: border-box; }
+/* 根节点固定满屏，导航栏固定在顶部，内容区用 flex 撑满剩余高度（不用绝对定位，避免算不出高度时空白） */
+.agreement-page { position: relative; display: flex; height: 100vh; overflow: hidden; flex-direction: column; background: #f7f8fa; color: #242526; }
+.agreement-nav { position: fixed; top: 0; right: 0; left: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(247, 248, 250, .96); box-sizing: border-box; }
 .agreement-back { position: absolute; left: 18rpx; display: flex; align-items: center; justify-content: center; width: 68rpx; height: 68rpx; }
 .agreement-back-icon { color: #222; font-size: 52rpx; font-weight: 300; line-height: 1; }
 .agreement-nav-title { color: #17191c; font-size: 32rpx; font-weight: 650; }
-.agreement-scroll { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; }
+.agreement-scroll { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; }
 .agreement-content { padding: 0 36rpx calc(80rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
 .agreement-title { display: block; color: #17191c; font-size: 38rpx; font-weight: 700; line-height: 1.45; }
 .agreement-subtitle { display: block; margin-top: 16rpx; color: #333943; font-size: 29rpx; font-weight: 600; line-height: 1.6; }

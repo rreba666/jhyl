@@ -61,11 +61,14 @@ export type WithdrawType = 'PROMOTION' | 'BONUS' | 'BALANCE'
 /** 提现收款方式，两种方式均由后台按提现记录人工打款。 */
 export type WithdrawMethod = 'WECHAT_BALANCE' | 'BANK_CARD'
 
+/** 提现请求入参；`bankCardId` 可选（见 `withdrawWalletWithCard`）。 */
 export interface WithdrawDTO {
   amount: number
   type: WithdrawType
   withdrawMethod: WithdrawMethod
   idempotencyKey: string
+  /** 已绑定银行卡 ID：银行卡提现时指定用哪张卡；不传则后端使用实名资料里的卡号。 */
+  bankCardId?: number
 }
 
 export interface BalanceTransferDTO {
@@ -149,13 +152,38 @@ export function updateUserProfile(data: Partial<UserProfile>): Promise<UserProfi
 
 /** 提交指定类型的钱包提现申请，后端要求金额最低 1，且每次申请必须携带幂等键。 */
 export function withdrawWallet(amount: number, type: WithdrawType, withdrawMethod: WithdrawMethod, idempotencyKey: string): Promise<void> {
-  const data: WithdrawDTO = {
+  const data: WithdrawDTO = buildWithdrawData(amount, type, withdrawMethod, idempotencyKey)
+  return request<void>({ url: '/api/wallet/withdraw', method: 'POST', data })
+}
+
+/** 回传银行卡提现入参（指定已绑定的银行卡 ID）。 */
+function buildWithdrawData(amount: number, type: WithdrawType, withdrawMethod: WithdrawMethod, idempotencyKey: string, bankCardId?: number): WithdrawDTO {
+  return {
     amount: Number(amount.toFixed(2)),
     type,
     withdrawMethod,
     idempotencyKey,
+    // 不传就把字段整体去掉：后端把 `bankCardId` 当可选，传 null 反而可能被判非法
+    ...(bankCardId != null && bankCardId > 0 ? { bankCardId } : {}),
   }
-  return request<void>({ url: '/api/wallet/withdraw', method: 'POST', data })
+}
+
+/**
+ * 银行卡提现（指定已绑定的银行卡）。
+ *
+ * 为什么单独开一个函数而不是给 `withdrawWallet` 加第 5 个参数：
+ * 后端 `WithdrawDTO.bankCardId` 是可选字段，不传时用「实名认证资料里记录的卡号」——
+ * 那是历史链路，必须保持原样不动；指定绑卡是新增能力，单独一个出口语义更清楚，
+ * 也避免改动既有函数签名影响 `tests/bank-card-withdraw.contract.ps1` 的既有断言。
+ */
+export function withdrawWalletWithCard(
+  amount: number,
+  type: WithdrawType,
+  withdrawMethod: WithdrawMethod,
+  idempotencyKey: string,
+  bankCardId: number,
+): Promise<void> {
+  return request<void>({ url: '/api/wallet/withdraw', method: 'POST', data: buildWithdrawData(amount, type, withdrawMethod, idempotencyKey, bankCardId) })
 }
 
 /** 分页查询当前用户的提现记录。 */

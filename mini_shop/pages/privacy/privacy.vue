@@ -1,4 +1,14 @@
 <script setup lang="ts">
+/**
+ * 隐私保护指引（**纯静态主包页面**：不拉接口、不依赖登录态）
+ *
+ * 2026-09-22 加固（用户反馈「打不开 / 空白」）：
+ * 1. 布局从「根节点 100vh + 绝对定位 scroll-view」改成 **flex 列 + `flex: 1; min-height: 0`**
+ *    —— 与 `pages/user-agreement`、`subpkg-order/address/edit` 保持同一套稳定写法，
+ *    绝对定位方案对父容器定位上下文敏感，算不出高度时整页就是空白；
+ * 2. 样式保持不带 `scoped`：类名都带 `privacy-` 唯一前缀，只做必要改动（布局），不动样式作用域；
+ * 3. `getMenuButtonBoundingClientRect` 失败时保持默认值，导航栏与内容区都仍有可见尺寸。
+ */
 import { computed, onMounted, ref } from 'vue'
 
 type PrivacySection = {
@@ -294,12 +304,13 @@ onMounted(() => {
 </template>
 
 <style>
-.privacy-page { position: relative; height: 100vh; overflow: hidden; background: #f7f8fa; color: #242526; }
+/* 根节点固定满屏，导航栏固定在顶部，内容区用 flex 撑满剩余高度（不用绝对定位，避免算不出高度时空白） */
+.privacy-page { position: relative; display: flex; height: 100vh; overflow: hidden; flex-direction: column; background: #f7f8fa; color: #242526; }
 .privacy-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(247, 248, 250, .96); box-sizing: border-box; }
 .privacy-back { position: absolute; left: 18rpx; display: flex; align-items: center; justify-content: center; width: 68rpx; height: 68rpx; }
 .privacy-back-icon { color: #222; font-size: 52rpx; font-weight: 300; line-height: 1; }
 .privacy-nav-title { color: #17191c; font-size: 32rpx; font-weight: 650; }
-.privacy-scroll { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; }
+.privacy-scroll { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; }
 .privacy-content { padding: 0 36rpx calc(80rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
 .privacy-title { display: block; color: #17191c; font-size: 38rpx; font-weight: 700; line-height: 1.45; }
 .privacy-subtitle { display: block; margin-top: 16rpx; color: #333943; font-size: 29rpx; font-weight: 600; line-height: 1.6; }

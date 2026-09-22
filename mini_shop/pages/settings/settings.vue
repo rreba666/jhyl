@@ -1,7 +1,12 @@
 <script setup lang="ts">
 /**
  * 设置页
- * 个人信息（昵称/头像/实名）真实可用；收货地址 / 银行卡等依赖后端接口，先做入口占位提示。
+ *
+ * 2026-09-22 变更：原先「收货地址 / 提现银行卡」是**占位入口**（右侧写"未接入"、点了只弹 toast）。
+ * 核对 `api_doc.json` 后确认两条链路的 C 端接口都齐了，改为真实跳转：
+ * - 收货地址 → `subpkg-order/address/list`（tag「收货地址簿」）
+ * - 提现银行卡 → `subpkg-wallet/bank-card/list`（tag「提现银行卡」）
+ * 个人信息（昵称/头像/实名）真实可用。
  */
 import { onMounted, ref } from 'vue'
 import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
@@ -78,10 +83,16 @@ function onRealnameVerified(status: RealnameStatus): void {
   uni.showToast({ title: '实名认证成功', icon: 'success' })
 }
 
-/** 收货地址 / 银行卡 = 待后端接口，先占位提示。 */
-function todoFeature(feature: string): void {
+/** 进入收货地址簿（真实页面，后端 tag「收货地址簿」）。 */
+function goAddressBook(): void {
   if (!navigationThrottle()) return
-  uni.showToast({ title: `${feature}功能待后端接口开通后使用`, icon: 'none' })
+  uni.navigateTo({ url: '/subpkg-order/address/list' })
+}
+
+/** 进入提现银行卡管理（真实页面，后端 tag「提现银行卡」）。 */
+function goBankCards(): void {
+  if (!navigationThrottle()) return
+  uni.navigateTo({ url: '/subpkg-wallet/bank-card/list' })
 }
 </script>
 
@@ -122,20 +133,18 @@ function todoFeature(feature: string): void {
         </template>
       </view>
 
-      <!-- 收货地址（待后端） -->
+      <!-- 收货地址簿（后端 tag「收货地址簿」，真实接口） -->
       <view class="card">
-        <view class="row" @click="todoFeature('收货地址管理')">
+        <view class="row" @click="goAddressBook">
           <text class="row-label">收货地址</text>
-          <text class="row-value muted">地址簿管理（待开通）</text>
           <text class="row-arrow">›</text>
         </view>
       </view>
 
-      <!-- 提现银行卡（待后端） -->
+      <!-- 提现银行卡（后端 tag「提现银行卡」，真实接口） -->
       <view class="card">
-        <view class="row" @click="todoFeature('银行卡管理')">
+        <view class="row" @click="goBankCards">
           <text class="row-label">提现银行卡</text>
-          <text class="row-value muted">绑定银行卡管理（待开通）</text>
           <text class="row-arrow">›</text>
         </view>
       </view>

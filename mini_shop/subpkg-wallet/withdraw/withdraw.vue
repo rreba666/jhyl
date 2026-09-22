@@ -3,7 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { onShow, onUnload } from '@dcloudio/uni-app'
 import { getRealnameStatus, type RealnameStatus } from '@/api/realname'
 import { applyTransferAuth, getTransferAuthStatus, type TransferAuthState } from '@/api/transfer-auth'
-import { getUserProfile, getWalletInfo, getWithdrawRules, searchUser, transferWallet, withdrawWallet, getWithdrawals, type UserProfile, type UserSearchVO, type WalletInfo, type WithdrawMethod, type WithdrawRecord, type WithdrawRules, type WithdrawType } from '@/api/user'
+import {
+  BANK_CARDS_CHANGED_EVENT,
+  BANK_CARD_SELECTED_EVENT,
+  findDefaultBankCard,
+  getBankCardList,
+  type BankCardVO,
+} from '@/api/bank-card'
+import { getUserProfile, getWalletInfo, getWithdrawRules, searchUser, transferWallet, withdrawWallet, withdrawWalletWithCard, getWithdrawals, type UserProfile, type UserSearchVO, type WalletInfo, type WithdrawMethod, type WithdrawRecord, type WithdrawRules, type WithdrawType } from '@/api/user'
 import RealnameVerifySheet from '@/components/RealnameVerifySheet.vue'
 import { clearAuth, getAuth, hasWalletNoticeSeen, isLoggedIn, isRegisteredUser, markWalletNoticeSeen } from '@/utils/auth'
 import { isApiRequestError } from '@/utils/request'
@@ -57,6 +64,18 @@ const accessChecking = ref(false)
 const accessDenied = ref(false)
 const loginGuideVisible = ref(false)
 const registeredUser = computed(() => isRegisteredUser(user.value?.identity))
+
+/**
+ * 银行卡提现用的「已绑定银行卡」列表与当前选中卡。
+ *
+ * 口径（2026-09-22 核对 `api_doc.json`）：后端 `WithdrawDTO.bankCardId` 可选 ——
+ * - 传了：用这张**已绑定银行卡**（tag「提现银行卡」，可多张、可切默认）；
+ * - 不传：用**实名认证资料里记录的卡号**（`RealnameVerifySheet` 的 bankCardNo，后端只记录不核验）。
+ * 所以两条链路并存：这里优先给用户选已绑卡，一张都没绑时退回实名资料口径，不阻断提现。
+ */
+const bankCards = ref<BankCardVO[]>([])
+/** 当前选中的银行卡；null = 使用实名认证资料里的卡号。 */
+const selectedBankCard = ref<BankCardVO | null>(null)
 
 const navStyle = computed(() => ({ top: `${menuTop.value}px`, height: `${menuHeight.value}px` }))
 const bodyStyle = computed(() => ({ paddingTop: `${menuTop.value + menuHeight.value + uni.upx2px(100)}px` }))
@@ -129,6 +148,13 @@ const withdrawFee = computed(() => (withdrawAmountNumber.value > 0 ? withdrawAmo
 const withdrawActual = computed(() => (withdrawAmountNumber.value > 0 ? withdrawAmountNumber.value * (1 - withdrawFeeRate.value) : 0))
 /** 是否需要引导完成免确认收款授权。 */
 const needAuth = computed(() => transferAuthState.value !== 'TAKING_EFFECT')
+
+/** 选中银行卡的展示文案（后端只回脱敏卡号）。 */
+const selectedBankCardLabel = computed(() => {
+  const card = selectedBankCard.value
+  if (!card) return ''
+  return `${card.bankName} ${card.cardNoMasked || '****'}`
+})
 
 function formatMoney(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : '0.00'
@@ -317,10 +343,47 @@ async function loadRealnameStatus(): Promise<void> {
   }
 }
 
+/**
+ * 加载已绑定银行卡，并保持当前选中项有效。
+ * 选中优先级：已选（仍在列表里）> 默认卡 > 列表第一张。
+ * 一张都没绑时保持 null —— 提现请求不带 `bankCardId`，后端回退到实名资料里的卡号。
+ */
+async function loadBankCards(): Promise<void> {
+  try {
+    const list = await getBankCardList() || []
+    bankCards.value = list
+    const stillExists = selectedBankCard.value
+      ? list.find((card) => String(card.id) === String(selectedBankCard.value?.id))
+      : null
+    selectedBankCard.value = stillExists || findDefaultBankCard(list)
+  } catch {
+    // 银行卡列表失败不阻断提现主流程：退化为"使用实名资料卡号"的旧口径
+    bankCards.value = []
+    selectedBankCard.value = null
+  }
+}
+
+/** 打开银行卡管理页选卡（`mode=select` 回来后由事件回填）。 */
+function chooseBankCard(): void {
+  uni.navigateTo({ url: '/subpkg-wallet/bank-card/list?mode=select' })
+}
+
+/** 银行卡管理页选卡回传：写入当前选中卡。 */
+function onBankCardSelected(payload: unknown): void {
+  const card = payload as BankCardVO | null
+  if (!card || card.id == null) return
+  selectedBankCard.value = card
+}
+
+/** 银行卡列表变化（新绑/解绑/切默认）后重新拉取，保证提现用的是有效卡。 */
+function onBankCardsChanged(): void {
+  void loadBankCards()
+}
+
 /** 初始化或刷新钱包页，确保身份升级后重新进入即可使用提现功能。 */
 async function loadPage(): Promise<void> {
   if (!(await ensureRegisteredAccess())) return
-  await Promise.all([loadWallet(), loadWithdrawRules(), loadTransferAuthStatus(), loadWithdrawRecords(true), loadRealnameStatus()])
+  await Promise.all([loadWallet(), loadWithdrawRules(), loadTransferAuthStatus(), loadWithdrawRecords(true), loadRealnameStatus(), loadBankCards()])
   openWalletNotice()
 }
 
@@ -517,7 +580,10 @@ async function executeWithdraw(amount: number): Promise<void> {
   const idempotencyKey = getWithdrawIdempotencyKey(amount, 'BALANCE', withdrawMethod)
   withdrawSubmitting.value = true
   try {
-    await withdrawWallet(amount, 'BALANCE', withdrawMethod, idempotencyKey)
+    // 银行卡提现且已选中已绑卡 → 指定 bankCardId；否则沿用实名资料卡号（不带该字段）
+    const bankCardId = withdrawMethod === 'BANK_CARD' ? selectedBankCard.value?.id : undefined
+    if (bankCardId != null) await withdrawWalletWithCard(amount, 'BALANCE', withdrawMethod, idempotencyKey, bankCardId)
+    else await withdrawWallet(amount, 'BALANCE', withdrawMethod, idempotencyKey)
     withdrawAmount.value = ''
     pendingWithdrawAmount.value = null
     pendingAction.value = null
@@ -685,8 +751,17 @@ onMounted(() => {
 
 onShow(() => { void loadPage() })
 
+// 银行卡相关的跨页事件：选卡回填 + 绑卡/解绑后刷新列表。
+// 用 onMounted/onUnload 成对注册与注销，避免返回本页时重复绑定导致回调执行多次。
+onMounted(() => {
+  uni.$on(BANK_CARD_SELECTED_EVENT, onBankCardSelected)
+  uni.$on(BANK_CARDS_CHANGED_EVENT, onBankCardsChanged)
+})
+
 onUnload(() => {
   stopAuthPolling()
+  uni.$off(BANK_CARD_SELECTED_EVENT, onBankCardSelected)
+  uni.$off(BANK_CARDS_CHANGED_EVENT, onBankCardsChanged)
 })
 </script>
 
@@ -741,6 +816,13 @@ onUnload(() => {
           <text class="fee-hint">提现额度自订单支付时刻起算，锁定期结束后即可提现。</text>
           <text v-if="withdrawAmountNumber > 0" class="fee-calc">手续费 ¥{{ formatMoney(withdrawFee) }}，实际到账 ¥{{ formatMoney(withdrawActual) }}</text>
           <template v-if="withdrawOption === 'BANK_CARD'">
+            <!-- 到账银行卡：优先用「已绑定银行卡」（可多张），一张没绑时退回实名资料里的卡号 -->
+            <view class="bank-row" @click="chooseBankCard">
+              <text class="bank-row-label">到账银行卡</text>
+              <text class="bank-row-value">{{ selectedBankCardLabel || '使用实名认证银行卡' }}</text>
+              <text class="bank-row-arrow">›</text>
+            </view>
+            <text v-if="!bankCards.length" class="bank-hint">还没有绑定银行卡，点上方可去绑定；也可继续使用实名认证时填写的卡号。</text>
             <button class="panel-button" :disabled="withdrawSubmitting || realnameChecking" @click="handleWithdraw">
               {{ withdrawSubmitting ? '提交中...' : (realnameVerified ? '确认提现' : '实名绑定') }}
             </button>
@@ -863,6 +945,12 @@ onUnload(() => {
 .tab-item.active { background: linear-gradient(135deg, #ff6a2b, #ff5a1f); color: #fff; }
 .panel-card { margin-top: 20rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 10rpx 24rpx rgba(15, 23, 42, .06); }
 .panel-title { display: block; color: #111827; font-size: 28rpx; font-weight: 600; }
+/* 到账银行卡选择行：银行卡提现专用（优先已绑卡，缺省用实名资料卡号） */
+.bank-row { display: flex; align-items: center; justify-content: space-between; margin-top: 20rpx; padding: 22rpx; border-radius: 18rpx; background: #f8fafc; }
+.bank-row-label { flex-shrink: 0; color: #475467; font-size: 25rpx; }
+.bank-row-value { flex: 1; min-width: 0; margin-left: 16rpx; overflow: hidden; color: #111827; font-size: 25rpx; font-weight: 600; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.bank-row-arrow { margin-left: 10rpx; color: #98a2b3; font-size: 32rpx; line-height: 1; }
+.bank-hint { display: block; margin-top: 12rpx; color: #98a2b3; font-size: 22rpx; line-height: 1.5; }
 .panel-section-title { margin-top: 22rpx; }
 .type-row { display: flex; gap: 16rpx; margin-top: 20rpx; }
 .type-chip { flex: 1; height: 72rpx; display: flex; align-items: center; justify-content: center; border-radius: 18rpx; background: #f3f4f6; color: #475467; font-size: 24rpx; font-weight: 600; }
