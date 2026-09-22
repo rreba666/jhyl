@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import { getCartList, type CartItem } from '@/api/cart'
+import { getCartList, normalizeDeliverySwitch, type CartItem } from '@/api/cart'
 import { ADDRESS_DRAFT_KEY, cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
 import { createPrepay, requestPayment, payByBalance, switchToBalance } from '@/api/payment'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
@@ -20,6 +20,17 @@ import LoginGuide from '@/components/LoginGuide.vue'
 /** 配送方式：0=物流(快速配送) 1=线下自提 2=同城配送（2026-09-19 起开放下单：需选发货门店 + 填收货地址，配送费走试算）。 */
 type PickupType = 0 | 1 | 2
 type InvoiceType = 'personal' | 'company'
+/**
+ * 商品级「配送方式」开关的下单拦截错误码与文案（后端 2026-09-22 新增，与文档 §7b ② 一致）：
+ * 自提单里含 pickupEnabled=0 的商品 → 13023；物流/同城单里含 deliveryEnabled=0 的商品 → 13024。
+ * 前端提前按这两个开关过滤配送方式，后端这一层仍然拦截（前端过滤只是少让用户白跑一趟）。
+ */
+const PRODUCT_PICKUP_BLOCKED_CODE = 13023
+const PRODUCT_DELIVERY_BLOCKED_CODE = 13024
+const PRODUCT_PICKUP_BLOCKED_MESSAGE = '该商品不支持线下自提，请选择其他配送方式'
+const PRODUCT_DELIVERY_BLOCKED_MESSAGE = '该商品不支持物流/同城配送，请选择其他配送方式'
+/** 两个开关都被关掉时的统一提示（任何配送方式后端都会拦，直接禁用下单）。 */
+const PRODUCT_DELIVERY_NONE_MESSAGE = '该商品暂不支持任何配送方式'
 const PAYMENT_CONTACT_NAME_MAX_LENGTH = 32
 const PAYMENT_ADDRESS_MAX_LENGTH = 200
 const PAYMENT_REMARK_MAX_LENGTH = 100
@@ -268,7 +279,9 @@ async function loadSelectedItems(): Promise<void> {
   loading.value = true
   loadError.value = false
   try {
-    const allItems = await getCartList({ resolveDividendEligibility: true })
+    // resolveDeliverySwitch：让购物车条目带上商品级 pickupEnabled / deliveryEnabled，
+    // 结算页据此过滤配送方式（详情走 api/cart.ts 的 30s 缓存，两种补齐共用同一批请求）
+    const allItems = await getCartList({ resolveDividendEligibility: true, resolveDeliverySwitch: true })
     items.value = allItems.filter((item) => selectedCartIds.value.includes(item.cartId))
   } catch (error) {
     loadError.value = true
@@ -302,6 +315,9 @@ async function loadDirectItem(): Promise<void> {
       checked: true,
       stock: Number(sku.stock || 0),
       dividendEligible: isDividendEligible({ dividendEnabled: product.dividendEnabled, price: sku.price }),
+      // 立即购买这条路本来就拿了商品详情，商品级配送开关直接取用（不额外发请求）
+      pickupEnabled: normalizeDeliverySwitch(product.pickupEnabled),
+      deliveryEnabled: normalizeDeliverySwitch(product.deliveryEnabled),
     }]
     selectedCartIds.value = []
   } catch (error) {
@@ -342,6 +358,9 @@ async function loadExistingOrder(): Promise<void> {
     }
 
     const detailItems = Array.isArray(detail.items) ? detail.items : []
+    // 订单详情这条路径（从订单列表改单 / 重新支付）拿不到商品级配送开关，也无法按 skuId 反查（详情只给商品名），
+    // 取舍：一律按后端默认值 1（支持）兜底 —— 宁可放行到后端、也不误拦用户去支付一笔已存在的订单；
+    // 真不支持时后端下单会以 13023/13024 拦下，并由 getPaymentErrorMessage 展示约定文案。
     if (detailItems.length) {
       items.value = detailItems.map((item, index) => ({
         cartId: -(index + 1),
@@ -355,6 +374,8 @@ async function loadExistingOrder(): Promise<void> {
         quantity: Number(item.quantity || 1),
         checked: true,
         stock: 0,
+        pickupEnabled: 1,
+        deliveryEnabled: 1,
       }))
     } else if (detail.totalQuantity > 0) {
       items.value = [{
@@ -369,6 +390,8 @@ async function loadExistingOrder(): Promise<void> {
         quantity: detail.totalQuantity,
         checked: true,
         stock: 0,
+        pickupEnabled: 1,
+        deliveryEnabled: 1,
       }]
     }
   } catch (error) {
@@ -410,18 +433,74 @@ async function loadModuleConfig(): Promise<void> {
   }
 }
 
+/** 配送方式选项：方式本体 + 「被商品级配送开关过滤掉」时的原因。 */
+interface DeliveryOption {
+  type: PickupType
+  label: string
+  /** 有值 = 该方式被已选商品的配送开关禁用：置灰但保留可点，点了用 toast 说明原因。 */
+  blockedReason?: string
+}
+
 /**
- * 可用的配送方式选项（按模块开关过滤）。
+ * 商品级配送开关（后端 2026-09-22 新增，默认 1=支持；缺失/非法值由 normalizeDeliverySwitch 按 1 兜底）：
+ * - 任一已选商品 pickupEnabled=0 → 不提供「门店自提」（后端会以 13023 拦）；
+ * - 任一已选商品 deliveryEnabled=0 → 不提供「快速配送」与「同城配送」（后端会以 13024 拦）。
+ * 与「模块开关」「同城可送性」是三重叠加关系，缺一层都会出现「能选但下不了单」。
+ */
+const pickupBlockedByProduct = computed(() => items.value.some((item) => normalizeDeliverySwitch(item.pickupEnabled) === 0))
+const deliveryBlockedByProduct = computed(() => items.value.some((item) => normalizeDeliverySwitch(item.deliveryEnabled) === 0))
+/** 同一批商品里两个开关都关掉：任何配送方式都下不了单（页面提示 + 禁用下单 + 提交拦截三重兜底）。 */
+const noSupportedDeliveryMethod = computed(() => pickupBlockedByProduct.value && deliveryBlockedByProduct.value)
+
+/**
+ * 取某个配送方式被「商品级配送开关」过滤掉的原因；返回空串表示该方式可选。
+ * 物流(0) 与同城(2) 共用 deliveryEnabled，自提(1) 用 pickupEnabled。
+ */
+function deliveryBlockedReasonFor(type: PickupType): string {
+  if (type === 1) return pickupBlockedByProduct.value ? PRODUCT_PICKUP_BLOCKED_MESSAGE : ''
+  return deliveryBlockedByProduct.value ? PRODUCT_DELIVERY_BLOCKED_MESSAGE : ''
+}
+
+/**
+ * 可用的配送方式选项（模块开关 + 商品级配送开关叠加）。
  * 2026-09-19 起「同城配送」正式开放下单（此前是 samecity 开关占位、代码里硬编码不渲染）：
  * 选它时要选**发货门店**并填收货地址，配送费由试算接口给出。
+ * 2026-09-22 起再叠一层商品级配送开关：被商品开关过滤掉的方式不删掉、而是**置灰保留**，
+ * 让用户看得到「有这个方式但因为商品不支持而不能选」，点了由 changePickupType 给明确原因。
  */
-const deliveryOptions = computed(() => {
+const deliveryOptions = computed<DeliveryOption[]>(() => {
   const modules = moduleConfig.value
-  const options: { type: PickupType; label: string }[] = []
+  const options: DeliveryOption[] = []
   if (isModuleEnabled(modules, 'delivery')) options.push({ type: 0, label: '快速配送' })
   if (isModuleEnabled(modules, 'pickup')) options.push({ type: 1, label: '门店自提' })
   if (isModuleEnabled(modules, 'samecity')) options.push({ type: 2, label: '同城配送' })
-  return options
+  // 商品级配送开关：给被过滤掉的方式挂上原因（页面据此置灰 + 说明 + 拦切换/拦提交）
+  return options.map((option) => {
+    const blockedReason = deliveryBlockedReasonFor(option.type)
+    return blockedReason ? { ...option, blockedReason } : option
+  })
+})
+
+/** 是否还有「真正可选」的配送方式（模块开关 + 商品开关叠加后）。 */
+const hasUsableDeliveryOption = computed(() => deliveryOptions.value.some((option) => !option.blockedReason))
+
+/** 「立即支付」是否因商品级配送开关被禁用：只对新建订单生效（历史待付款订单只是去支付，不重新下单）。 */
+const payBlockedByProductDelivery = computed(() => !existingOrder.value && !hasUsableDeliveryOption.value)
+
+/** 当前选中的配送方式被商品开关禁用的原因（有值 = 提交前必须拦下并说明）。 */
+const currentPickupBlockedReason = computed(
+  () => deliveryOptions.value.find((option) => option.type === pickupType.value)?.blockedReason || '',
+)
+
+/**
+ * 商品级配送开关导致的提示（展示在配送方式下方：toast 会被截断，且用户需要提前知道为什么不能选）。
+ * 两者都不支持时给统一提示；否则逐条列出「哪个方式 + 为什么」。
+ */
+const productDeliveryHint = computed(() => {
+  if (noSupportedDeliveryMethod.value) return `${PRODUCT_DELIVERY_NONE_MESSAGE}，请返回购物车调整商品`
+  const blocked = deliveryOptions.value.filter((option) => option.blockedReason)
+  if (!blocked.length) return ''
+  return blocked.map((option) => `${option.label}：${option.blockedReason}`).join('；')
 })
 
 /**
@@ -516,7 +595,8 @@ async function prepareSameCity(): Promise<void> {
 watch([shops, moduleConfig], () => {
   if (sameCityPrepared) return
   if (!shops.value.length) return
-  if (!deliveryOptions.value.some((option) => option.type === 2)) return
+  // 同城被商品级配送开关过滤掉时不必试算（试算了也选不了），省掉几个无意义的试算请求
+  if (!deliveryOptions.value.some((option) => option.type === 2 && !option.blockedReason)) return
   sameCityPrepared = true
   void prepareSameCity()
 })
@@ -743,6 +823,12 @@ onUnmounted(() => {
 
 /** 切换配送方式，保留两种方式下已经填写的本地内容。 */
 function changePickupType(type: PickupType): void {
+  // 商品级配送开关：该方式被已选商品禁用时不允许切换，用 toast 说清原因（与「超出同城范围」同一套做法）
+  const blockedReason = deliveryOptions.value.find((option) => option.type === type)?.blockedReason
+  if (blockedReason) {
+    uni.showToast({ title: blockedReason, icon: 'none' })
+    return
+  }
   // 同城配送：当前定位送不到就拦下给提示（选项本身是置灰样式，但仍可点，点了要说明原因）
   if (type === 2 && !sameCityAvailable.value) {
     uni.showToast({ title: '当前定位超出同城配送范围，请选择其他配送方式', icon: 'none' })
@@ -755,13 +841,20 @@ function changePickupType(type: PickupType): void {
   }
 }
 
-/** 模块加载完成后，若当前配送方式已被停用，自动切到第一个可用方式（如只买自提则默认自提）。 */
-watch(moduleConfig, () => {
-  const available = deliveryOptions.value.map((option) => option.type)
-  if (!available.includes(pickupType.value) && available.length > 0) {
-    pickupType.value = available[0]
-  }
-})
+/**
+ * 配送方式叠加过滤后的自动校正（模块开关 + 商品级开关）：
+ * 当前方式被任一层过滤掉时，自动切到第一个**真正可选**的方式（如只买自提则默认自提）；
+ * 一个可选方式都没有时保持当前值不动 —— 绝不自动切到已被过滤掉的方式，
+ * 由 productDeliveryHint 提示 + 提交前拦截兜住。
+ */
+function applyModuleFilter(): void {
+  const usable = deliveryOptions.value.filter((option) => !option.blockedReason)
+  if (usable.some((option) => option.type === pickupType.value)) return
+  if (usable.length > 0) pickupType.value = usable[0].type
+}
+
+// 模块开关或已选商品的配送开关变化后都要重新校正（商品开关要等购物车/商品详情加载完才有值）
+watch(deliveryOptions, () => applyModuleFilter())
 
 /** 读取钱包余额，供余额支付选项展示与可用性判断。 */
 async function loadBalance(): Promise<void> {
@@ -957,11 +1050,26 @@ function validateCheckoutInputs(isExistingOrder: boolean): boolean {
   return true
 }
 
+/**
+ * 商品级「配送方式」开关的下单拦截码 → 用户可读文案（13023 自提 / 13024 物流同城）。
+ * 返回空串表示不是这两类错误，交给调用方继续按原文案处理。
+ */
+function productDeliveryErrorMessage(code: number): string {
+  if (code === PRODUCT_PICKUP_BLOCKED_CODE) return PRODUCT_PICKUP_BLOCKED_MESSAGE
+  if (code === PRODUCT_DELIVERY_BLOCKED_CODE) return PRODUCT_DELIVERY_BLOCKED_MESSAGE
+  return ''
+}
+
 /** 将红包商品购买机会错误转换为面向用户的业务提示。 */
 function getPaymentErrorMessage(error: unknown): string {
   // 后端历史文案仍可能下发旧词（业务已统一改称「红包」）：先归一化，再做关键词匹配与展示，确保用户看不到旧词。
   // 说明：旧词用 \u 转义写成 /\u5206\u7EA2/，既保留兼容匹配，又不让源码出现该字样。
   const message = (error instanceof Error ? error.message : '').replace(/\u5206\u7EA2/g, '红包')
+  // 商品级配送开关：后端文案已定，这里用本地常量兜一层，避免后端改词时前端提示含混
+  if (isApiRequestError(error)) {
+    const deliveryMessage = productDeliveryErrorMessage(error.code)
+    if (deliveryMessage) return deliveryMessage
+  }
   if (message.includes('购买机会不足') || message.includes('无法购买该红包商品')) {
     return '一个账号一个补贴周期内最多同时存在三件商品哦'
   }
@@ -1075,6 +1183,16 @@ async function submitPayment(): Promise<void> {
   }
   if (!isExistingOrder && deliveryOptions.value.length === 0) {
     uni.showToast({ title: '当前未开通配送方式，暂无法下单', icon: 'none' })
+    return
+  }
+  // 商品级配送开关（2026-09-22）：先拦「整批商品任何方式都不支持」，再拦「当前方式被商品开关过滤」，
+  // 文案与后端 13023/13024 一致，避免用户提交后只看到一句错误码提示
+  if (!isExistingOrder && noSupportedDeliveryMethod.value) {
+    uni.showToast({ title: `${PRODUCT_DELIVERY_NONE_MESSAGE}，请返回购物车调整商品`, icon: 'none' })
+    return
+  }
+  if (!isExistingOrder && currentPickupBlockedReason.value) {
+    uni.showToast({ title: currentPickupBlockedReason.value, icon: 'none' })
     return
   }
   if (!isExistingOrder && pickupType.value === 0 && !selectedAddress.value) {
@@ -1245,6 +1363,7 @@ function backToCart(): void {
             :key="option.type"
             class="pickup-option"
             :class="{ active: pickupType === option.type, disabled: option.type === 2 && !sameCityAvailable }"
+            :style="option.blockedReason ? 'opacity: 0.45' : ''"
             @click="changePickupType(option.type)"
           >
             <view class="radio" :class="{ active: pickupType === option.type }"><view class="radio-dot" /></view>
@@ -1253,6 +1372,8 @@ function backToCart(): void {
         </view>
         <!-- 超出同城范围：把后端给的具体距离显示出来（toast 会被截断，这里不会） -->
         <text v-if="!sameCityAvailable" class="quote-error">{{ sameCityUnavailableReason }}，请选择其他配送方式</text>
+        <!-- 商品级配送开关：哪些配送方式因为「商品不支持」被置灰（后端会以 13023/13024 拦，这里提前说明） -->
+        <text v-if="productDeliveryHint" class="quote-error">{{ productDeliveryHint }}</text>
       </view>
 
       <view v-show="pickupType === 0 || pickupType === 2" class="section address-section">
@@ -1404,7 +1525,7 @@ function backToCart(): void {
     <view v-show="canRenderCheckout && !paymentSucceeded" class="paybar">
       <view v-if="showCancelOrder" class="cancel-order" @click="cancelExistingOrder"><view class="cancel-icon" /><text>取消</text></view>
       <view class="total-block"><text class="currency">¥</text><text class="total-price">{{ formatMoney(total) }}</text><text v-if="!showCancelOrder" class="count-label">共{{ itemCount }}件</text></view>
-      <view class="pay-now" :class="{ disabled: !items.length || paying || switchingToBalancePayment }" @click="submitPayment">
+      <view class="pay-now" :class="{ disabled: !items.length || paying || switchingToBalancePayment || payBlockedByProductDelivery }" @click="submitPayment">
         <text v-if="showCancelOrder && countdownText" class="countdown">{{ countdownText }}</text>
         <text>{{ paying || switchingToBalancePayment ? '处理中...' : '立即支付' }}</text>
       </view>

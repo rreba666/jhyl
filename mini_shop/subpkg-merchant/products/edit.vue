@@ -2,14 +2,17 @@
 /**
  * 商家端 · 新增 / 编辑商品（对应设计稿「新增商品」未录入/已录入两态）
  * 契约：POST /api/merchant/products（新增）、PUT /api/merchant/products/{id}（编辑）
- * 请求体 MerchantProductSaveDTO：title* / mainImages*（≤5）/ description / skus*[{specName,price,stock}] / detailImages / status
+ * 请求体 MerchantProductSaveDTO：title* / mainImages*（≤5）/ description / skus*[{specName,skuName,price,stock}] / detailImages / status /
+ * pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增，不传 = 不修改）
  * 范围结论：规格页是独立整页；商品核心是上下架；编辑因无单商品详情接口，仅能回填列表项已有字段（title/mainImage/skus）。
  * 图片上传走 POST /api/common/upload（utils/request 的 uploadFile）。
  *
- * ⚠️ 编辑态两条硬规则（2026-09-21 实测后定，详见 doSave / buildPayload 注释）：
+ * ⚠️ 编辑态三条硬规则（2026-09-21 实测后定，详见 doSave / buildPayload 注释；2026-09-22 追加第 3 条）：
  *   1. **不传 `status`** —— 后端一收到 status 就会连品牌级 `productStatus` 一起改（品牌下所有门店一起下线），
  *      本店上下架另走 `updateProductStatus()`（PUT /api/merchant/products/{id}/status）；
- *   2. **description / detailImages 回填不到就不提交** —— 整页覆盖语义下空值会清空线上内容。
+ *   2. **description / detailImages 回填不到就不提交** —— 整页覆盖语义下空值会清空线上内容；
+ *   3. **`pickupEnabled` / `deliveryEnabled`（商品级配送方式）回填不到就不提交** ——
+ *      语义是「不传 = 不修改」，提交默认值 1 会把商家已关掉的开关重新打开（后端下单拦截 13023/13024）。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
@@ -40,6 +43,21 @@ const mainImages = ref<string[]>([])
 const description = ref('')
 const skus = ref<MerchantSkuItem[]>([])
 const detailImages = ref<string[]>([])
+
+// ===== 商品级「配送方式」开关（2026-09-22 新增，§7b②） =====
+/** 支持线下自提：1=支持, 0=不支持（新增态默认 1）。 */
+const pickupEnabled = ref<0 | 1>(1)
+/** 支持物流(0)/同城(2)配送：1=支持, 0=不支持（新增态默认 1）。 */
+const deliveryEnabled = ref<0 | 1>(1)
+/**
+ * 回显是否拿到了这两个开关（来源：列表项 `MerchantProductVO.pickupEnabled` / `deliveryEnabled`）。
+ *
+ * ⚠️ 语义是「**不传 = 不修改**」（2026-09-22 上线）：编辑态**拿不到回显就不提交该字段** ——
+ * 若提交默认值 1，会把商家已经关掉的自提/物流开关重新打开（下单侧会因此拦不住 13023/13024）。
+ * 这与本页 `description` / `detailImages` 的防御原则同源（拿不到就不提交）。
+ */
+const pickupEchoed = ref(false)
+const deliveryEchoed = ref(false)
 
 const saving = ref(false)
 const uploading = ref(false)
@@ -75,6 +93,45 @@ function fillFromEditCache(): void {
     price: Number(s.price) || 0,
     stock: Number(s.stock) || 0,
   }))
+  // 商品级配送方式：只记「回显拿到了没有」，拿不到就不提交（见 buildPayload / pickupEchoed 注释）
+  const pickup = normalizeSwitch(cached.pickupEnabled)
+  pickupEchoed.value = pickup !== null
+  if (pickup !== null) pickupEnabled.value = pickup
+  const delivery = normalizeSwitch(cached.deliveryEnabled)
+  deliveryEchoed.value = delivery !== null
+  if (delivery !== null) deliveryEnabled.value = delivery
+}
+
+/**
+ * 配送方式开关回显归一化：`1/'1'/true → 1`，`0/'0'/false → 0`，**缺失 → null（= 拿不到回显）**。
+ * ⚠️ 缺失既不能当 0 也不能当 1 —— 它代表「后端没下发这个字段」，提交时必须整个跳过。
+ */
+function normalizeSwitch(value: unknown): 0 | 1 | null {
+  if (value === undefined || value === null || value === '') return null
+  return value === 1 || value === '1' || value === true ? 1 : 0
+}
+
+/** 编辑态是否已回显到该开关（新增态恒为 true，按默认值 1 提交）。 */
+function switchEditable(echoed: boolean): boolean {
+  return !productId.value || echoed
+}
+
+/** 点击切换「支持线下自提」；拿不到回显时禁止切换（避免显示与线上不一致）。 */
+function togglePickup(): void {
+  if (!switchEditable(pickupEchoed.value)) {
+    uni.showToast({ title: '未读取到该项当前设置，本次保存不会修改它', icon: 'none' })
+    return
+  }
+  pickupEnabled.value = pickupEnabled.value === 1 ? 0 : 1
+}
+
+/** 点击切换「支持物流/同城配送」；拿不到回显时禁止切换。 */
+function toggleDelivery(): void {
+  if (!switchEditable(deliveryEchoed.value)) {
+    uni.showToast({ title: '未读取到该项当前设置，本次保存不会修改它', icon: 'none' })
+    return
+  }
+  deliveryEnabled.value = deliveryEnabled.value === 1 ? 0 : 1
 }
 
 /** 规格 chip 展示：前 2 个 + 共 N 个。 */
@@ -154,12 +211,22 @@ function buildPayload(): MerchantProductSaveDTO {
   const payload: MerchantProductSaveDTO = {
     title: title.value.trim(),
     mainImages: mainImages.value,
-    skus: skus.value.map((s) => ({ specName: s.specName.trim(), price: s.price, stock: s.stock })),
+    skus: skus.value.map((s) => {
+      const specName = s.specName.trim()
+      // 规格名两个字段名都带同值：商家端生效的是 specName（2026-09-19 实测），
+      // 平台端 2026-09-22 起对 skuName 加了 @NotBlank 强校验（§7b①）；后端忽略未知字段，多带同值不影响
+      return { specName, skuName: specName, price: s.price, stock: s.stock }
+    }),
   }
   const desc = description.value.trim()
   // 新建态：用户看得到输入框，空就是真的不要描述；编辑态：空只代表「回填不到」，不能当作用户清空
   if (!productId.value || desc) payload.description = desc
   if (detailImages.value.length) payload.detailImages = detailImages.value
+  // 商品级配送方式（2026-09-22）：语义「不传 = 不修改」——
+  // 新增态没有回显，按默认值 1 显式提交；编辑态**只有回显确实拿到了才提交**，
+  // 否则提交 1 会把商家已关掉的自提/物流开关重新打开。
+  if (!productId.value || pickupEchoed.value) payload.pickupEnabled = pickupEnabled.value
+  if (!productId.value || deliveryEchoed.value) payload.deliveryEnabled = deliveryEnabled.value
   return payload
 }
 
@@ -319,6 +386,41 @@ function goBack(): void {
               <text class="add-icon">+</text>
             </view>
           </view>
+        </view>
+      </view>
+
+      <!-- 卡 3：商品级「配送方式」开关（2026-09-22 新增，§7b②）
+           与「模块开关」「门店是否上架」三重叠加：关闭后 C 端下单会报 13023（自提）/ 13024（物流·同城）。 -->
+      <view class="card">
+        <view class="switch-row">
+          <view class="switch-copy">
+            <text class="label-text">支持线下自提</text>
+            <text class="switch-hint">关闭后用户下单不能选择到店自提</text>
+          </view>
+          <view
+            class="toggle"
+            :class="{ on: pickupEnabled === 1, disabled: !switchEditable(pickupEchoed) }"
+            @click="togglePickup"
+          >
+            <view class="toggle-knob" />
+          </view>
+        </view>
+        <view class="switch-row">
+          <view class="switch-copy">
+            <text class="label-text">支持物流/同城配送</text>
+            <text class="switch-hint">关闭后用户下单不能选择物流(0)/同城(2)</text>
+          </view>
+          <view
+            class="toggle"
+            :class="{ on: deliveryEnabled === 1, disabled: !switchEditable(deliveryEchoed) }"
+            @click="toggleDelivery"
+          >
+            <view class="toggle-knob" />
+          </view>
+        </view>
+        <!-- 诚实告知：列表接口没下发这两个字段时保存会跳过它们（后端语义「不传 = 不修改」） -->
+        <view v-if="productId && (!pickupEchoed || !deliveryEchoed)" class="switch-notice">
+          <text>本次未能读取到商品级配送方式，保存不会修改这两项设置</text>
         </view>
       </view>
       <view class="content-pad" />
@@ -539,6 +641,65 @@ function goBack(): void {
   gap: 15rpx;
   margin-top: 15rpx;
   flex-wrap: wrap;
+}
+
+/* 商品级「配送方式」开关行（自绘开关，与本页其余表单项风格一致） */
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 23rpx;
+}
+.switch-row + .switch-row {
+  margin-top: 31rpx;
+}
+.switch-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  min-width: 0;
+  flex: 1;
+}
+.switch-hint {
+  color: #86909c;
+  font-size: 23rpx;
+  line-height: 34rpx;
+}
+.toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 88rpx;
+  height: 50rpx;
+  border-radius: 25rpx;
+  background: #e5e6eb;
+  transition: background 0.2s;
+}
+.toggle.on {
+  background: linear-gradient(90deg, #ff9301 0%, #ff6a01 100%);
+}
+.toggle.disabled {
+  opacity: 0.5;
+}
+.toggle-knob {
+  position: absolute;
+  top: 4rpx;
+  left: 4rpx;
+  width: 42rpx;
+  height: 42rpx;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.2s;
+}
+.toggle.on .toggle-knob {
+  transform: translateX(38rpx);
+}
+.switch-notice {
+  margin-top: 23rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #f2f3f7;
+  color: #ff6a01;
+  font-size: 23rpx;
+  line-height: 36rpx;
 }
 
 /* 底部保存栏 */

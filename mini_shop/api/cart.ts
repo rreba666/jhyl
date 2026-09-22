@@ -25,6 +25,16 @@ export interface CartItem {
   stock: number
   /** 前端根据商品详情补齐的补贴周期资格，不是购物车接口原始字段。 */
   dividendEligible?: boolean
+  /**
+   * 商品级「是否支持线下自提」（后端 2026-09-22 新增，1=支持 / 0=不支持，**默认 1**）。
+   * CartListVO 不返回这两个开关，由 getCartList({ resolveDeliverySwitch: true }) 用商品详情缓存补齐。
+   */
+  pickupEnabled?: 0 | 1
+  /**
+   * 商品级「是否支持物流(0)/同城配送(2)」（后端 2026-09-22 新增，1=支持 / 0=不支持，**默认 1**）。
+   * 同上，由商品详情缓存补齐；缺失/非法值一律按 1 兜底。
+   */
+  deliveryEnabled?: 0 | 1
 }
 
 /** 加入购物车请求体（对应 CartAddDTO） */
@@ -34,8 +44,25 @@ export interface CartAddDTO {
   quantity?: number
 }
 
+/**
+ * 归一化商品级配送开关（pickupEnabled / deliveryEnabled）：
+ * 后端约定 1=支持、0=不支持，**字段缺失或下发非 0/1 的值时按 1（支持）兜底**，与后端默认值保持一致。
+ * 取舍：宁可先把用户放到后端下单校验（13023/13024 拦），也不能把「字段缺失」误判成「不支持」而挡掉正常下单。
+ */
+export function normalizeDeliverySwitch(value: unknown): 0 | 1 {
+  return value === 0 || value === '0' || value === false ? 0 : 1
+}
+
+/** getCartList 的可选补齐项：两者都复用商品详情缓存，不会额外放大请求量。 */
+export interface CartListOptions {
+  /** 是否补齐补贴周期资格 dividendEligible（红包商品购买限制需要）。 */
+  resolveDividendEligibility?: boolean
+  /** 是否补齐商品级配送开关 pickupEnabled / deliveryEnabled（结算页判断可选配送方式需要）。 */
+  resolveDeliverySwitch?: boolean
+}
+
 /** 获取当前用户购物车列表，并把后端数值字段统一为 number。 */
-export async function getCartList(options: { resolveDividendEligibility?: boolean } = {}): Promise<CartItem[]> {
+export async function getCartList(options: CartListOptions = {}): Promise<CartItem[]> {
   const list = await request<CartItem[]>({ url: '/api/cart/list', method: 'GET' })
   const items = (Array.isArray(list) ? list : []).map((item) => ({
     ...item,
@@ -47,8 +74,12 @@ export async function getCartList(options: { resolveDividendEligibility?: boolea
     quantity: Math.max(1, Number(item.quantity ?? 1)),
     checked: item.checked === true || String(item.checked) === '1',
     stock: Math.max(0, Number(item.stock ?? 0)),
+    // CartListVO 不带商品级配送开关：先按后端默认 1（支持）兜底，需要精确值时由下面补查商品详情覆盖
+    pickupEnabled: normalizeDeliverySwitch(item.pickupEnabled),
+    deliveryEnabled: normalizeDeliverySwitch(item.deliveryEnabled),
   }))
-  return options.resolveDividendEligibility ? resolveDividendEligibility(items) : items
+  if (!options.resolveDividendEligibility && !options.resolveDeliverySwitch) return items
+  return resolveProductFlags(items, options.resolveDividendEligibility === true)
 }
 
 interface CachedProductDetail {
@@ -72,10 +103,17 @@ async function getCachedProductDetail(productId: number): Promise<ProductDetail 
 }
 
 /**
- * CartListVO 没有 dividendEnabled，因此只在需要做购买限制时按商品 ID 补查详情。
- * 失败时保留后端购物车数据，最终订单创建仍由后端做资格和并发校验。
+ * 用商品详情缓存补齐购物车条目上「只有商品详情接口才下发」的字段：
+ * - pickupEnabled / deliveryEnabled：商品级配送开关（CartListVO 不带）；
+ * - dividendEligible：红包商品购买资格（需要详情里的 dividendEnabled + SKU 价格）。
+ *
+ * 为什么补在**购物车这条链路**上：结算页要按「整批已选商品」判断能不能自提、能不能物流/同城，
+ * 如果放到结算页逐条现查详情，一次结算就会多打 N 个请求；购物车里本来就要为红包资格查详情，
+ * 这里复用同一个 getCachedProductDetail 缓存（TTL 30s）一次拿全，两种字段共用同一批请求。
+ * 详情查不到时（网络失败 / 商品下架）保留原值 —— 也就是按默认 1（支持）兜底，绝不静默放行错误订单：
+ * 真不支持时后端下单会以 13023（不支持自提）/ 13024（不支持物流、同城）拦下并给出文案。
  */
-export async function resolveDividendEligibility(items: CartItem[]): Promise<CartItem[]> {
+async function resolveProductFlags(items: CartItem[], withDividendEligibility: boolean): Promise<CartItem[]> {
   const productIds = Array.from(new Set(items.map((item) => Number(item.productId)).filter((id) => Number.isFinite(id) && id > 0)))
   const details = await Promise.all(productIds.map(async (id) => [id, await getCachedProductDetail(id)] as const))
   const detailMap = new Map(details)
@@ -85,11 +123,26 @@ export async function resolveDividendEligibility(items: CartItem[]): Promise<Car
     const sku = detail?.skuList?.find((candidate) => Number(candidate.id) === Number(item.skuId))
     return {
       ...item,
-      dividendEligible: sku
-        ? isDividendEligible({ dividendEnabled: detail?.dividendEnabled, price: sku.price })
-        : Boolean(item.dividendEligible),
+      pickupEnabled: detail ? normalizeDeliverySwitch(detail.pickupEnabled) : item.pickupEnabled,
+      deliveryEnabled: detail ? normalizeDeliverySwitch(detail.deliveryEnabled) : item.deliveryEnabled,
+      ...(withDividendEligibility
+        ? {
+            dividendEligible: sku
+              ? isDividendEligible({ dividendEnabled: detail?.dividendEnabled, price: sku.price })
+              : Boolean(item.dividendEligible),
+          }
+        : {}),
     }
   })
+}
+
+/**
+ * CartListVO 没有 dividendEnabled，因此只在需要做购买限制时按商品 ID 补查详情。
+ * 失败时保留后端购物车数据，最终订单创建仍由后端做资格和并发校验。
+ * 注意：这条路径顺带会把商品级配送开关一起补齐（同一批详情请求，不额外发请求）。
+ */
+export async function resolveDividendEligibility(items: CartItem[]): Promise<CartItem[]> {
+  return resolveProductFlags(items, true)
 }
 
 /** 切换单条购物车商品的选中状态 */

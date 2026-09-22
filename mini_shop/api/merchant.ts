@@ -73,7 +73,7 @@ export function getMyMerchantApply(): Promise<MerchantApplyVO | null> {
  * ⚠️ 字段名**以实际响应为准**：`{skuId, specName, price, stock}`。
  * 2026-09-19 复核 `api_doc.json` 与真实响应后修正 —— 此前这里写的是 `id` / `skuName`，
  * 导致编辑商品回填时规格名读不到（变成空串，一提交就报「请填写规格名称」）。
- * 提交用的结构与 `MerchantSkuItem` 一致（`{specName, price, stock}`）。
+ * 提交用的结构见 `MerchantSkuSaveItem`（在 `{specName, price, stock}` 基础上多带同值 `skuName`）。
  */
 export interface MerchantSkuVO {
   /** SKU ID（下单时标识具体规格）。 */
@@ -112,6 +112,17 @@ export interface MerchantProductVO {
   skuCount?: number
   /** 启用规格明细（编辑页回填；size 恒等于 skuCount）。 */
   skus?: MerchantSkuVO[]
+  /**
+   * 商品级「支持线下自提」（2026-09-22 新增）：1=支持, 0=不支持，默认 1。
+   * ⚠️ 后端**没下发该键**时为 `undefined`（不是 0）：编辑页据此判定「拿不到回显」→ **不提交**该字段
+   * （保存语义是「不传 = 不修改」），避免把商家已关掉的开关重置为默认值。
+   */
+  pickupEnabled?: number
+  /**
+   * 商品级「支持物流(0)/同城(2)配送」（2026-09-22 新增）：1=支持, 0=不支持，默认 1。
+   * ⚠️ 同 `pickupEnabled`：`undefined` = 未回显，提交时必须跳过。
+   */
+  deliveryEnabled?: number
 }
 
 /** 商品目录分页结果。 */
@@ -446,6 +457,19 @@ export interface MerchantSkuItem {
   stock: number
 }
 
+/**
+ * 提交给 `POST/PUT /api/merchant/products` 的规格项。
+ *
+ * 规格名**两个字段名都带同值**：
+ * - `specName`：商家端实际生效的字段名（列表回显 `MerchantSkuVO` 用的也是它，2026-09-19 实测确认）；
+ * - `skuName`：平台端 `POST /api/admin/v2/product/save` 2026-09-22 起对 `skuList[].skuName` 加了
+ *   `@NotBlank` 强校验（《商户提现-前端开发文档-2026-09-22》§7b①）；后端 Jackson 忽略未知字段
+ *   （2026-09-19 实测多传 `specs`/`skuImage`/`enabled` 仍 `code=0`），多带一个同值字段不影响商家端保存。
+ */
+export interface MerchantSkuSaveItem extends MerchantSkuItem {
+  skuName: string
+}
+
 /** 新增/编辑商品请求体（对应 MerchantProductSaveDTO）。 */
 export interface MerchantProductSaveDTO {
   /** 商品标题（必填，≤60 字符）。 */
@@ -455,7 +479,7 @@ export interface MerchantProductSaveDTO {
   /** 详情描述（≤200 字）。 */
   description?: string
   /** 规格列表（必填，扁平结构）。 */
-  skus: MerchantSkuItem[]
+  skus: MerchantSkuSaveItem[]
   /** 详情页图片（可空）。 */
   detailImages?: string[]
   /** 商品分类 ID（可空）。 */
@@ -464,6 +488,16 @@ export interface MerchantProductSaveDTO {
   goodsBrandId?: number
   /** 上架状态：1=在售（上架）, 0=仓库中（下架）；不传默认 0。 */
   status?: 0 | 1
+  /**
+   * 商品级「支持线下自提」：1=支持, 0=不支持。
+   * ⚠️ 语义「**不传 = 不修改**」：编辑态拿不到回显时**不要放这个字段**，
+   * 否则会把商家已关掉的自提开关重新打开。
+   */
+  pickupEnabled?: 0 | 1
+  /**
+   * 商品级「支持物流(0)/同城(2)配送」：1=支持, 0=不支持。同 `pickupEnabled`：不传 = 不修改。
+   */
+  deliveryEnabled?: 0 | 1
 }
 
 /** 新增商品。 */

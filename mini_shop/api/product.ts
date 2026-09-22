@@ -15,6 +15,16 @@ export interface ProductDetail {
   promotionEnabled?: 0 | 1 | '0' | '1' | boolean
   dividendFund?: number
   dividendEnabled?: 0 | 1 | '0' | '1' | boolean
+  /**
+   * 商品级「是否支持线下自提」（后端 2026-09-22 新增，默认 1=支持）。
+   * 0 表示该商品不能走门店自提（pickupType=1），下单会被后端以 13023 拦下。
+   */
+  pickupEnabled?: 0 | 1 | '0' | '1' | boolean
+  /**
+   * 商品级「是否支持物流(0)/同城配送(2)」（后端 2026-09-22 新增，默认 1=支持）。
+   * 0 表示该商品不能走快速配送与同城配送，下单会被后端以 13024 拦下。
+   */
+  deliveryEnabled?: 0 | 1 | '0' | '1' | boolean
   minPrice: number
   maxPrice: number
   /** 商品最低划线价/原价（订前价，元），纯展示不参与扣款，为 null 表示无划线价。 */
