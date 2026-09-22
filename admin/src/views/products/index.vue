@@ -246,7 +246,19 @@ async function submitForm(): Promise<void> {
       // 后端 Jackson 忽略未知字段，所以两个都带上可同时兼容两套字段名。
       skuList: rawSkuList.map((sku) => {
         const skuName = sku.skuName.trim()
-        return { skuName, specName: skuName, price: Number(sku.price), stock: Number(sku.stock) }
+        // ⚠️⚠️ 2026-09-22 修（生产已造成数据重复）——**必须把已有 SKU 的 id 带上**：
+        // 后端只按 **id** 匹配已有 SKU（不按名字），原来这里不带 id → 每次保存都被当成"新增规格"，
+        // 于是**每保存一次就追加一批同规格 SKU**。生产实测后果：商品 id=5 已累积 **37** 条「一罐」、
+        // id=6 累积 **18** 条「一盒」（用户截图里看到的 4 行重复就是这个现象）。
+        // 新增商品时 `sku.id` 本就是 undefined → 不传该字段，后端据此插入新 SKU。
+        const id = sku.id === null || sku.id === undefined || String(sku.id).trim() === '' ? undefined : Number(sku.id)
+        return {
+          ...(id === undefined ? {} : { id }),
+          skuName,
+          specName: skuName,
+          price: Number(sku.price),
+          stock: Number(sku.stock),
+        }
       }),
     }
     await store.saveProduct(payload)

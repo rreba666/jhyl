@@ -126,6 +126,15 @@ export interface AdminProductSaveDTO {
  * 所以两个名字都带上即可同时满足两套字段名，互不干扰。
  */
 export interface AdminSkuSaveItem {
+  /**
+   * 已有 SKU 的主键 id（**编辑商品时必须带**）。
+   *
+   * ⚠️⚠️ 2026-09-22 补：后端**只按 id 匹配已有 SKU**（不按名字/规格名），
+   * 提交里缺少 id 会被当成"新增规格" → **每保存一次就追加一批同规格 SKU**。
+   * 生产上已因此写脏数据（商品 id=5 累积 37 条、id=6 累积 18 条同名 SKU）。
+   * 新增商品时该字段为 undefined（不传），后端据此插入。
+   */
+  id?: number
   skuName: string
   specName: string
   price: number
