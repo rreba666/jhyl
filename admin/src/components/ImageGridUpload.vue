@@ -80,15 +80,18 @@ function onRemove(index: number): void {
         @click="expanded = true"
         @keydown.enter="expanded = true"
       >
-        <el-image
-          :class="['image-preview image-more-preview', { 'image-preview--long': props.thumbnailMode === 'long' }]"
-          :src="previewImages[visibleImages.length]"
-          :preview-src-list="previewImages"
-          :initial-index="visibleImages.length"
-          :fit="thumbnailFit"
-          preview-teleported
-        />
-        <span class="image-more-count">+{{ collapsedCount }}</span>
+        <!-- 缩略图与遮罩单独包一层：遮罩只盖住图片本身，不盖住下面的「展开全部」按钮 -->
+        <div class="image-more-thumb">
+          <el-image
+            :class="['image-preview image-more-preview', { 'image-preview--long': props.thumbnailMode === 'long' }]"
+            :src="previewImages[visibleImages.length]"
+            :preview-src-list="previewImages"
+            :initial-index="visibleImages.length"
+            :fit="thumbnailFit"
+            preview-teleported
+          />
+          <span class="image-more-count">+{{ collapsedCount }}</span>
+        </div>
         <el-button class="image-remove" link type="primary" @click.stop="expanded = true">展开全部</el-button>
       </div>
       <!-- 展开态收尾：给一个收起入口，避免长图列表把页面撑得过长 -->
@@ -127,7 +130,12 @@ function onRemove(index: number): void {
 .image-preview--error { display: grid; width: 100%; height: 100%; place-items: center; padding: 12px; box-sizing: border-box; color: var(--vben-muted); font-size: 13px; text-align: center; }
 .image-plus { color: #8b929c; font-size: 48px; font-weight: 300; line-height: 1; }
 .image-remove { padding: 0; line-height: 1.2; white-space: normal; text-align: left; }
-.image-more-tile { cursor: pointer; }
+/* ⚠️ position: relative 必须保留 —— 折叠遮罩 .image-more-count 用 inset:0 定位，
+   少了它遮罩会相对更外层容器铺开（2026-09-22 线上就是这个 bug：一片灰色遮罩盖住整个详情图区域，
+   "+N" 跑到右侧中间，看着像页面坏了）。 */
+.image-more-tile { position: relative; cursor: pointer; }
+/* 折叠缩略图的定位上下文：遮罩只盖住图片本身，不盖住下面的「展开全部」按钮 */
+.image-more-thumb { position: relative; display: block; width: 100%; }
 .image-more-preview { display: block; }
 .image-more-count { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgba(0, 0, 0, .48); border-radius: 8px; font-size: 22px; font-weight: 600; pointer-events: none; }
 .image-grid-count { margin: 8px 0 0; color: var(--vben-muted); font-size: 12px; }
