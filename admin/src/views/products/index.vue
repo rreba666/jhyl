@@ -217,6 +217,20 @@ async function submitForm(): Promise<void> {
     ElMessage.error('请补全 SKU 表格里的「规格名称 / 价格 / 库存」后再保存')
     return
   }
+  // ⚠️ 2026-09-22 用户实测确认的边界：后端**不支持清空详情图** ——
+  // `detailImages` 传空数组 `[]` 时该字段被整段跳过（`isNotEmpty` 之类短路），保存后会**回滚成原来那几张**；
+  // 而「上传新图替换 / 部分删除（数组仍非空）」是能正常保存的。
+  // 前端**无法绕过**（没有"空图"可以提交，塞占位图会往库里留脏数据），所以这里在保存前把话说清楚，
+  // 不让用户以为保存成功、重开又变回去（上次就是这个现象让人以为"删除功能坏了"）。
+  if (form.detailImages.length === 0 && initialDetailImages.value.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        '详情图当前为空：后端目前不支持「清空详情图」（传空数组不会生效，保存后会回滚成原来那几张），本次保存只对其余字段生效。若确实需要清空，请让后端修掉这个限制。',
+        '详情图不支持清空',
+        { confirmButtonText: '仍然保存', cancelButtonText: '取消', type: 'warning' },
+      )
+    } catch { return }
+  }
   if (normalizeBinary(form.status) === 0 && normalizeBinary(form.isRecommended) === 1) {
     form.isRecommended = 0
     ElMessage.info('下架商品不能推荐到首页，已自动取消推荐')
