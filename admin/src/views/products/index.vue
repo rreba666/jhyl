@@ -11,6 +11,7 @@ import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, Produc
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
 import { DETAIL_IMAGE_MAX_COUNT, planDetailSliceForFile, sliceDetailImageToFiles } from '@/utils/detailImageSlice'
 import { getAdminGoodsBrands } from '@/api/brand'
+import { getAdminProductDetail } from '@/api/product'
 import { Delete, Edit, View } from '@element-plus/icons-vue'
 
 const store = useProductStore()
@@ -34,6 +35,13 @@ const dividendUseDefault = ref(true)
  */
 const deliverySwitchEchoed = ref(true)
 const detailUploadCount = ref(0)
+/**
+ * 打开表单那一刻的详情图快照（保存后回读比对用）。
+ * 背景（2026-09-22 实测）：后台删掉详情图 → 保存提示成功 → 重新打开又变回原来那张，
+ * 也就是「前端提交了、后端没落库」。有了快照才能在保存后判断「这次详情图到底有没有变」，
+ * 从而只对真正改动过的情况做回读校验，不给正常保存加无谓请求。
+ */
+const initialDetailImages = ref<string[]>([])
 const rules: FormRules = {
   name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
   categoryId: [{ required: true, message: '请选择商品分类', trigger: 'change' }],
@@ -177,6 +185,8 @@ async function openForm(product?: ProductListItem): Promise<void> {
   try {
     if (product) await store.fetchDetail(product.id)
     fillForm(product ? store.detail || undefined : undefined)
+    // 记录详情图初值：保存后据此判断「详情图是否有改动」，有改动才回读校验
+    initialDetailImages.value = [...form.detailImages]
     formVisible.value = true
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '商品详情加载失败')
@@ -264,9 +274,42 @@ async function submitForm(): Promise<void> {
     await store.saveProduct(payload)
     formVisible.value = false
     ElMessage.success(editingId.value ? '商品修改成功' : '商品新增成功')
+    // 详情图有改动时回读校验：把「保存成功但没落库」的静默失败变成明确提示
+    void verifyDetailImagesSaved(editingId.value, [...form.detailImages])
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '商品保存失败')
   }
+}
+
+/**
+ * 保存后回读详情图做比对 —— 把「静默失败」变成明确提示。
+ *
+ * 背景（2026-09-22 实测）：后台删掉详情图 → 提示「商品修改成功」→ 重新打开又变回原来那张。
+ * 前端链路已逐段确认无误（`form.detailImages` 就是被删除的那个数组引用 → `...rest` → payload →
+ * `POST /api/admin/v2/product/save`，且该接口 DTO 里确实有 `detailImages` 字段），所以这里
+ * **不阻塞、不改变保存流程**，只在保存成功后做一次事后核对：不一致就给用户和后端一个可复现的信号，
+ * 用来区分「前端没提交」和「后端没落库」。
+ *
+ * 只在「详情图确实改过」且「编辑态（有 id）」时才回读；回读本身失败（网络/权限）一律静默跳过。
+ */
+async function verifyDetailImagesSaved(productId: string | undefined, submitted: string[]): Promise<void> {
+  if (!productId) return
+  if (sameDetailImages(submitted, initialDetailImages.value)) return
+  try {
+    const detail = await getAdminProductDetail(productId)
+    const saved = detail.detailImages || []
+    if (!sameDetailImages(submitted, saved)) {
+      ElMessage.warning(`详情图可能未保存成功：本次提交 ${submitted.length} 张，后端回读 ${saved.length} 张。请把这条提示转给后端（详情图删除/清空未落库）`)
+    }
+  } catch { /* 回读失败不打扰用户：保存请求本身已成功 */ }
+}
+
+/** 详情图比对按「去掉域名与查询串后的文件名序列」比较，避免同一张图因前缀差异被误判为不一致。 */
+function sameDetailImages(a: string[], b: string[]): boolean {
+  const key = (list: string[]): string => list
+    .map((url) => String(url).split('?')[0].split('/').filter(Boolean).pop() || '')
+    .join('|')
+  return key(a) === key(b)
 }
 
 /** 打开商品详情弹窗。 */
