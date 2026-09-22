@@ -618,7 +618,13 @@ onUnload(() => {
 .page { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: #f2f3f7; }
 .nav { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #f2f3f7; }
 .nav-inner { position: relative; display: flex; align-items: center; justify-content: center; height: 44px; }
-.nav-back { position: absolute; top: 50%; left: 24rpx; color: #1d2129; font-size: 46rpx; line-height: 1; transform: translateY(-50%); }
+.nav-back { position: absolute; left: 24rpx; color: #1d2129; font-size: 46rpx; line-height: 1;
+  top: auto;
+  bottom: 0;
+  display: flex;
+  height: 88rpx;
+  align-items: center;
+}
 .nav-title { color: #1d2129; font-size: 33rpx; font-weight: 600; }
 .body { flex: 1; min-height: 0; padding: 16rpx 16rpx 160rpx; box-sizing: border-box; }
 .state { padding: 160rpx 0; color: #86909c; font-size: 28rpx; text-align: center; }

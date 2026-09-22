@@ -837,7 +837,13 @@ onUnload(() => {
 /* 自定义导航栏：标题居中并相对导航条上移一点点，避免视觉偏下 */
 .nav { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #fff; }
 .nav-inner { position: relative; height: 44px; }
-.nav-back { position: absolute; top: 50%; left: 24rpx; color: #1d2129; font-size: 46rpx; line-height: 1; transform: translateY(-50%); }
+.nav-back { position: absolute; left: 24rpx; color: #1d2129; font-size: 46rpx; line-height: 1;
+  top: auto;
+  bottom: 0;
+  display: flex;
+  height: 88rpx;
+  align-items: center;
+}
 .nav-title { position: absolute; top: 50%; left: 50%; color: #1d2129; font-size: 34rpx; font-weight: 600; line-height: 1; transform: translate(-50%, -58%); }
 .content { flex: 1; min-height: 0; padding: 24rpx; box-sizing: border-box; }
 .status-banner { display: flex; justify-content: center; margin-bottom: 18rpx; padding: 22rpx; background: rgba(145, 100, 72, 0.13); border-radius: 10rpx; }.status-banner-text { color: #916448; font-size: 32rpx; font-weight: 700; }

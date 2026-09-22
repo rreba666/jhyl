@@ -820,7 +820,13 @@ onUnload(() => {
 .page { display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; background: #f2f3f7; }
 .header { position: fixed; top: 0; right: 0; left: 0; z-index: 30; background: #0f0f11; }
 .nav-inner { position: relative; display: flex; align-items: center; justify-content: center; height: 44px; }
-.nav-back { position: absolute; top: 50%; left: 24rpx; color: #fff; font-size: 46rpx; line-height: 1; transform: translateY(-50%); }
+.nav-back { position: absolute; left: 24rpx; color: #fff; font-size: 46rpx; line-height: 1;
+  top: auto;
+  bottom: 0;
+  display: flex;
+  height: 88rpx;
+  align-items: center;
+}
 /* ===== 深色头部（设计稿 Frame 35：#0F0F11，门店行与 Tab 同处一块）===== */
 .shop-row { display: flex; align-items: center; max-width: 62%; }
 .shop-logo { box-sizing: border-box; width: 64rpx; height: 64rpx; margin-right: 12rpx; padding: 12rpx; border-radius: 50%; background: #f6f7f9; }

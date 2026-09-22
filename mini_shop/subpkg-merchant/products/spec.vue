@@ -160,11 +160,14 @@ function goBack(): void {
 .nav-back {
   position: absolute;
   left: 23rpx;
-  top: 50%;
-  transform: translateY(-50%);
   color: #1d2129;
   font-size: 46rpx;
   line-height: 1;
+  top: auto;
+  bottom: 0;
+  display: flex;
+  height: 88rpx;
+  align-items: center;
 }
 .nav-title {
   color: #1d2129;
