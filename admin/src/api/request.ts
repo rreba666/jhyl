@@ -34,7 +34,8 @@ function redirectToLogin(): void {
  * 3. 兜底：dev 用内网地址、生产用正式域名 —— 今华有肽的教训：baseURL 为 `undefined` 时 axios 会静默走相对路径、
  *    打到当前站点，报错很隐蔽。⚠️ 用 `import.meta.env.DEV` 分支是为了让**内网地址不出现在生产包里**（构建时被常量折叠）。
  */
-const FALLBACK_API_BASE_URL = import.meta.env.DEV ? 'http://192.168.1.4:8080' : 'https://yladmin.jinhuayou365.com:8443'
+// 后端 2026-09-22 已在 443 上提供（不带端口）→ 生产兜底也用无端口形态，产物里不会再出现 :8443
+const FALLBACK_API_BASE_URL = import.meta.env.DEV ? 'http://192.168.1.4:8080' : 'https://yladmin.jinhuayou365.com'
 
 /**
  * 后端基址（**全项目唯一来源**，末尾斜杠已归一化）。

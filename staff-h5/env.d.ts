@@ -8,6 +8,8 @@ declare module '*.vue' {
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
+  /** 品牌标识（X-App-Key）：今华有礼为 longping。 */
+  readonly VITE_APP_KEY?: string
 }
 
 interface ImportMeta {

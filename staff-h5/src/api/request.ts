@@ -3,8 +3,12 @@ import type { StaffResponse } from '@/types/staff'
 
 /** 后端地址，去掉尾部斜杠。 */
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
-/** 品牌标识（X-App-Key）：读 VITE_APP_KEY，小写 trim；未配置时默认 jinhua（与后端默认品牌一致）。 */
-const APP_KEY = String(import.meta.env.VITE_APP_KEY || 'jinhua').trim().toLowerCase()
+/**
+ * 品牌标识（X-App-Key）：读 `VITE_APP_KEY`，小写 trim。
+ * 未配置时默认 **`longping`（今华有礼自己的品牌）** —— 原默认值是 `jinhua`（今华有肽），
+ * 今天华有礼的核销页若漏配环境变量会被后端路由到**另一个品牌的库**，属高危默认值（2026-09-22 修改）。
+ */
+const APP_KEY = String(import.meta.env.VITE_APP_KEY || 'longping').trim().toLowerCase()
 
 /** 携带后端错误码的异常对象。 */
 export interface RequestError extends Error {
