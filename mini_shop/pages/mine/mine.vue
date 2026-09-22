@@ -240,16 +240,41 @@ async function loadIdentity(): Promise<void> {
 }
 
 /**
- * 是否展示身份区。
- * 三重条件：已登录 + **已注册用户（资料可用）** + 确实有身份/待开通占位。
- * 中间那条是关键兜底：token 残留 / 后端「用户不存在」时，界面按游客渲染，身份区也必须一起隐藏。
+ * 后端是否真的下发过身份数据（可开通身份或待开通占位）。
+ * 这是身份区的**唯一权威判据**：`/api/auth/identity` 返回什么就展示什么。
+ */
+const hasIdentityData = computed(() => Boolean(
+  identity.value && (identity.value.identities.length || identity.value.pendingIdentities.length),
+))
+
+/**
+ * 是否展示身份区：**已登录 + 后端给了身份数据**。
+ *
+ * ⚠️ 2026-09-22 修正：这里原先还要求 `registeredUser`（"已注册用户/资料可用"），
+ * 导致**以游客身份（微信登录了但资料未完善，页面顶部显示"游客"）提交商家入驻**的用户，
+ * 审核通过后**看不到「门店管理」入口** —— 身份明明已经开通，却因为资料那一条被整块隐藏。
+ * 去掉这条不会引入"token 残留还显示身份"的问题：token 失效时 `/api/auth/identity` 直接失败、
+ * 用户不存在时后端返回空身份 → `hasIdentityData` 自然为 false，身份区照样隐藏。
  */
 const showIdentitySection = computed(() => Boolean(
-  isLoggedIn()
-  && registeredUser.value
-  && identity.value
-  && (identity.value.identities.length || identity.value.pendingIdentities.length),
+  isLoggedIn() && hasIdentityData.value,
 ))
+
+/**
+ * 店长身份「内含骑手能力」时补的骑手入口。
+ * 后端常常**只下发一张店长卡**（`IdentityVO.deliveryCapability = true`）而不发 RIDER 卡，
+ * 与 `subpkg-merchant/home/index.vue` 的 `roleOptions` 同口径。
+ * 进骑手页**不需要切换身份**（同一 token，任务接口用 C 端 token 直调）→ `bindingId` 保持 null。
+ */
+const RIDER_ENTRY: IdentityItem = {
+  bindingId: null,
+  role: 'RIDER',
+  label: '骑手工作台',
+  targetPage: 'RIDER',
+  primary: false,
+  pending: false,
+  hint: null,
+}
 
 /**
  * 身份区实际渲染的行：已开通身份在前、待开通占位在后，**并按 targetPage 去重**。
@@ -260,6 +285,9 @@ const showIdentitySection = computed(() => Boolean(
  * 是按「商家账号有没有发工号」判断的，**未发号期间仍会下发**同名的「门店管理（待开通）」。
  * 两组直接渲染，用户就会看到两个「门店管理」。
  * 口径见 docs/商家端-入驻身份与通知-方案架构-2026-09-19.md §十-①。
+ *
+ * ⚠️ 2026-09-22 补充：后端只发店长卡时（`deliveryCapability=true`）**补一张「骑手工作台」**，
+ * 否则骑手/店长在「我的」这页找不到骑手入口（此前只有商家端工作台里补了，见该页注释）。
  */
 const identityRows = computed<IdentityItem[]>(() => {
   const owned = identity.value?.identities || []
@@ -267,11 +295,20 @@ const identityRows = computed<IdentityItem[]>(() => {
   const pending = (identity.value?.pendingIdentities || []).filter(
     (item) => !ownedTargets.has(item.targetPage || 'CUSTOMER'),
   )
-  return [...owned, ...pending]
+  const rows = [...owned, ...pending]
+  const hasRiderEntry = rows.some((item) => (item.targetPage || '') === 'RIDER')
+  if (identity.value?.deliveryCapability && !hasRiderEntry) rows.push(RIDER_ENTRY)
+  return rows
 })
 
 /** 点击身份卡：切换身份并按 entry 跳对应工作台（token 不变）。 */
 async function goIdentity(item: IdentityItem): Promise<void> {
+  // 店长内含骑手能力（后端不发 RIDER 卡）：骑手入口**不切身份**，直接进骑手工作台
+  // （与 subpkg-merchant/home/index.vue 的 confirmSwitch 同口径：进骑手页用同一 token 直调任务接口）
+  if (item.targetPage === 'RIDER' && !item.pending && !item.bindingId) {
+    uni.navigateTo({ url: '/subpkg-delivery/rider/index' })
+    return
+  }
   if (item.pending || !item.bindingId) {
     uni.showToast({ title: item.hint || '该身份尚未开通，请联系客服', icon: 'none' })
     return
