@@ -33,8 +33,24 @@ function readEnvValue(source: string, key: string): string {
 const envSource = import.meta.env.MODE === 'production' ? productionEnv : developmentEnv
 const API_BASE_URL = readEnvValue(envSource, 'VITE_API_BASE_URL').replace(/\/+$/, '')
 
-/** 品牌标识（X-App-Key）：读 VITE_APP_KEY，小写 trim；未配置时默认 jinhua（与后端默认品牌一致）。 */
-const APP_KEY = (readEnvValue(envSource, 'VITE_APP_KEY') || 'jinhua').trim().toLowerCase()
+/**
+ * 生产构建却指向内网/本机地址时**运行时直接告警**（这件事编译期拦不住）。
+ *
+ * 起因（2026-09-22）：反馈「重新编译后请求地址仍是内网 dev 地址（ERR_CONNECTION_TIMED_OUT）」——
+ * 根因是走的 HBuilderX **「运行到小程序模拟器」**（`MODE=development` → 读 `.env`），而那份 `.env` 还写着当天已下线的内网地址。
+ * 现在**两份 env 都指向公网域名**，这条告警用于防止将来再改回去。
+ * （只匹配内网网段前缀、不写具体 IP —— `tests/env-config.contract.ps1` 有"禁止硬编码内网 IP"的反向断言。）
+ */
+if (import.meta.env.MODE === 'production' && /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(API_BASE_URL)) {
+  console.warn('[env] 生产构建仍在使用内网/本机后端地址：', API_BASE_URL)
+}
+
+/**
+ * 品牌标识（X-App-Key）：读 `VITE_APP_KEY`，小写 trim。
+ * 未配置时默认 **`longping`（今华有礼自己的品牌）** —— 原默认值是 `jinhua`（今华有肽），
+ * 漏配环境变量会被后端路由到**另一个品牌的库**，属高危默认值（与 staff-h5 同批修正，2026-09-22）。
+ */
+const APP_KEY = (readEnvValue(envSource, 'VITE_APP_KEY') || 'longping').trim().toLowerCase()
 
 interface ApiResponse<T> {
   code?: number
