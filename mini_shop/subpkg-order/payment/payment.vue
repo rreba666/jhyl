@@ -414,10 +414,18 @@ function reloadCheckout(): void {
   void loadSelectedItems()
 }
 
+/**
+ * 门店列表是否已经跑过一次（无论成功失败）。
+ * ⚠️ 用途：区分「门店还在加载」与「确实一个可用门店都没有」——
+ * 前者不能把「同城配送」置灰，否则进页面会先闪一下灰再恢复。
+ */
+const shopsLoaded = ref(false)
+
 /** 加载 C 端可用门店，替换支付页中的本地假数据。 */
 async function loadShops(): Promise<void> {
   try { shops.value = await getEnabledShops() }
   catch (error) { shops.value = []; console.error('门店列表加载失败', error) }
+  finally { shopsLoaded.value = true }
 }
 
 /** 当前品牌模块开关（空 = 未配置/失败，按全部启用兜底）。 */
@@ -462,11 +470,30 @@ function deliveryBlockedReasonFor(type: PickupType): string {
 }
 
 /**
- * 可用的配送方式选项（模块开关 + 商品级配送开关叠加）。
+ * 有没有门店开通同城配送（**门店级** `deliveryEnabled`，后端口径 = `delivery_rules.enabled = 1`）。
+ * ⚠️ 与**商品级** `deliveryEnabled` 同名但是两回事：前者是"这家店能不能送同城"，后者是"这件商品能不能走配送"。
+ */
+const hasSameCityShop = computed(() => shops.value.some((shop) => shop.deliveryEnabled !== false))
+
+/**
+ * 门店层的同城配送阻断原因（2026-09-22 补）。
+ *
+ * 门店列表加载完却**一个开通同城配送的店都没有** → 把「同城配送」也置灰并说明，
+ * 否则用户会一路选到「选择发货门店」弹层里才看到「暂无门店开通同城配送」（实测的真实场景：
+ * **新入驻店铺的默认状态** —— 入驻会自动建店，但不会自动创建配送规则，
+ * `delivery_rules` 没有记录 → `deliveryEnabled = false` → C 端结算页不列出该店）。
+ * 文案与门店弹层里的空态保持一致；只在 `shopsLoaded` 之后判定，避免加载中先闪一下置灰。
+ */
+const sameCityShopBlockedReason = computed(() => (
+  shopsLoaded.value && !hasSameCityShop.value ? '暂无门店开通同城配送' : ''
+))
+
+/**
+ * 可用的配送方式选项（模块开关 + 商品级配送开关 + 门店层同城可用性 **三重叠加**）。
  * 2026-09-19 起「同城配送」正式开放下单（此前是 samecity 开关占位、代码里硬编码不渲染）：
  * 选它时要选**发货门店**并填收货地址，配送费由试算接口给出。
- * 2026-09-22 起再叠一层商品级配送开关：被商品开关过滤掉的方式不删掉、而是**置灰保留**，
- * 让用户看得到「有这个方式但因为商品不支持而不能选」，点了由 changePickupType 给明确原因。
+ * 2026-09-22 起再叠两层：商品级配送开关（任一商品不支持该方式）+ 门店层（没有可用同城门店）。
+ * 被过滤掉的方式**不删掉、而是置灰保留**，让用户看得到「有这个方式但当前不可用」，点了给明确原因。
  */
 const deliveryOptions = computed<DeliveryOption[]>(() => {
   const modules = moduleConfig.value
@@ -474,9 +501,11 @@ const deliveryOptions = computed<DeliveryOption[]>(() => {
   if (isModuleEnabled(modules, 'delivery')) options.push({ type: 0, label: '快速配送' })
   if (isModuleEnabled(modules, 'pickup')) options.push({ type: 1, label: '门店自提' })
   if (isModuleEnabled(modules, 'samecity')) options.push({ type: 2, label: '同城配送' })
-  // 商品级配送开关：给被过滤掉的方式挂上原因（页面据此置灰 + 说明 + 拦切换/拦提交）
+  // 给被过滤掉的方式挂上原因（页面据此置灰 + 说明 + 拦切换/拦提交）
   return options.map((option) => {
     const blockedReason = deliveryBlockedReasonFor(option.type)
+      // 同城配送再叠一层门店可用性（没有可用门店时提前置灰，别让用户白选一轮）
+      || (option.type === 2 ? sameCityShopBlockedReason.value : '')
     return blockedReason ? { ...option, blockedReason } : option
   })
 })
