@@ -449,7 +449,9 @@ onMounted(() => {
 .theme-heritage .category-products { z-index: 1; margin-top: 0; padding: 358rpx 23rpx 23rpx; border-radius: 0; background: #fff; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
-.category-products-column { display: flex; width: calc((100% - 15rpx) / 2); flex-direction: column; gap: 46rpx; }
+/* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
+   46rpx 在双列瀑布流里显得两列之间空得慌，也让卡片看起来更"散"） */
+.category-products-column { display: flex; width: calc((100% - 15rpx) / 2); flex-direction: column; gap: 24rpx; }
 .category-product-slot { width: 100%; }
 .category-products-loading { padding: 160rpx 0; color: #86909c; font-size: 28rpx; line-height: 44rpx; text-align: center; }
 /* 非遗页头部整块固定：标题栏 + 品牌条不随商品滚动（与首页一致） */
