@@ -92,14 +92,33 @@ const themeConfig = computed(() => {
     subtitle: l.subtitle || base.subtitle,
     location: l.location ?? base.location,
     templateType: l.templateType || base.templateType,
-    // 国家地标头图是横长图：默认 476；后端对未配置项兜底返回 696（与"真配 696"无法区分），
-    // 故该页取到空或 696 时仍按 476 渲染，保证头图是横长长方形。
+    // headImageHeight 现在**只用于「头图加载完成前的占位高度」**（见下面的 heroStyle），不再写死容器高度：
+    // 写死高度 + aspectFill 会把后台上传的任意比例头图裁掉（2026-09-22 用户反馈「头图被裁减」，已改为 widthFix 完整显示）。
+    // 国家地标那张本地切图是 780×480 的横长图，仍按 476 占位；后端对未配置项兜底返回 696（与"真配 696"无法区分）。
     headImageHeight: (l.landingKey === '国家地标' && (!l.headImageHeight || l.headImageHeight === 696)) ? 476 : (l.headImageHeight || base.headImageHeight),
     backgroundColor: l.backgroundColor ?? base.backgroundColor,
     // 商品分类：优先用落地页配置的分类（后台「分类」字段），未配置才用主题默认。
     categoryNames: (l.categoryNames?.filter(Boolean).length ? l.categoryNames.filter(Boolean) : base.categoryNames),
   }
 })
+
+/** 头图是否已加载完成：加载前用 headImageHeight 占位，加载后让位给图片真实比例 */
+const heroLoaded = ref(false)
+/**
+ * 头图容器样式：**只有**「尚未加载完 + 后端给了 headImageHeight」时才给占位高度。
+ * 图片加载完成后返回空对象 → 容器高度完全由 mode="widthFix" 的图片撑开，既不裁切也不留白。
+ */
+const heroStyle = computed<Record<string, string>>(() => (
+  heroLoaded.value || !themeConfig.value.headImageHeight
+    ? {}
+    : { minHeight: `${themeConfig.value.headImageHeight}rpx` }
+))
+
+/** 头图加载完成：撤掉占位高度（图片自身已按真实比例撑开）。 */
+function onHeroLoad(): void { heroLoaded.value = true }
+
+// 切换落地页主题会换头图 → 重新走一遍「占位 → 按真实比例撑开」
+watch(() => themeConfig.value.hero, () => { heroLoaded.value = false })
 
 const sampleProducts = computed<CategoryProduct[]>(() => {
   const image = themeConfig.value.fallbackImage
@@ -321,8 +340,17 @@ onMounted(() => {
 
 <template>
   <view class="category-page" :class="themeConfig.className" :style="{ backgroundColor: themeConfig.backgroundColor || '' }">
-    <view v-if="themeConfig.templateType !== 'brandGrid'" class="category-hero" :style="{ height: themeConfig.headImageHeight ? `${themeConfig.headImageHeight}rpx` : '' }">
-      <image class="category-hero-image" :src="themeConfig.hero" mode="aspectFill" />
+    <!--
+      头图（2026-09-22 优化：用户反馈「头图被裁减」）
+      原来是「固定高度 + mode="aspectFill"」：容器高度写死（默认 696rpx、国家地标 476rpx，或用后端 headImageHeight），
+      而 aspectFill 的语义是「填满容器、把溢出部分裁掉」→ 只要后台上传的头图比例与容器不一致，
+      就会被上下裁掉一大截（**被裁的是后端配置的 headImage**；本地那两张切图比例刚好匹配，所以看不出问题）。
+      现改为 mode="widthFix"：宽度撑满、高度按原图真实比例自适应，**任何比例的头图都完整显示、绝不裁切**。
+      占位：图片加载完成前用后端给的 headImageHeight 撑住高度，加载后立刻让位给图片真实比例（既不跳动也不留白）。
+      ⚠️ 不要再用 headImageHeight 写死容器高度 —— 那正是裁图的根源。
+    -->
+    <view v-if="themeConfig.templateType !== 'brandGrid'" class="category-hero" :style="heroStyle">
+      <image class="category-hero-image" :src="themeConfig.hero" mode="widthFix" @load="onHeroLoad" />
       <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" :fixed="true" @back="goBack" />
     </view>
 
@@ -412,9 +440,10 @@ onMounted(() => {
 
 <style>
 .category-page { position: relative; min-height: 100vh; overflow: hidden; background: #fff; color: #1d2129; }
-.category-hero { position: relative; width: 100%; height: 696rpx; overflow: hidden; }
-.category-hero-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
-.theme-landmark .category-hero { height: 476rpx; }
+/* 头图容器：高度由图片自己撑开（配合 mode="widthFix"），**不能写死高度**，否则又变成裁图。
+   仅在"图片加载完成前"可能由内联的 headImageHeight 做一次性占位（见 heroStyle）。 */
+.category-hero { position: relative; width: 100%; overflow: hidden; background: #f2f3f5; }
+.category-hero-image { display: block; width: 100%; height: auto; }
 .category-products { position: relative; z-index: 2; margin-top: -24rpx; padding: 16rpx; box-sizing: border-box; border-radius: 24rpx 24rpx 0 0; background: #fae7c9; }
 /* 头部固定（358rpx），商品区顶部让出同等高度；z-index 低于固定头部 */
 .theme-heritage .category-products { z-index: 1; margin-top: 0; padding: 358rpx 23rpx 23rpx; border-radius: 0; background: #fff; }
