@@ -22,6 +22,8 @@ import {
   type MerchantProductVO,
 } from '@/api/merchant'
 import ProductCard from '@/components/merchant/ProductCard.vue'
+// 空状态（设计稿 2026-09-22）：普通空态与「搜索无结果」是**两张不同插画**；插画放本分包 static
+import EmptyState from '@/components/EmptyState.vue'
 
 /** 库存预警阈值（设计稿示例 100；阈值来源待产品/后端确认）。 */
 const LOW_STOCK_THRESHOLD = 100
@@ -33,11 +35,12 @@ const TABS = [
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
-const EMPTY_TEXT: Record<TabKey, string> = {
-  onSale: '暂无在售商品',
-  warning: '暂无库存预警商品',
-  offSale: '仓库中暂无商品',
-}
+/**
+ * 空状态（设计稿 2026-09-22）：
+ * - 普通空态：插画 `products.png` + 「暂无商品」；
+ * - 搜索无结果：插画 `products-search.png` + 「暂无搜索商品」（**两张插画不同**，见下方 emptyImage / emptyText）。
+ * ⚠️ 口径变化：原来按 Tab 分文案（暂无在售商品 / 暂无库存预警商品 / 仓库中暂无商品），设计稿统一为「暂无商品」。
+ */
 
 /** 状态栏高度（自定义导航需避开状态栏）。 */
 const statusBarHeight = ref(0)
@@ -48,6 +51,11 @@ const contentTop = computed(() => statusBarHeight.value + HEADER_TITLE_H + HEADE
 
 const activeTab = ref<TabKey>('onSale')
 const keyword = ref('')
+
+/** 是否处于「搜索无结果」：有关键词时用搜索专用插画与文案（设计稿里那是**另一张插画**）。 */
+const isSearchEmpty = computed(() => Boolean(keyword.value.trim()))
+const emptyImage = computed(() => (isSearchEmpty.value ? '/subpkg-merchant/static/empty/products-search.png' : '/subpkg-merchant/static/empty/products.png'))
+const emptyText = computed(() => (isSearchEmpty.value ? '暂无搜索商品' : '暂无商品'))
 const products = ref<MerchantProductVO[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -375,7 +383,7 @@ function goBack(): void {
     <!-- 列表 -->
     <scroll-view class="list" scroll-y @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
-      <view v-else-if="!renderList.length" class="state">{{ EMPTY_TEXT[activeTab] }}</view>
+      <EmptyState v-else-if="!renderList.length" :image="emptyImage" :text="emptyText" />
       <template v-else>
         <view v-for="product in renderList" :key="product.productId" class="list-card">
           <ProductCard

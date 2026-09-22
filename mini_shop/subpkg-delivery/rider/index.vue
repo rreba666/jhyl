@@ -7,6 +7,8 @@
  * - 手机号明文下发，**UI 星号由前端截**；倒计时以服务端 `remainingSeconds` 为基准
  */
 import { computed, ref } from 'vue'
+// 空状态（设计稿 2026-09-22）：插画 + 文案；插画放本分包 static，避免撑大主包
+import EmptyState from '@/components/EmptyState.vue'
 import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   acceptTask,
@@ -42,14 +44,12 @@ const TABS = [
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
-/** 各 Tab 空态文案（与 UI 设计说明一致）。 */
-const EMPTY_TEXT: Record<TabKey, string> = {
-  new: '暂无新任务',
-  picking: '暂无待取货任务',
-  delivering: '暂无配送中任务',
-  done: '暂无已完成任务',
-  exception: '暂无异常单',
-}
+/**
+ * 空状态（设计稿 2026-09-22「骑手端订单」画板）：插画 + 文案「暂无订单」。
+ * ⚠️ 口径变化：原来按 Tab 分文案（暂无新任务 / 暂无待取货任务 …），设计稿统一为 **「暂无订单」**，故删除原映射。
+ */
+const EMPTY_IMAGE = '/subpkg-delivery/static/empty/orders.png'
+const EMPTY_TEXT = '暂无订单'
 
 /** 状态栏高度（自定义导航需避开状态栏与胶囊）。 */
 const statusBarHeight = ref(0)
@@ -656,7 +656,7 @@ onUnload(() => {
 
     <scroll-view class="list" scroll-y @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
-      <view v-else-if="!tasks.length" class="state">{{ EMPTY_TEXT[activeTab] }}</view>
+      <EmptyState v-else-if="!tasks.length" :image="EMPTY_IMAGE" :text="EMPTY_TEXT" />
       <template v-else>
         <!--
           卡片整体可点进详情：设计稿的「配送中」只有 导航 / 联系客户 / 确认送达 三个按钮，

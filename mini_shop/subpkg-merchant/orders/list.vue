@@ -16,6 +16,8 @@ import {
   type MerchantOrderTab,
 } from '@/api/merchant'
 import OrderCard from '@/components/merchant/OrderCard.vue'
+// 空状态（设计稿 2026-09-22）：普通空态与「搜索无结果」是**两张不同插画**；插画放本分包 static
+import EmptyState from '@/components/EmptyState.vue'
 
 const TABS = [
   { key: 'all', api: 'ALL', label: '全部' },
@@ -27,14 +29,12 @@ const TABS = [
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
-const EMPTY_TEXT: Record<TabKey, string> = {
-  all: '暂无订单',
-  waitAccept: '暂无待接单订单',
-  waitPickup: '暂无待取货订单',
-  delivering: '暂无配送中订单',
-  done: '暂无已完成订单',
-  exception: '暂无异常订单',
-}
+/**
+ * 空状态（设计稿 2026-09-22）：
+ * - 普通空态：插画 `orders.png` + 「暂无订单」；
+ * - 搜索无结果：插画 `orders-search.png` + 「暂无搜索订单」（**两张插画不同**，见下方 emptyImage / emptyText）。
+ * ⚠️ 口径变化：原来按 Tab 分文案（暂无待接单订单 …），设计稿统一为「暂无订单」。
+ */
 
 const statusBarHeight = ref(0)
 /** 页头高度 = 状态栏 + 44px 标题栏 + 54px Tab 栏（px）。 */
@@ -42,6 +42,11 @@ const contentTop = computed(() => statusBarHeight.value + 44 + 54)
 
 const activeTab = ref<TabKey>('all')
 const keyword = ref('')
+
+/** 是否处于「搜索无结果」：有关键词时用搜索专用插画与文案（设计稿里那是**另一张插画**）。 */
+const isSearchEmpty = computed(() => Boolean(keyword.value.trim()))
+const emptyImage = computed(() => (isSearchEmpty.value ? '/subpkg-merchant/static/empty/orders-search.png' : '/subpkg-merchant/static/empty/orders.png'))
+const emptyText = computed(() => (isSearchEmpty.value ? '暂无搜索订单' : '暂无订单'))
 const orders = ref<MerchantOrderCardVO[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -333,7 +338,7 @@ async function runBatchPrepare(): Promise<void> {
     <!-- 列表 -->
     <scroll-view class="list" scroll-y @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
-      <view v-else-if="!orders.length" class="state">{{ EMPTY_TEXT[activeTab] }}</view>
+      <EmptyState v-else-if="!orders.length" :image="emptyImage" :text="emptyText" />
       <template v-else>
         <!--
           卡片间距必须**包一层普通 view**：
