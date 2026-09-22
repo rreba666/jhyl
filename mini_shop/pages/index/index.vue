@@ -27,11 +27,11 @@ const SHARE_CARD_IMAGE = '/static/design-cuts/figma-share/share-card.jpg'
 
 /** 兜底金刚区（后端未配置时使用）。 */
 const defaultCategories: Array<{ label: string; icon: string; background: string; iconOffset: { left: number; top: number } }> = [
-  { label: '营养膳食', icon: '/static/figma-home/category-nutrition.webp', background: '/static/figma-home/category-nutrition-bg.svg', iconOffset: { left: -2, top: 4 } },
-  { label: '风生水起', icon: '/static/figma-home/category-water.webp', background: '/static/figma-home/category-water-bg.svg', iconOffset: { left: -2, top: 6 } },
-  { label: '纸定发财', icon: '/static/figma-home/category-paper.webp', background: '/static/figma-home/category-paper-bg.svg', iconOffset: { left: -1.5, top: 3 } },
-  { label: '非遗老号', icon: '/static/figma-home/category-heritage.webp', background: '/static/figma-home/category-heritage-bg.svg', iconOffset: { left: -1, top: 6 } },
-  { label: '国家地标', icon: '/static/figma-home/category-landmark.webp', background: '/static/figma-home/category-landmark-bg.svg', iconOffset: { left: -1, top: 2 } },
+  { label: '营养膳食', icon: '/static/figma-home/category-nutrition.png', background: '/static/figma-home/category-nutrition-bg.svg', iconOffset: { left: -2, top: 4 } },
+  { label: '风生水起', icon: '/static/figma-home/category-water.png', background: '/static/figma-home/category-water-bg.svg', iconOffset: { left: -2, top: 6 } },
+  { label: '纸定发财', icon: '/static/figma-home/category-paper.png', background: '/static/figma-home/category-paper-bg.svg', iconOffset: { left: -1.5, top: 3 } },
+  { label: '非遗老号', icon: '/static/figma-home/category-heritage.png', background: '/static/figma-home/category-heritage-bg.svg', iconOffset: { left: -1, top: 6 } },
+  { label: '国家地标', icon: '/static/figma-home/category-landmark.png', background: '/static/figma-home/category-landmark-bg.svg', iconOffset: { left: -1, top: 2 } },
 ]
 
 /** 后端返回的金刚区（含跳转）；为空时用默认。 */
@@ -97,7 +97,7 @@ async function loadHomepage(): Promise<void> {
   const data = await getHomepageData()
   // 大图轮播（V2 heroImages，含点击跳转）；为空回退默认图
   const hero = (data.heroImages || []).filter((item) => Boolean(item.url))
-  heroImages.value = hero.length ? hero : [{ url: '/static/figma-home/hero-banner.webp', linkType: 'page', linkValue: '' }]
+  heroImages.value = hero.length ? hero : [{ url: '/static/figma-home/hero-banner.jpg', linkType: 'page', linkValue: '' }]
   // 金刚区（V2 kingkong）；为空时用默认（categories 兜底）
   kingkongItems.value = data.kingkong || []
   // 福利区（V2 welfare）
@@ -284,7 +284,7 @@ onShow(() => {
   <view class="home-page">
     <view class="top-shell" :class="{ scrolled: navScrolled }" :style="navStyle">
       <view class="brand-row">
-        <image class="brand-logo" src="/static/figma-home/brand-logo.webp" mode="aspectFit" />
+        <image class="brand-logo" src="/static/figma-home/brand-logo.png" mode="aspectFit" />
       </view>
       <view class="search-row">
         <view class="search-pill" @click="goSearch">
@@ -309,7 +309,7 @@ onShow(() => {
         </swiper-item>
       </swiper>
       <view class="hero-caption">
-        <image class="hero-caption-logo" src="/static/figma-home/hero-caption-logo.webp" mode="aspectFit" />
+        <image class="hero-caption-logo" src="/static/figma-home/hero-caption-logo.png" mode="aspectFit" />
         <text>为美好生活而来，精选好物，让安心品质走进每个家</text>
       </view>
     </view>
@@ -322,7 +322,7 @@ onShow(() => {
 
     <view class="product-section">
       <view class="product-toolbar">
-        <image class="section-logo" src="/static/figma-home/section-logo.webp" mode="aspectFit" />
+        <image class="section-logo" src="/static/figma-home/section-logo.png" mode="aspectFit" />
         <HomeLayoutToggle v-model="layoutMode" />
       </view>
 

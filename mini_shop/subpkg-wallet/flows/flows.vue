@@ -173,7 +173,7 @@ onShow(() => {
 <template>
   <view class="page">
     <view class="nav" :style="navStyle">
-      <image class="back-button" src="/static/left_arrow.webp" mode="aspectFit" @click="goBack" />
+      <image class="back-button" src="/static/left_arrow.png" mode="aspectFit" @click="goBack" />
       <text class="nav-title">资金明细</text>
       <view class="nav-spacer" />
     </view>

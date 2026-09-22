@@ -157,9 +157,9 @@ onShow(() => { loading.value = true; void refreshList() })
             <view class="ifoot">
               <view v-if="!editMode" class="stp">
                 <text class="qty-label">数量：</text>
-                <view class="stp-b" @click="it.quantity <= 1 ? onRemove(it.cartId) : onChangeQty(it, -1)"><image class="stp-i" :src="it.quantity <= 1 ? '/static/cart/del.webp' : '/static/cart/del_no.webp'" mode="aspectFit" /></view>
+                <view class="stp-b" @click="it.quantity <= 1 ? onRemove(it.cartId) : onChangeQty(it, -1)"><image class="stp-i" :src="it.quantity <= 1 ? '/static/cart/del.png' : '/static/cart/del_no.png'" mode="aspectFit" /></view>
                 <view class="stp-n"><text class="stp-nt">{{ it.quantity }}</text></view>
-                <view class="stp-b" @click="onChangeQty(it, 1)"><image class="stp-i" src="/static/cart/add.webp" mode="aspectFit" /></view>
+                <view class="stp-b" @click="onChangeQty(it, 1)"><image class="stp-i" src="/static/cart/add.png" mode="aspectFit" /></view>
               </view>
               <view v-else />
               <!-- 价格: view包text，和 category c-pri 一致 -->
@@ -183,7 +183,7 @@ onShow(() => { loading.value = true; void refreshList() })
         <template v-else>
           <view class="checkout-b" :class="{ off: !checkedCount }" @click="goPayment">
             <text class="checkout-label">结算（{{ checkedCount }}）</text>
-            <view class="checkout-right"><text class="checkout-price">¥{{ checkedTotal }}</text><image class="checkout-arrow" src="/static/cart/right.webp" mode="aspectFit" /></view>
+            <view class="checkout-right"><text class="checkout-price">¥{{ checkedTotal }}</text><image class="checkout-arrow" src="/static/cart/right.png" mode="aspectFit" /></view>
           </view>
         </template>
       </view>

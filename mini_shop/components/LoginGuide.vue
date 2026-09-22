@@ -33,7 +33,7 @@ function goLogin(): void {
   <view v-if="modelValue" class="login-guide-mask" @click="close">
     <view class="login-guide-dialog" @click.stop>
       <view class="login-guide-close" @click="close"><text class="login-guide-close-icon">×</text></view>
-      <image class="login-guide-logo" src="/static/logo.webp" mode="aspectFit" />
+      <image class="login-guide-logo" src="/static/logo.png" mode="aspectFit" />
       <text class="login-guide-title">登录后即可体验完整功能</text>
       <text class="login-guide-description">登录后即可使用推广、提现、订单管理等完整功能</text>
       <view class="login-guide-actions">

@@ -99,7 +99,7 @@ function goBankCards(): void {
 <template>
   <view class="page">
     <view class="nav" :style="{ top: menuTop + 'px' }">
-      <image class="back" src="/static/left_arrow.webp" mode="aspectFit" @click="uni.navigateBack()" />
+      <image class="back" src="/static/left_arrow.png" mode="aspectFit" @click="uni.navigateBack()" />
       <text class="nav-title">设置</text>
     </view>
 

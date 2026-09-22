@@ -33,9 +33,9 @@ interface PosterCanvasNode {
  *    并删除了旧的 `static/bg/promotion-code-poster.webp`（15KB，旧的纯色/装饰底）。
  */
 const PROMOTION_BACKGROUND_PATHS = [
-  '../static/design-cuts/figma-share/poster-portrait-background.webp',
-  '../../static/design-cuts/figma-share/poster-portrait-background.webp',
-  '/static/design-cuts/figma-share/poster-portrait-background.webp',
+  '../static/design-cuts/figma-share/poster-portrait-background.jpg',
+  '../../static/design-cuts/figma-share/poster-portrait-background.jpg',
+  '/static/design-cuts/figma-share/poster-portrait-background.jpg',
 ] as const
 
 /**
@@ -49,7 +49,7 @@ const POSTER_HEIGHT = 1600
 /**
  * 二维码落位（画布坐标，单位 = 背景切图原始像素），与 `HomeSharePoster.vue` 严格一致。
  *
- * 量测依据（2026-09-22，对 `static/design-cuts/figma-share/poster-portrait-background.webp` 实测）：
+ * 量测依据（2026-09-22，对 `static/design-cuts/figma-share/poster-portrait-background.jpg` 实测）：
  * 新背景底部是米色底 + **纯白圆形占位**（无内嵌二维码），用严格阈值（R/G/B 均 > 250）逐像素扫描
  * 并取最大连通域，得占位 bbox = **(377,1213)-(631,1466)**，即 255×254 的正圆
  * （连通域填充率 0.788 ≈ π/4，圆心 (504.5,1340)）。
@@ -325,7 +325,7 @@ async function shareToFriend(): Promise<void> {
   <view v-show="modelValue" class="promotion-code-mask" :style="maskStyle" @click="close">
     <view class="promotion-code-dialog" @click.stop>
       <view class="promotion-code-sheet">
-        <image class="promotion-code-bg" src="/static/design-cuts/figma-share/poster-portrait-background.webp" mode="aspectFit" />
+        <image class="promotion-code-bg" src="/static/design-cuts/figma-share/poster-portrait-background.jpg" mode="aspectFit" />
         <text class="promotion-code-close" @click="close">×</text>
         <view v-show="loading" class="promotion-code-loading">推广码生成中...</view>
         <image v-show="!loading && codeUrl" class="promotion-code-image" :src="codeUrl" mode="aspectFit" />

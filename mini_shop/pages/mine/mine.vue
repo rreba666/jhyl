@@ -72,11 +72,11 @@ const activeAnnouncement = ref<Announcement | null>(null)
 
 // 仅映射设计稿中已有的本地切图，缺失资源的条目由模板保留占位块。
 const orderEntries = [
-  { key: 'pending', label: '待付款', icon: '/static/my/待付款_slices/待付款.webp' },
-  { key: 'shipped', label: '待发货', icon: '/static/my/待发货_slices/待发货.webp' },
-  { key: 'received', label: '待收货', icon: '/static/my/待收货_slices/待收货.webp' },
-  { key: 'pickup', label: '待自提', icon: '/static/my/待自提_slices/待自提.webp' },
-  { key: 'completed', label: '退款/售后', icon: '/static/my/售后_slices/售后.webp' },
+  { key: 'pending', label: '待付款', icon: '/static/my/待付款_slices/待付款.png' },
+  { key: 'shipped', label: '待发货', icon: '/static/my/待发货_slices/待发货.jpg' },
+  { key: 'received', label: '待收货', icon: '/static/my/待收货_slices/待收货.jpg' },
+  { key: 'pickup', label: '待自提', icon: '/static/my/待自提_slices/待自提.jpg' },
+  { key: 'completed', label: '退款/售后', icon: '/static/my/售后_slices/售后.jpg' },
 ]
 
 /** 订单入口可见性按模块开关过滤：待发货/待收货→delivery，待自提→pickup，退款/售后→aftersale，待付款→basic 恒开。 */
@@ -93,14 +93,14 @@ const visibleOrderEntries = computed(() => {
 })
 
 const menuItems = [
-  { key: 'invoice', label: '发票记录', icon: '/static/my/发票.webp' },
-  { key: 'settings', label: '设置', icon: '/static/my/设置_slices/设置.webp' },
-  { key: 'service', label: '客服', icon: '/static/my/客服_slices/客服.webp' },
-  { key: 'favorite', label: '我的收藏', icon: '/static/my/收藏_slices/收藏.webp' },
-  { key: 'materials', label: '商品素材', icon: '/static/my/商品素材_slices/商品素材.webp' },
-  { key: 'merchant-apply', label: '商家入驻', icon: '/static/my/商品素材_slices/商品素材.webp' },
-  { key: 'agreement', label: '用户协议', icon: '/static/my/隐私_slices/隐私.webp' },
-  { key: 'privacy', label: '隐私保护指引', icon: '/static/my/隐私_slices/隐私.webp' },
+  { key: 'invoice', label: '发票记录', icon: '/static/my/发票.png' },
+  { key: 'settings', label: '设置', icon: '/static/my/设置_slices/设置.png' },
+  { key: 'service', label: '客服', icon: '/static/my/客服_slices/客服.png' },
+  { key: 'favorite', label: '我的收藏', icon: '/static/my/收藏_slices/收藏.png' },
+  { key: 'materials', label: '商品素材', icon: '/static/my/商品素材_slices/商品素材.png' },
+  { key: 'merchant-apply', label: '商家入驻', icon: '/static/my/商品素材_slices/商品素材.png' },
+  { key: 'agreement', label: '用户协议', icon: '/static/my/隐私_slices/隐私.png' },
+  { key: 'privacy', label: '隐私保护指引', icon: '/static/my/隐私_slices/隐私.png' },
 ]
 
 /** 功能菜单可见性按模块开关过滤：发票记录→invoice，其余条目不受模块控制（basic/通用）。客服项单独渲染（微信原生客服）。 */
@@ -724,21 +724,21 @@ onShow(() => { void refreshData() })
   <view class="pg">
     <scroll-view class="bd" scroll-y>
       <view class="hero" :style="{ paddingTop: bodyTop + 'px' }">
-        <image class="hero-bg" src="/static/bg/个人bg.webp" mode="aspectFill" />
+        <image class="hero-bg" src="/static/bg/个人bg.jpg" mode="aspectFill" />
         <view class="profile-row">
           <view class="u-avatar" @click="handleProfileTap">
             <image v-if="user?.avatarUrl" class="u-avatar-image" :src="user.avatarUrl" mode="aspectFill" />
           </view>
           <view class="u-info" @click="handleProfileTap">
             <text class="u-name">{{ user?.nickname || '我的姓名微信名' }}</text>
-            <image v-if="registeredUser" class="vip-avatar-badge" src="/static/my/vip 头像_slices/vip 头像.webp" mode="aspectFit" />
+            <image v-if="registeredUser" class="vip-avatar-badge" src="/static/my/vip 头像_slices/vip 头像.png" mode="aspectFit" />
             <text v-if="user" class="u-id">ID: {{ user.id }}</text>
           </view>
-          <image v-if="isModuleEnabled(moduleConfig, 'promotion')" class="qr-mark" src="/static/my/QRcode.webp" mode="aspectFit" @click="openPromotionCode" />
+          <image v-if="isModuleEnabled(moduleConfig, 'promotion')" class="qr-mark" src="/static/my/QRcode.png" mode="aspectFit" @click="openPromotionCode" />
         </view>
 
         <view class="member-card" :class="{ 'member-card-guest': !registeredUser }">
-          <image v-if="registeredUser" class="member-card-background" src="/static/my/vip会员背景_slices/vip会员背景.webp" mode="scaleToFill" />
+          <image v-if="registeredUser" class="member-card-background" src="/static/my/vip会员背景_slices/vip会员背景.png" mode="scaleToFill" />
           <view v-else class="member-mark" />
           <text :class="['member-label', { 'member-label-registered': registeredUser }]">{{ registeredUser ? '您已是vip会员用户啦' : '游客' }}</text>
           <view v-if="!registeredUser" class="member-end" />
@@ -781,7 +781,7 @@ onShow(() => { void refreshData() })
       <view class="order-section">
         <view class="order-head">
           <text class="order-title">我的订单</text>
-          <view class="order-all" @click="goAllOrders"><text>全部</text><image class="all-arrow" src="/static/my/右_slices/右.webp" mode="aspectFit" /></view>
+          <view class="order-all" @click="goAllOrders"><text>全部</text><image class="all-arrow" src="/static/my/右_slices/右.png" mode="aspectFit" /></view>
         </view>
         <view class="order-grid">
           <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
@@ -808,7 +808,7 @@ onShow(() => { void refreshData() })
         <view class="menu-list">
           <!-- 客服：微信原生客服（open-type=contact），点击弹起客服会话 -->
           <button class="menu-item menu-item-btn" open-type="contact">
-            <image class="menu-icon menu-icon-image" src="/static/my/客服_slices/客服.webp" mode="aspectFit" />
+            <image class="menu-icon menu-icon-image" src="/static/my/客服_slices/客服.png" mode="aspectFit" />
             <text class="menu-label">客服</text>
           </button>
           <view v-for="item in visibleMenuItems" :key="item.key" class="menu-item" @click="goMenu(item.key)">
@@ -854,7 +854,7 @@ onShow(() => { void refreshData() })
     <!-- 平台红包弹窗 -->
     <view v-show="redPacketVisible" class="mask redpacket-mask" :class="{ 'redpacket-mask-in': redPacketMotionVisible }" @click="closeRedPacket">
       <view class="redpacket-sheet" :class="{ 'redpacket-sheet-in': redPacketMotionVisible, 'redpacket-sheet-action-pressed': redPacketActionPressed }" @click.stop>
-        <image class="redpacket-bg" src="/static/my/红包_slices/编组.webp" mode="aspectFit" />
+        <image class="redpacket-bg" src="/static/my/红包_slices/编组.png" mode="aspectFit" />
         <text class="redpacket-amount">{{ formatRedPacketAmount(redPacketAnimatedAmount) }}</text>
         <view class="redpacket-action" :class="{ 'redpacket-button-pulse': redPacketMotionVisible, 'redpacket-button-pressed': redPacketActionPressed }" @click="handleRedPacketAction" />
       </view>

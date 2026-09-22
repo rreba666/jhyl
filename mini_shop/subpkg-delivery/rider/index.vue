@@ -248,7 +248,7 @@ function mapMarkers(task: RiderTask): Array<Record<string, unknown>> {
       id: 1,
       latitude: Number(task.pickupLat),
       longitude: Number(task.pickupLng),
-      iconPath: '/static/rider/map-marker-shop.webp',
+      iconPath: '/static/rider/map-marker-shop.png',
       width: 24,
       height: 26,
       callout: {
@@ -267,7 +267,7 @@ function mapMarkers(task: RiderTask): Array<Record<string, unknown>> {
       id: 2,
       latitude: Number(task.deliveryLat),
       longitude: Number(task.deliveryLng),
-      iconPath: '/static/rider/map-marker-dest.webp',
+      iconPath: '/static/rider/map-marker-dest.png',
       width: 24,
       height: 26,
       callout: {
@@ -286,7 +286,7 @@ function mapMarkers(task: RiderTask): Array<Record<string, unknown>> {
       id: 3,
       latitude: riderPoint.value.latitude,
       longitude: riderPoint.value.longitude,
-      iconPath: '/static/rider/rider-on-bike.webp',
+      iconPath: '/static/rider/rider-on-bike.png',
       width: 32,
       height: 32,
     })
@@ -636,7 +636,7 @@ onUnload(() => {
         <text class="nav-back" @click="goBack">‹</text>
         <!-- 门店 logo + 门店名（设计稿 Frame 38：32px 圆底 + 20px logo + 白色店名） -->
         <view class="shop-row">
-          <image class="shop-logo" src="/static/logo.webp" mode="aspectFit" />
+          <image class="shop-logo" src="/static/logo.png" mode="aspectFit" />
           <text class="shop-name">{{ shopName || '骑手工作台' }}</text>
         </view>
       </view>
@@ -703,7 +703,7 @@ onUnload(() => {
                 <view class="distance-text">
                   <text class="distance-num">取货</text>
                 </view>
-                <image class="distance-rider" src="/static/rider/rider-badge.webp" mode="aspectFit" />
+                <image class="distance-rider" src="/static/rider/rider-badge.png" mode="aspectFit" />
                 <view class="distance-text">
                   <text class="distance-num">{{ distanceNum(task) }}</text>
                   <text class="distance-unit">{{ distanceUnit(task) }}</text>

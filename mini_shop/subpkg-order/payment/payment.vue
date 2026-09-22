@@ -1367,7 +1367,7 @@ function backToCart(): void {
 <template>
     <view class="pg">
       <view class="nav" :style="navStyle">
-        <image class="brand-mark back-button" src="/static/left_arrow.webp" mode="aspectFit" @click="backToCart" />
+        <image class="brand-mark back-button" src="/static/left_arrow.png" mode="aspectFit" @click="backToCart" />
         <text class="nav-title">确认订单</text>
       </view>
 

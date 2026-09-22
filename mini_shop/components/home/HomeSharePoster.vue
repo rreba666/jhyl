@@ -24,8 +24,8 @@ interface PosterCanvasNode {
   requestAnimationFrame?(callback: () => void): void
 }
 
-const POSTER_BACKGROUND = '/static/design-cuts/figma-share/poster-portrait-background.webp'
-const POSTER_QR_FALLBACK = '/static/design-cuts/figma-share/poster-qr-placeholder.webp'
+const POSTER_BACKGROUND = '/static/design-cuts/figma-share/poster-portrait-background.jpg'
+const POSTER_QR_FALLBACK = '/static/design-cuts/figma-share/poster-qr-placeholder.jpg'
 const POSTER_CLOSE_ICON = '/static/design-cuts/figma-share/poster-close.svg'
 const POSTER_WIDTH = 1000
 const POSTER_HEIGHT = 1600

@@ -73,7 +73,7 @@ onMounted(() => {
 
 <template>
   <view class="page">
-    <view class="nav" :style="navStyle"><image class="back" src="/static/left_arrow.webp" mode="aspectFit" @click="uni.navigateBack()" /><text class="title">发票记录</text></view>
+    <view class="nav" :style="navStyle"><image class="back" src="/static/left_arrow.png" mode="aspectFit" @click="uni.navigateBack()" /><text class="title">发票记录</text></view>
     <!-- invoice 模块停用：拦截发票（深链防护） -->
     <view v-if="!invoiceEnabled" class="module-blocked">
       <text class="module-blocked-title">发票功能未开通</text>
