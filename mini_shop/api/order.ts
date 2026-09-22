@@ -263,7 +263,11 @@ export function refundOrder(orderId: number | string, reason?: string): Promise<
  *
  * ⚠️ 前端**只在「支付后 30 分钟内」显示秒退入口**（见 `utils/refund-window.ts` 的 `canFastRefund`）——
  * 这是产品规则；接口本身的窗口以后端为准（若后端拒绝，提示用户改走「申请退款」）。
+ *
+ * @param orderId 订单 ID
+ * @param requestId 可选幂等键：会作为请求头 `X-Request-Id` 上送（见 `utils/request-id.ts`）。
+ *   **同一笔秒退动作的失败重试 / 连点必须复用同一个值**，否则后端「接口调用计数」会重复计数；不传则无幂等。
  */
-export function fastRefundOrder(orderId: number | string): Promise<void> {
-  return request<void>({ url: `/api/order/refund/fast/${orderId}`, method: 'POST', data: {} })
+export function fastRefundOrder(orderId: number | string, requestId?: string): Promise<void> {
+  return request<void>({ url: `/api/order/refund/fast/${orderId}`, method: 'POST', data: {}, requestId })
 }

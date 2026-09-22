@@ -11,6 +11,8 @@ import {
   runLedgerReconcile,
 } from '@/api/ledger'
 import { buildCategoryLabelMap } from '@/utils/ledgerLabels'
+// 幂等键生成（请求头 X-Request-Id，见 api/request.ts 的拦截器）
+import { createRequestId } from '@/utils/requestId'
 import type {
   LedgerCategoryOption,
   LedgerOption,
@@ -208,6 +210,18 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   /**
+   * 「手动对账」动作的幂等键（请求头 `X-Request-Id`，空串 = 当前没有待重试的对账动作）。
+   *
+   * 语义（**这是本变量存在的唯一理由**）：对账接口幂等但不防重，**失败后重试必须复用同一个 id** ——
+   * 带上同一个 `X-Request-Id` 后，后端「接口调用计数」把这次重试视为同一次调用（只计数一次），
+   * 不会因为一次网络抖动就重复计数 / 重复落留痕。因此这里的写法是：
+   *   - 发起前：没有 pending 才 `createRequestId()`，有 pending 就沿用 → 连点/重试天然共用一个 id；
+   *   - **成功后清空**（下一次对账是新动作，应重新生成）；
+   *   - **用户主动重置时也清空**（见 `resetFilters`：视为放弃本次动作）。
+   */
+  let pendingReconcileRequestId = ''
+
+  /**
    * 手动触发一次对账（⚠️ 幂等但不防重：这里用 reconciling 做防连点）。
    * 返回结构化结果（`structured=false` 表示后端降级成纯文本，原文在 `note`）。
    */
@@ -215,7 +229,12 @@ export const useLedgerStore = defineStore('ledger', () => {
     if (reconciling.value) return null
     reconciling.value = true
     try {
-      return await runLedgerReconcile()
+      // 失败重试复用同一个幂等键：已有 pending 则沿用，没有才新生成
+      if (!pendingReconcileRequestId) pendingReconcileRequestId = createRequestId()
+      const result = await runLedgerReconcile(pendingReconcileRequestId)
+      // 成功：本次动作结束 → 清空幂等键，下一次对账重新生成
+      pendingReconcileRequestId = ''
+      return result
     } finally {
       reconciling.value = false
     }
@@ -225,6 +244,8 @@ export const useLedgerStore = defineStore('ledger', () => {
   function resetFilters(): void {
     Object.assign(filters, createEmptyFilters())
     page.value = 1
+    // 用户主动重置：视为放弃本次对账动作 → 一并清空 pending 幂等键（下次对账重新生成）
+    pendingReconcileRequestId = ''
   }
 
   return {

@@ -40,10 +40,13 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/dashboard', '/merchant', '/homepage', '/homepage/bottom-recommendation', '/announcement',
     '/users', '/products', '/categories', '/brands', '/delivery', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/profit', '/wallets', '/transfers',
-    '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/admins', '/merchants', '/settings',
+    '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
+    // ⚠️ 不含 '/logs/apicount'：接口调用计数是**平台级经营数据**（全平台接口结构 + 任意商户 shopId 的调用量 + 调用明细），
+    //    且后端该模块**尚未声明权限点**（`auth/me` 的 permissions 里没有对应项）→ 前端先按**仅超管**处理，
+    //    待后端明确「仅超管/含客服财务」后再放开（见 docs/logs/2026-09/2026-09-22-接口调用计数apicount评估.md 第五节）。
     '/dashboard', '/merchant', '/products', '/shops', '/staff', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/logs/verify', '/logs/audit', '/shop-console', '/shop-delivery',
   ],
@@ -86,6 +89,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/logs/verify': '核销日志',
   '/logs/audit': '操作追溯',
   '/logs/ledger': '留痕台账',
+  '/logs/apicount': '接口调用计数',
   '/settings': '业务设置',
 }
 

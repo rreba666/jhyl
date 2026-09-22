@@ -7,6 +7,8 @@ import { canFastRefund } from '@/utils/refund-window'
 import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
+// 幂等键生成（请求头 X-Request-Id）：同一笔秒退动作的连点/重试复用同一个值，见 utils/request-id.ts
+import { createRequestId } from '@/utils/request-id'
 import { isLoggedIn } from '@/utils/auth'
 import LoginGuide from '@/components/LoginGuide.vue'
 
@@ -42,6 +44,16 @@ const empty = computed(() => loaded.value && !loading.value && !(isAfterSaleTab.
 const loginGuideVisible = ref(false)
 /** 请求竞态 token，快速切换 tab 时丢弃过期响应。 */
 let requestToken = 0
+
+/**
+ * 秒退动作的幂等键缓存（页面级，key = 订单 ID，value = 该笔秒退动作的 requestId）。
+ *
+ * 语义：**同一次退款动作（连点 / 失败后重试）复用同一个 `X-Request-Id`** ——
+ * 后端「接口调用计数」以该请求头为幂等键，复用它才不会把重试算成多次调用；
+ * **成功后删除**该订单的键（下一次退款是新的动作，要生成新的 id）。
+ * 用普通对象（非 ref）：它只参与请求，不参与渲染，不需要响应式。
+ */
+const fastRefundRequestIds: Record<string, string> = {}
 
 /** 微信胶囊按钮位置，用于自定义导航栏精确定位。 */
 const menuTop = ref(0)
@@ -275,8 +287,14 @@ async function refundFast(order: OrderSummary): Promise<void> {
     })
   })
   if (!confirmed) { actionLoading.value = null; return }
+  const requestKey = String(order.id)
+  // 同一笔秒退动作复用同一个幂等键：已有则沿用（重试 / 连点），没有才新生成
+  if (!fastRefundRequestIds[requestKey]) fastRefundRequestIds[requestKey] = createRequestId()
+  const requestId = fastRefundRequestIds[requestKey]
   try {
-    await fastRefundOrder(order.id)
+    await fastRefundOrder(order.id, requestId)
+    // 成功后清空该订单的幂等键：本次动作已结束，下次退款重新生成
+    delete fastRefundRequestIds[requestKey]
     uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
     // 与人工退款保持一致：跳到「退款售后」分类，让用户看到进度
     activeIndex.value = AFTER_SALE_TAB_INDEX

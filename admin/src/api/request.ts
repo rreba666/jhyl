@@ -4,6 +4,12 @@ import { sanitizeBonusText } from '@/utils/textSafe'
 declare module 'axios' {
   interface AxiosRequestConfig {
     skipAuthRedirect?: boolean
+    /**
+     * 可选的请求幂等键：传入时会作为请求头 `X-Request-Id` 发给后端。
+     * 后端「接口调用计数」（fengling-apicount）以该头为幂等键 —— 同一个 id 重复提交只计一次调用。
+     * **不传则不发这个头**（= 无幂等，保持历史行为），值的生成与复用见 `@/utils/requestId`。
+     */
+    requestId?: string
   }
 }
 
@@ -37,6 +43,8 @@ export const request = axios.create({
 request.interceptors.request.use((config) => {
   const token = localStorage.getItem('admin_token')
   if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`
+  // 幂等键：**调用方显式传入 `requestId` 时才发送** `X-Request-Id`（不传 = 无幂等，不自动生成）
+  if (config.requestId) config.headers['X-Request-Id'] = config.requestId
   return config
 })
 

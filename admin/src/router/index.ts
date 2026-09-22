@@ -194,6 +194,14 @@ const router = createRouter({
           meta: { title: '留痕台账', permission: ['audit:read'], roles: rolesForPath('/logs/ledger'), requiresAuth: true },
         },
         {
+          // 接口调用计数（后端积木 apicount）：平台级数据（全平台接口结构 + 任意商户 shopId + 调用明细）
+          // → 前端先按**仅超管**处理；后端该模块尚未声明权限点（auth/me 里没有对应项），口径确认后再调整
+          path: 'logs/apicount',
+          name: 'ApiCallCount',
+          component: () => import('@/views/logs/apicount.vue'),
+          meta: { title: '接口调用计数', permission: ['audit:read'], roles: rolesForPath('/logs/apicount'), requiresAuth: true },
+        },
+        {
           path: 'settings',
           name: 'Settings',
           component: () => import('@/views/settings/index.vue'),

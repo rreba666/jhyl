@@ -9,6 +9,8 @@ import { getAfterSaleList } from '@/api/after-sale'
 import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
 import { isApiRequestError, resolveImageUrl } from '@/utils/request'
+// 幂等键生成（请求头 X-Request-Id）：同一笔秒退动作的连点/重试复用同一个值，见 utils/request-id.ts
+import { createRequestId } from '@/utils/request-id'
 import { cleanDigits, cleanText, validateMobile, validateText } from '@/utils/input-validation'
 import LoginGuide from '@/components/LoginGuide.vue'
 // @ts-ignore uqrcode 为 UMD 单文件库（随分包 subpkg-order 打包，避免主包出现未使用的 JS 文件）
@@ -36,6 +38,15 @@ let pickupStatusInFlight = false
 const pickupShop = ref<EnabledShop | null>(null)
 /** 当前订单是否有「处理中」的售后单（用于把退款按钮换成「售后中」）。 */
 const processingAfterSale = ref(false)
+
+/**
+ * 秒退动作的幂等键（页面级，空串 = 当前没有进行中的秒退动作）。
+ *
+ * 语义：**同一次退款动作（连点 / 失败后重试）复用同一个 `X-Request-Id`** ——
+ * 后端「接口调用计数」以该请求头为幂等键，复用它才不会把重试算成多次调用；
+ * **成功后清空**（下一次退款是新的动作，要生成新的 id）。用普通变量（非 ref）：只参与请求、不参与渲染。
+ */
+let fastRefundRequestId = ''
 
 /** 地址修改申请表单，内容按当前用户和订单自动缓存。 */
 interface AddressChangeForm {
@@ -573,7 +584,11 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'refund-fast' | 'c
     }
     // 秒退：支付后 30 分钟内免人工审核、立即原路退款（窗口判断见 utils/refund-window.ts 的 canFastRefund）
     if (type === 'refund-fast') {
-      await fastRefundOrder(order.value.id)
+      // 同一笔秒退动作复用同一个幂等键：已有则沿用（失败重试 / 连点），没有才新生成
+      if (!fastRefundRequestId) fastRefundRequestId = createRequestId()
+      await fastRefundOrder(order.value.id, fastRefundRequestId)
+      // 成功后清空幂等键：本次动作已结束，下次退款重新生成
+      fastRefundRequestId = ''
       uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
       // 与人工退款一致：跳到「退款售后」分类看进度
       uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })

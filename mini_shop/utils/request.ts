@@ -43,6 +43,18 @@ interface ApiResponse<T> {
   data?: T
 }
 
+/**
+ * 请求入参：uni-app 原生请求参数 + 一个**可选**的幂等键 `requestId`。
+ *
+ * - 传了：请求层会把它写成请求头 `X-Request-Id` → 后端「接口调用计数」（fengling-apicount）
+ *   以该头为幂等键，同一 id 重复提交只计一次；
+ * - **没传：绝对不发这个头**（= 无幂等，保持历史行为）——请求层**不会自动生成**，
+ *   以免把"本来没有幂等语义"的读接口也带上幂等键。
+ *
+ * 值的生成与复用规则见 `utils/request-id.ts`：同一次业务动作（防连点 + 失败重试）复用同一个值。
+ */
+export type RequestOptions = UniApp.RequestOptions & { requestId?: string }
+
 /** 清理失效会话，但不改变当前页面路由；是否引导登录由具体业务页面决定。 */
 function handleUnauthorized(statusCode: number, businessCode?: number): void {
   if (statusCode !== 401 && Number(businessCode) !== 401) return
@@ -72,7 +84,7 @@ function removeAuthorizationHeader(header: UniApp.RequestOptions['header']): Uni
 }
 
 /** 公开浏览请求遇到旧 Token 401 时，清理会话并以游客身份重试一次。 */
-function retryWithoutAuthorization<T>(options: UniApp.RequestOptions, resolve: (value: T) => void, reject: (reason?: unknown) => void): void {
+function retryWithoutAuthorization<T>(options: RequestOptions, resolve: (value: T) => void, reject: (reason?: unknown) => void): void {
   clearAuth()
   requestInternal<T>({ ...options, header: removeAuthorizationHeader(options.header) }, false).then(resolve, reject)
 }
@@ -92,13 +104,15 @@ function omitUndefinedData(data: UniApp.RequestOptions['data']): UniApp.RequestO
 }
 
 /** 发起 uni-app 网络请求，统一处理鉴权头和后端错误。 */
-function requestInternal<T = unknown>(options: UniApp.RequestOptions, allowPublicRetry: boolean): Promise<T> {
+function requestInternal<T = unknown>(options: RequestOptions, allowPublicRetry: boolean): Promise<T> {
   return new Promise((resolve, reject) => {
     if (!API_BASE_URL) {
       reject(new ApiRequestError('未配置 VITE_API_BASE_URL，请检查 mini_shop 工程目录环境文件'))
       return
     }
 
+    // 拆出请求层扩展字段：`requestId` 不是 uni-app 原生入参，不能透传给 `uni.request`（其余字段原样下发）
+    const { requestId, ...uniOptions } = options
     const token = uni.getStorageSync('mini_shop_token')
     const header: Record<string, string> = { ...(options.header || {}) }
 
@@ -110,9 +124,13 @@ function requestInternal<T = unknown>(options: UniApp.RequestOptions, allowPubli
     if (token) {
       header.Authorization = `Bearer ${token}`
     }
+    // 幂等键：**调用方显式传入才发送**；未传则一个字节都不发（不自动生成，保持"不传=无幂等"的语义）
+    if (requestId) {
+      header['X-Request-Id'] = requestId
+    }
 
     uni.request({
-      ...options,
+      ...uniOptions,
       // 丢弃 undefined 参数，避免被拼成字面量 `undefined` 发给后端（见 omitUndefinedData 注释）
       data: omitUndefinedData(options.data),
       url: `${API_BASE_URL}${options.url}`,
@@ -155,8 +173,12 @@ function requestInternal<T = unknown>(options: UniApp.RequestOptions, allowPubli
   })
 }
 
-/** 对外请求入口。公开浏览接口只有在旧 Token 失效时才会无 Token 重试一次。 */
-export function request<T = unknown>(options: UniApp.RequestOptions): Promise<T> {
+/**
+ * 对外请求入口。公开浏览接口只有在旧 Token 失效时才会无 Token 重试一次。
+ * `options.requestId` 为可选的幂等键（请求头 `X-Request-Id`，见 `utils/request-id.ts`）：
+ * 游客重试会**沿用同一个 id**（同一次业务动作的重试本就应该幂等）。
+ */
+export function request<T = unknown>(options: RequestOptions): Promise<T> {
   return requestInternal<T>(options, true)
 }
 

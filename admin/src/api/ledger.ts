@@ -291,9 +291,17 @@ function normalizeReconcileResult(value: unknown): LedgerReconcileResult {
  * 返回结构化结果（`since` / `invariantsChecked` / `inconsistencies` / `hits` / `note`），
  * 后端降级成纯文本时 `structured=false` 且原文在 `note`（见 `normalizeReconcileResult`）。
  * ⚠️ 幂等但**不防重**：连点两次会把同一批不一致落两条异常留痕 → 调用方必须防连点 + 二次确认。
+ *
+ * @param requestId 可选幂等键：传入时会作为请求头 `X-Request-Id` 上送（见 `api/request.ts` 与 `@/utils/requestId`），
+ *   后端「接口调用计数」以该头去重 —— **失败后重试必须复用同一个值**，否则重试会被重复计数；不传则无幂等。
  */
-export async function runLedgerReconcile(): Promise<LedgerReconcileResult> {
-  const response = await request.post<LedgerResponse<unknown>>('/api/admin/ledger/reconcile')
+export async function runLedgerReconcile(requestId?: string): Promise<LedgerReconcileResult> {
+  const response = await request.post<LedgerResponse<unknown>>(
+    '/api/admin/ledger/reconcile',
+    undefined,
+    // 只有调用方显式传入时才带上 `requestId`（不传 → 拦截器不发 `X-Request-Id`）
+    requestId ? { requestId } : undefined,
+  )
   return normalizeReconcileResult(unwrap(response, '手动对账失败'))
 }
 

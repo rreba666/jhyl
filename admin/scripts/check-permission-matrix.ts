@@ -21,7 +21,7 @@ const MENU_PATHS = [
   '/dashboard', '/merchant', '/merchants', '/admins', '/homepage', '/announcement', '/users', '/products',
   '/categories', '/brands', '/delivery', '/shop-console', '/shop-delivery', '/shops', '/staff',
   '/orders', '/orders/pickup', '/orders/address-audit', '/after-sale', '/invoices', '/profit',
-  '/wallets', '/transfers', '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/settings',
+  '/wallets', '/transfers', '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/settings',
 ]
 
 let failed = 0
@@ -36,12 +36,18 @@ for (const path of ['/orders', '/orders/pickup', '/orders/address-audit', '/prod
   assert(`ADMIN 可访问 ${path}`, canAccess('ADMIN', path), true)
 }
 // ② ADMIN 不该进的模块（越权风险面）
-for (const path of ['/merchants', '/admins', '/users', '/categories', '/brands', '/delivery', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/settings', '/logs/ledger']) {
+for (const path of ['/merchants', '/admins', '/users', '/categories', '/brands', '/delivery', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/settings', '/logs/ledger', '/logs/apicount']) {
   assert(`ADMIN 不可访问 ${path}`, canAccess('ADMIN', path), false)
 }
 // ②′ 留痕台账（跨商户全量视图，含金额/库存）只给平台角色
 for (const role of ['SUPER_ADMIN', 'CUSTOMER_SERVICE', 'FINANCE'] as const) {
   assert(`${role} 可访问 /logs/ledger`, canAccess(role, '/logs/ledger'), true)
+}
+// ②″ 接口调用计数（平台级经营数据：全平台接口结构 + 任意商户 shopId + 调用明细）**只给超管** ——
+//     后端该模块尚未声明权限点，前端先收紧；后端口径明确后再放开（见 docs/logs/2026-09/2026-09-22-接口调用计数apicount评估.md 第五节）
+assert('SUPER_ADMIN 可访问 /logs/apicount', canAccess('SUPER_ADMIN', '/logs/apicount'), true)
+for (const role of ['ADMIN', 'CUSTOMER_SERVICE', 'FINANCE'] as const) {
+  assert(`${role} 不可访问 /logs/apicount`, canAccess(role, '/logs/apicount'), false)
 }
 // ③ 客服回归
 for (const path of ['/users', '/products', '/categories', '/brands', '/delivery', '/orders', '/orders/pickup', '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify']) {
