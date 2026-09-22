@@ -8,11 +8,21 @@ import { bindStoredPromotionIfLoggedIn, buildPromotionSharePath, capturePromotio
 import { formatPromotionQueryDate, getFrozenPromotionAmount, getPromotionFreezeDays, getPromotionFreezeMs, hasUnsettledPromotionAmount, isUnsettledPromotion, loadWithdrawPayLockDays, readUnsettledPromotionAmount } from '@/utils/promotion-freeze'
 import { resolvePromotionSettlement, savePromotionSettlement, syncPromotionSettlement } from '@/utils/promotion-settlement'
 import { createThrottle } from '@/utils/interaction'
+import { isApiRequestError } from '@/utils/request'
+import { useConvertRealnameGate } from '@/utils/realname-gate'
 import LoginGuide from '@/components/LoginGuide.vue'
+import RealnameVerifySheet from '@/components/RealnameVerifySheet.vue'
 import { useModuleGuard } from '@/utils/config'
 
 /** promotion 模块守卫：停用则拦截推广/红包（深链防护）。 */
 const { moduleEnabled: promotionEnabled, loadModuleConfig: loadPromotionModule } = useModuleGuard('promotion')
+
+/**
+ * 转余额实名门禁（2026-09-22）：推广金转余额与红包转余额共用 `convertWallet()`，
+ * 同样要把实名卡在「变成通用余额」这一步。只加「前置门禁 + 8601 兜底」，
+ * 完全不动 `promotion-settlement` 兜底结算与 `promotionStatus` 待到账口径。
+ */
+const { sheetVisible: realnameSheetVisible, ensureRealname, handleVerified: handleRealnameVerified, handleConvertDenied } = useConvertRealnameGate()
 
 const menuTop = ref(0)
 const menuHeight = ref(32)
@@ -204,7 +214,10 @@ async function loadMorePromotionRecords(): Promise<void> {
 }
 
 
-/** 将推广积分一键转入余额；转后立即按「转账前合计 − 实际到账金额」兜底展示，不依赖后端轮询。 */
+/**
+ * 将推广积分一键转入余额；转后立即按「转账前合计 − 实际到账金额」兜底展示，不依赖后端轮询。
+ * 转余额前先过实名门禁；认证通过后自动续跑本次转账（用户无需再点一次）。
+ */
 async function handleConvertPromotion(): Promise<void> {
   if (!registeredUser.value) {
     denyGuestAccess()
@@ -215,6 +228,8 @@ async function handleConvertPromotion(): Promise<void> {
     uni.showToast({ title: '暂无可转余额', icon: 'none' })
     return
   }
+  // 前置门禁：未实名先完成实名认证，通过后自动续跑 handleConvertPromotion()
+  if (!(await ensureRealname(() => { void handleConvertPromotion() }))) return
   converting.value = true
   try {
     // 转账前的展示合计与余额：用于计算"本次实际转入余额的金额"（余额增量最可信，用户可自行核对）
@@ -232,6 +247,11 @@ async function handleConvertPromotion(): Promise<void> {
     syncPromotionSettlement(displayedPromotionAmount.value, user.value?.id)
     uni.showToast({ title: '已转入余额', icon: 'success' })
   } catch (error) {
+    // 兜底：后端返回 8601（未实名）时给出明确引导并打开实名弹层，认证后自动续跑
+    if (isApiRequestError(error) && error.code === 8601) {
+      handleConvertDenied(() => { void handleConvertPromotion() })
+      return
+    }
     uni.showToast({ title: error instanceof Error ? error.message : '转余额失败', icon: 'none' })
   } finally {
     converting.value = false
@@ -467,6 +487,9 @@ onShow(() => {
     </view>
 
     <LoginGuide v-model="loginGuideVisible" />
+
+    <!-- 转余额实名弹层：前置门禁与 8601 兜底共用；认证成功后自动续跑转余额 -->
+    <RealnameVerifySheet v-model="realnameSheetVisible" @verified="handleRealnameVerified" />
 
   </view>
 </template>

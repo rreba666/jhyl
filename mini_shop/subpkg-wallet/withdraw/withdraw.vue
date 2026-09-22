@@ -137,6 +137,38 @@ const withdrawLockHint = computed(() => {
   return `最近有订单支付，暂时无法提现；${nextWithdrawableAt.value} 后可提现`
 })
 
+/**
+ * 提现规则区块是否展开（默认展开）。
+ * 微信提审要求「在提现页面清晰展示相关提现规则」，默认展开保证审核与用户一眼可见；
+ * 用户看完后可自行收起，不影响提现主流程。
+ */
+const withdrawRulesExpanded = ref(true)
+
+/**
+ * 同时处理中的提现笔数上限（后端 `WithdrawRuleVO.maxConcurrent`）；0/缺失 = 未配置，规则区块不展示该条。
+ */
+const withdrawMaxConcurrent = computed(() => {
+  const value = Number(withdrawRules.value?.maxConcurrent)
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+
+/**
+ * 提现冻结总额上限（后端 `WithdrawRuleVO.frozenLimit`，元）；0/缺失 = 未配置，规则区块不展示该条。
+ */
+const withdrawFrozenLimit = computed(() => {
+  const value = Number(withdrawRules.value?.frozenLimit)
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+
+/**
+ * 支付后锁定期天数（后端 `WithdrawRuleVO.payLockDays`，自订单支付时刻起算 N×24 小时）。
+ * 这里是**只读展示**：后端未下发时返回 0，规则区块随之隐藏该条，**不写死天数**（避免与后端口径打架）。
+ */
+const withdrawLockDays = computed(() => {
+  const value = Number(withdrawRules.value?.payLockDays)
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+
 /** 用户输入的提现金额（非法输入按 0 处理）。 */
 const withdrawAmountNumber = computed(() => {
   const value = Number(withdrawAmount.value)
@@ -812,9 +844,38 @@ onUnload(() => {
           </view>
           <text v-if="withdrawOption === 'BANK_CARD'" class="fee-hint">银行卡信息取自实名认证资料，平台审核通过后人工打款；提现将收取 {{ withdrawFeePercentLabel }} 手续费。</text>
           <text v-else class="fee-hint">提现将收取 {{ withdrawFeePercentLabel }} 手续费，提交后进入审核。</text>
+          <!-- 未实名时就地说明：审核账号若未实名会卡在「实名绑定」，这里把口径说透（仅一次、无其他门槛） -->
+          <text v-if="!realnameVerified" class="fee-hint">首次提现需完成实名认证（仅一次），认证后余额满 {{ withdrawMinimumLabel }} 元即可提现，无其他门槛。</text>
           <text v-if="withdrawLimitHint" class="fee-hint">{{ withdrawLimitHint }}</text>
           <text class="fee-hint">提现额度自订单支付时刻起算，锁定期结束后即可提现。</text>
           <text v-if="withdrawAmountNumber > 0" class="fee-calc">手续费 ¥{{ formatMoney(withdrawFee) }}，实际到账 ¥{{ formatMoney(withdrawActual) }}</text>
+          <!--
+            提现规则区块（微信提审合规要求：提现页须清晰展示门槛 / 额度 / 次数 / 提现时间 / 可提现时间 / 到账时间 / 实名认证 / 收款授权 / 手续费）。
+            数值一律取后台配置 GET /api/wallet/withdraw-rules（minAmount / feeRate / dailyAmountLimit / dailyCountLimit /
+            maxConcurrent / frozenLimit / payLockDays / nextWithdrawableAt）与本地既有 computed，**后端未下发的字段不编造**：
+            未配置的条目整行隐藏（v-if），不展示 0 或猜测值。默认展开，用户可自行收起。
+          -->
+          <view class="rule-card">
+            <view class="rule-head" @click="withdrawRulesExpanded = !withdrawRulesExpanded">
+              <text class="rule-title">提现规则</text>
+              <text class="rule-toggle">{{ withdrawRulesExpanded ? '收起' : '展开' }}</text>
+            </view>
+            <view v-show="withdrawRulesExpanded" class="rule-body">
+              <view class="rule-item"><text class="rule-label">提现门槛</text><text class="rule-text">账户余额满 {{ withdrawMinimumLabel }} 元即可提现，无需邀请好友、无需消费</text></view>
+              <view class="rule-item"><text class="rule-label">可提现额度</text><text class="rule-text">最低提现 {{ withdrawMinimumLabel }} 元{{ withdrawDailyAmountLimit > 0 ? '，单日累计上限 ' + formatMoney(withdrawDailyAmountLimit) + ' 元' : '' }}</text></view>
+              <view class="rule-item"><text class="rule-label">每日提现次数</text><text class="rule-text">{{ withdrawDailyCountLimit > 0 ? '每日最多可提现 ' + withdrawDailyCountLimit + ' 次' : '每日提现次数不限' }}</text></view>
+              <!-- 并行笔数与冻结上限：仅后端下发（maxConcurrent / frozenLimit）时才展示 -->
+              <view v-if="withdrawMaxConcurrent > 0" class="rule-item"><text class="rule-label">在途笔数</text><text class="rule-text">同时处理中的提现最多 {{ withdrawMaxConcurrent }} 笔</text></view>
+              <view v-if="withdrawFrozenLimit > 0" class="rule-item"><text class="rule-label">冻结上限</text><text class="rule-text">提现冻结总额上限 {{ formatMoney(withdrawFrozenLimit) }} 元</text></view>
+              <view class="rule-item"><text class="rule-label">提现时间</text><text class="rule-text">提现申请全天可提交（00:00–24:00），提交后进入平台审核</text></view>
+              <!-- 可提现时间：天数取后端 payLockDays，具体时刻取 nextWithdrawableAt，两者都不写死 -->
+              <view class="rule-item"><text class="rule-label">可提现时间</text><text class="rule-text">{{ withdrawLockDays > 0 ? '收益有 ' + withdrawLockDays + ' 天锁定期（自订单支付时刻起算），期满后方可提现' : '收益需过锁定期后方可提现' }}{{ nextWithdrawableAt ? '；当前可提现时刻 ' + nextWithdrawableAt : '' }}</text></view>
+              <view class="rule-item"><text class="rule-label">到账时间</text><text class="rule-text">提交后进入平台审核，审核通过后由平台打款到账（非实时到账）</text></view>
+              <view class="rule-item"><text class="rule-label">实名认证</text><text class="rule-text">依据法律法规要求，首次提现前需完成实名认证（仅需一次），认证后即可正常提现</text></view>
+              <view class="rule-item"><text class="rule-label">收款授权</text><text class="rule-text">零钱提现首次需在微信中确认一次免确认收款授权，授权后后续提现无需重复操作</text></view>
+              <view class="rule-item"><text class="rule-label">手续费</text><text class="rule-text">按提现金额的 {{ withdrawFeePercentLabel }} 收取，实际到账 = 提现金额 − 手续费</text></view>
+            </view>
+          </view>
           <template v-if="withdrawOption === 'BANK_CARD'">
             <!-- 到账银行卡：优先用「已绑定银行卡」（可多张），一张没绑时退回实名资料里的卡号 -->
             <view class="bank-row" @click="chooseBankCard">
@@ -961,6 +1022,16 @@ onUnload(() => {
 /* 锁定期提示条：后端 nextWithdrawableAt 非空（当前有订单仍在锁定期）时展示 */
 .lock-banner { margin-top: 18rpx; padding: 20rpx 22rpx; border-radius: 18rpx; background: #fff7ed; border: 2rpx solid rgba(255, 106, 43, .25); }
 .lock-text { color: #9a3412; font-size: 24rpx; line-height: 36rpx; }
+/* 提现规则区块（微信审核要求：清晰展示门槛/额度/次数/提现与到账时间/实名/授权/手续费） */
+.rule-card { margin-top: 22rpx; padding: 20rpx 22rpx; border-radius: 18rpx; background: #f8fafc; }
+.rule-head { display: flex; align-items: center; justify-content: space-between; }
+.rule-title { color: #111827; font-size: 26rpx; font-weight: 600; }
+.rule-toggle { color: #ff5a1f; font-size: 22rpx; }
+.rule-body { margin-top: 14rpx; }
+.rule-item { display: flex; margin-bottom: 10rpx; }
+.rule-item:last-child { margin-bottom: 0; }
+.rule-label { flex-shrink: 0; width: 160rpx; color: #475467; font-size: 22rpx; line-height: 34rpx; }
+.rule-text { flex: 1; min-width: 0; color: #667085; font-size: 22rpx; line-height: 34rpx; }
 .fee-calc { display: block; margin-top: 8rpx; color: #ff5a1f; font-size: 24rpx; font-weight: 600; line-height: 1.5; }
 .search-input { flex: 1; }
 .search-button { flex-shrink: 0; width: 140rpx; height: 84rpx; border-radius: 18rpx; background: linear-gradient(135deg, #ff6a2b, #ff5a1f); color: #fff; font-size: 26rpx; font-weight: 600; }

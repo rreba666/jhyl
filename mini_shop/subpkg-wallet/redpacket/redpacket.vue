@@ -3,12 +3,22 @@ import { computed, onMounted, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { convertWallet, getDividendRecords, getWalletInfo, getUserProfile, type DividendRecord, type UserProfile, type WalletInfo } from '@/api/user'
 import { isLoggedIn, isRegisteredUser } from '@/utils/auth'
+import { isApiRequestError } from '@/utils/request'
+import { useConvertRealnameGate } from '@/utils/realname-gate'
 import RequestState from '@/components/RequestState.vue'
 import LoginGuide from '@/components/LoginGuide.vue'
+import RealnameVerifySheet from '@/components/RealnameVerifySheet.vue'
 import { useModuleGuard } from '@/utils/config'
 
 /** promotion 模块守卫：停用则拦截平台红包（深链防护）。 */
 const { moduleEnabled: promotionEnabled, loadModuleConfig: loadPromotionModule } = useModuleGuard('promotion')
+
+/**
+ * 转余额实名门禁（2026-09-22）：红包转余额把钱变成**通用余额**，而余额可支付、可提现，
+ * 原先这条路径没有任何实名校验，等于绕开提现那道实名墙套现。
+ * 这里只加「前置门禁 + 8601 兜底」，不改动任何转余额口径。
+ */
+const { sheetVisible: realnameSheetVisible, ensureRealname, handleVerified: handleRealnameVerified, handleConvertDenied } = useConvertRealnameGate()
 
 const menuTop = ref(0)
 const menuHeight = ref(32)
@@ -105,7 +115,10 @@ async function loadMoreRecords(): Promise<void> {
   }
 }
 
-/** 把红包积分一键转入余额，成功后清空本地红点标记（下次有新红包时重新提示）。 */
+/**
+ * 把红包积分一键转入余额，成功后清空本地红点标记（下次有新红包时重新提示）。
+ * 转余额前先过实名门禁；认证通过后自动续跑本次转账（用户无需再点一次）。
+ */
 async function convertBonus(): Promise<void> {
   if (!registeredUser.value) return
   if (converting.value) return
@@ -113,6 +126,8 @@ async function convertBonus(): Promise<void> {
     uni.showToast({ title: '暂无可转余额', icon: 'none' })
     return
   }
+  // 前置门禁：未实名先完成实名认证，通过后自动续跑 convertBonus()
+  if (!(await ensureRealname(() => { void convertBonus() }))) return
   converting.value = true
   try {
     await convertWallet('BONUS')
@@ -121,6 +136,11 @@ async function convertBonus(): Promise<void> {
     await loadData()
     uni.showToast({ title: '已转入余额', icon: 'success' })
   } catch (error) {
+    // 兜底：后端返回 8601（未实名）时给出明确引导并打开实名弹层，认证后自动续跑
+    if (isApiRequestError(error) && error.code === 8601) {
+      handleConvertDenied(() => { void convertBonus() })
+      return
+    }
     uni.showToast({ title: error instanceof Error ? error.message : '转余额失败', icon: 'none' })
   } finally {
     converting.value = false
@@ -207,6 +227,9 @@ onShow(() => { void refreshData() })
     </view>
 
     <LoginGuide v-model="loginGuideVisible" />
+
+    <!-- 转余额实名弹层：前置门禁与 8601 兜底共用；认证成功后自动续跑转余额 -->
+    <RealnameVerifySheet v-model="realnameSheetVisible" @verified="handleRealnameVerified" />
   </view>
 </template>
 
