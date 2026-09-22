@@ -1,6 +1,11 @@
 export type ProductStatus = 0 | 1
 export type ProductStatusValue = ProductStatus | '0' | '1'
 export type ProductFundStatusValue = ProductStatusValue | null
+/**
+ * 商品级开关（配送方式）的回显值：0/1 或数字字符串；**null = 详情接口没返回该字段**。
+ * ⚠️ 不要当成 0 —— 后端这两个字段的语义是「不传 = 不修改」，把「没返回」当 0 提交会把已开的开关关掉。
+ */
+export type ProductSwitchStatusValue = ProductStatusValue | null
 
 export interface ProductShopItem {
   shopId: string
@@ -69,6 +74,16 @@ export interface ProductDetail extends ProductListItem {
   maxPrice: number
   detailImages: string[]
   skuList: ProductSku[]
+  /**
+   * 商品级「支持线下自提」（`pickupEnabled`，2026-09-22 新增）：1=支持, 0=不支持，默认 1。
+   * 关闭后 C 端下单走自提会报 `13023`。
+   */
+  pickupEnabled?: ProductSwitchStatusValue
+  /**
+   * 商品级「支持物流(0)/同城(2)配送」（`deliveryEnabled`，2026-09-22 新增）：1=支持, 0=不支持，默认 1。
+   * 关闭后 C 端下单走物流/同城会报 `13024`。
+   */
+  deliveryEnabled?: ProductSwitchStatusValue
 }
 
 export interface AdminProductSaveDTO {
@@ -93,15 +108,25 @@ export interface AdminProductSaveDTO {
   recommendTextEnabled: ProductStatus
   sortOrder: number
   skuList: ProductSku[]
+  /** 商品级「支持线下自提」：1=支持, 0=不支持；新增商品默认 1。 */
+  pickupEnabled: ProductStatus
+  /** 商品级「支持物流(0)/同城(2)配送」：1=支持, 0=不支持；新增商品默认 1。 */
+  deliveryEnabled: ProductStatus
 }
 
 /**
  * 提交给 `POST /api/admin/v2/product/save` 的规格项。
- * ⚠️ 后端 `SkuItem` **只接受 `{specName, price, stock}`**（2026-09-19 复核契约 + 实测）。
- * 表单模型 `ProductSku` 里的 `skuName` / `specs` / `skuImage` / `enabled` **直接透传会被后端丢弃**
- * —— 表现是「保存成功但规格名变空」，所以提交前必须映射字段名。
+ *
+ * ⚠️ 后端 `SkuItem` 的规格名字段名**两个都要带同值**：
+ * - `skuName`：2026-09-22 起后端对该字段加了 `@NotBlank` 强校验，缺失/空串 →
+ *   `1000 skuList[0].skuName: SKU 名称不能为空`（见《商户提现-前端开发文档-2026-09-22》§7b①）；
+ * - `specName`：2026-09-19 实测后端写库用的字段名（当时只传 `skuName` 会「保存成功但规格名变空」）。
+ *
+ * 后端 Jackson 会**忽略未知字段**（2026-09-19 实测：多传 `specs`/`skuImage`/`enabled` 仍 `code=0`），
+ * 所以两个名字都带上即可同时满足两套字段名，互不干扰。
  */
 export interface AdminSkuSaveItem {
+  skuName: string
   specName: string
   price: number
   stock: number
@@ -112,11 +137,17 @@ export interface AdminSkuSaveItem {
  * ⚠️ 后端 `categoryId` / `goodsBrandId` 是 **integer**：传非数字字符串会被 Jackson 判为
  * **「请求体格式错误」**（2026-09-19 实测复现：`categoryId="分类A"` → `code=1000 请求体格式错误`）。
  * 所以这里用 number 类型，空值一律**不传该字段**（而不是传空串）。
+ * ⚠️ `pickupEnabled` / `deliveryEnabled` 语义是「**不传 = 不修改**」：详情接口没回显到这两个字段时
+ * 整个字段都不提交（传默认值 1 会把商家已关掉的开关重新打开）。
  */
-export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList'> {
+export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList' | 'pickupEnabled' | 'deliveryEnabled'> {
   categoryId?: number
   goodsBrandId?: number
   skuList: AdminSkuSaveItem[]
+  /** 支持线下自提：1/0；undefined = 不提交（不修改）。 */
+  pickupEnabled?: ProductStatus
+  /** 支持物流(0)/同城(2)配送：1/0；undefined = 不提交（不修改）。 */
+  deliveryEnabled?: ProductStatus
 }
 
 export interface CategoryNode {

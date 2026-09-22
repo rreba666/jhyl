@@ -7,7 +7,7 @@ import { useProductStore } from '@/stores/product'
 import { useAuthStore } from '@/stores/auth'
 import { getStockDimensions } from '@/api/ledger'
 import type { StockDimension } from '@/types/ledger'
-import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus } from '@/types/product'
+import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus, ProductSwitchStatusValue } from '@/types/product'
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
 import { getAdminGoodsBrands } from '@/api/brand'
 import { Delete, Edit, View } from '@element-plus/icons-vue'
@@ -23,6 +23,15 @@ const form = reactive<AdminProductSaveDTO>(createEmptyForm())
 const promotionUseDefault = ref(true)
 /** 平台红包是否使用默认比例自动计算。 */
 const dividendUseDefault = ref(true)
+/**
+ * 编辑回显是否拿到了商品级「配送方式」两个开关（`pickupEnabled` / `deliveryEnabled`）。
+ *
+ * 这两个字段的后端语义是「**不传 = 不修改**」（2026-09-22 上线），而详情接口是唯一回显来源：
+ * 详情里没有这两个字段时（老后端 / 灰度期）**必须整个字段都不提交** ——
+ * 若按 `normalizeBinary(undefined)` 得到 0 提交，会把已开启的开关关掉；按默认 1 提交则会反向打开。
+ * 新增态没有回显，恒为 true（用默认值 1 显式提交）。
+ */
+const deliverySwitchEchoed = ref(true)
 const detailUploadCount = ref(0)
 const rules: FormRules = {
   name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
@@ -48,7 +57,8 @@ async function loadBrandOptions(): Promise<void> {
 
 /** 创建新增商品的默认表单。 */
 function createEmptyForm(): AdminProductSaveDTO {
-  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [] }
+  // pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增）后端默认 1：新增商品默认两种配送方式都支持
+  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1 }
 }
 
 function getMinSkuPrice(skuList: AdminProductSaveDTO['skuList'] = form.skuList): number {
@@ -85,14 +95,19 @@ function flattenCategories(nodes: CategoryNode[], parent = ''): Array<{ id: stri
 /**
  * 复制详情数据到编辑表单，避免弹窗修改列表原数据。
  *
- * ⚠️ 后端 v2 商品详情**不返回规格名**（`skuList` 只有 `id/price/stock`），
- * 所以这里给「单规格」商品补默认名「默认」；多规格留空、由保存前校验提示补填 ——
- * 否则编辑任何商品都会卡在「请完善 SKU 名称」，看起来就像「保存按钮点了没反应」
- * （2026-09-19 用户反馈；根因=后端详情缺字段，已登记给后端）。
+ * ⚠️ 规格名回填：2026-09-22 起后端详情（`GET /api/admin/v2/product/detail/{id}`）会返回
+ * `skuList[].skuName`，直接回传即可（保存时该字段已被后端 `@NotBlank` 强校验）。
+ * 这里仍保留兜底：`skuName` 为空时读旧的 `specName`，单规格商品补默认名「默认」——
+ * 多规格用户自填，前端不替用户编造名称；否则编辑任何商品都会卡在「请完善 SKU 名称」，
+ * 看起来就像「保存按钮点了没反应」（2026-09-19 用户反馈，老后端详情不返回规格名）。
  */
 function fillForm(detail?: ProductDetail): void {
   const status = normalizeBinary(detail?.status ?? 1)
-  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  // 商品级配送方式（2026-09-22）：详情回显拿到原样回填；拿不到则显示默认 1，但提交阶段会跳过这两个字段
+  const pickupEcho = detail ? normalizeSwitchOrNull(detail.pickupEnabled) : 1
+  const deliveryEcho = detail ? normalizeSwitchOrNull(detail.deliveryEnabled) : 1
+  deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
+  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 新增商品默认使用比例；编辑商品根据已保存金额恢复模式（后端暂无独立模式字段）。
   promotionUseDefault.value = detail ? isDefaultFundAmount(detail.promotionFund, detail.minPrice, getDefaultPromotionFund) : true
   dividendUseDefault.value = detail ? isDefaultFundAmount(detail.dividendFund, detail.minPrice, getDefaultDividendFund) : true
@@ -105,6 +120,16 @@ function fillForm(detail?: ProductDetail): void {
 /** 统一转换 0/1 状态值。 */
 function normalizeBinary(value: number | string | boolean | null | undefined): ProductStatus {
   return value === 1 || value === '1' ? 1 : 0
+}
+
+/**
+ * 商品级配送方式开关的回显归一化：`0/1`、数字字符串、布尔 → 0/1；**缺失 → null（未知）**。
+ * ⚠️ 不要用 `normalizeBinary` 兜底 —— 它把缺失当 0，会把已开启的开关关掉。
+ * （空串在 `api/product.ts` 的 `normalizeProductBinaryOrNull` 里已归一为 null，这里只会收到 0/1/'0'/'1'。）
+ */
+function normalizeSwitchOrNull(value: ProductSwitchStatusValue | undefined): ProductStatus | null {
+  if (value === undefined || value === null) return null
+  return normalizeBinary(value)
 }
 
 function formatFundEnabled(value: ProductFundStatusValue): string {
@@ -177,7 +202,7 @@ async function submitForm(): Promise<void> {
   }
   const invalidSku = form.skuList.find((sku) => !sku.skuName.trim() || sku.price < 0.01 || sku.stock < 0)
   if (invalidSku) {
-    // 明确指到 SKU 表格（规格名常因「后端详情不返回规格名」而回填为空，用户不看表格会一头雾水）
+    // 明确指到 SKU 表格（规格名可能因回显为空需用户补填，用户不看表格会一头雾水）
     ElMessage.error('请补全 SKU 表格里的「规格名称 / 价格 / 库存」后再保存')
     return
   }
@@ -188,7 +213,7 @@ async function submitForm(): Promise<void> {
   // 后端 categoryId / goodsBrandId 是 integer：传非数字字符串会被 Jackson 判为「请求体格式错误」
   // （2026-09-19 实测复现：categoryId="分类A" → code=1000 请求体格式错误）。
   // 这里提前拦下来给出可读提示，空值则整个字段都不提交。
-  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, skuList: rawSkuList, ...rest } = form
+  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, ...rest } = form
   const categoryId = toOptionalInteger(rawCategoryId)
   if (String(rawCategoryId ?? '') !== '' && categoryId === undefined) {
     ElMessage.error('商品分类参数不合法，请重新选择分类')
@@ -210,8 +235,18 @@ async function submitForm(): Promise<void> {
       isRecommended: normalizeBinary(form.status) === 1 ? normalizeBinary(form.isRecommended) : 0,
       recommendTextEnabled: normalizeBinary(form.status) === 1 && normalizeBinary(form.isRecommended) === 1 ? normalizeBinary(form.recommendTextEnabled) : 0,
       ...(editingId.value ? { id: editingId.value } : { id: undefined }),
-      // 后端 SkuItem 只接受 {specName, price, stock}：不映射字段名的话规格名会被丢弃
-      skuList: rawSkuList.map((sku) => ({ specName: sku.skuName.trim(), price: Number(sku.price), stock: Number(sku.stock) })),
+      // 商品级配送方式（2026-09-22）：语义「不传 = 不修改」——
+      // 只有详情回显确实拿到了这两个字段时才按回显值原样提交；拿不到就整个字段不提交。
+      ...(deliverySwitchEchoed.value
+        ? { pickupEnabled: normalizeBinary(rawPickupEnabled), deliveryEnabled: normalizeBinary(rawDeliveryEnabled) }
+        : {}),
+      // 规格名必须**两个字段名都带同值**：后端 2026-09-22 起对 `skuList[].skuName` 强校验（@NotBlank，
+      // 缺失/空串 → 1000 skuList[0].skuName: SKU 名称不能为空），而写库历史上用的是 `specName`（2026-09-19 实测）。
+      // 后端 Jackson 忽略未知字段，所以两个都带上可同时兼容两套字段名。
+      skuList: rawSkuList.map((sku) => {
+        const skuName = sku.skuName.trim()
+        return { skuName, specName: skuName, price: Number(sku.price), stock: Number(sku.stock) }
+      }),
     }
     await store.saveProduct(payload)
     formVisible.value = false
@@ -366,6 +401,14 @@ onMounted(() => {
         <el-form-item label="排序权重"><el-input-number v-model="form.sortOrder" :min="0" /></el-form-item>
         <div class="fund-config-row form-item-full"><el-form-item label="推广资金"><div class="fund-control"><el-switch v-model="promotionUseDefault" active-text="默认比例" inactive-text="手动金额" /><el-input-number v-model="form.promotionFund" :min="0" :precision="2" :disabled="promotionUseDefault" /><el-switch v-model="form.promotionEnabled" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="禁用" /></div></el-form-item><el-form-item label="平台红包"><div class="fund-control"><el-switch v-model="dividendUseDefault" active-text="默认比例" inactive-text="手动金额" /><el-input-number v-model="form.dividendFund" :min="0" :precision="2" :disabled="dividendUseDefault" /><el-switch v-model="form.dividendEnabled" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="禁用" /></div></el-form-item></div>
         <el-form-item label="商品状态"><el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="上架" inactive-text="下架" /></el-form-item>
+        <!-- 商品级配送方式（2026-09-22）：与「模块开关」「门店是否上架」三重叠加；关闭后 C 端下单会报 13023 / 13024 -->
+        <el-form-item label="配送方式" class="form-item-full">
+          <div class="delivery-switch-row">
+            <el-switch v-model="form.pickupEnabled" :active-value="1" :inactive-value="0" active-text="支持线下自提" inactive-text="不支持线下自提" />
+            <el-switch v-model="form.deliveryEnabled" :active-value="1" :inactive-value="0" active-text="支持物流/同城配送" inactive-text="不支持物流/同城配送" />
+          </div>
+          <p class="upload-hint">关闭后用户下单不能选择该配送方式（自提 13023、物流/同城 13024）；按详情回显值原样提交，详情未返回时不提交（后端语义：不传 = 不修改）。</p>
+        </el-form-item>
         <el-form-item label="首页推荐"><el-switch v-model="form.isRecommended" :disabled="normalizeBinary(form.status) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
         <el-form-item label="推荐文本"><el-switch v-model="form.recommendTextEnabled" :disabled="normalizeBinary(form.status) === 0 || normalizeBinary(form.isRecommended) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
         <el-form-item label="详情描述" class="form-item-full"><el-input v-model="form.description" type="textarea" :rows="5" placeholder="请输入 HTML 商品描述" /></el-form-item>
@@ -423,6 +466,8 @@ onMounted(() => {
 .fund-config-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
 .fund-config-row :deep(.el-form-item) { min-width: 0; }
 .fund-control { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+/* 商品级配送方式两个开关并排，窄屏自动换行 */
+.delivery-switch-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 28px; min-width: 0; }
 .fund-control .form-hint { margin-left: 0; }
 .selection-tip { color: #8492a6; font-size: 13px; }
 .shop-list-cell { display: flex; flex-direction: column; line-height: 1.4; }

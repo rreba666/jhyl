@@ -66,6 +66,9 @@ function normalizeProductDetail(detail: ProductDetail): ProductDetail {
     dividendFund: resolveDividendFund(detail.dividendFund, detail.minPrice),
     dividendEnabled: normalizeProductBinaryOrNull(detail.dividendEnabled),
     recommendTextEnabled: normalizeProductBinary(detail.recommendTextEnabled),
+    // 商品级配送方式开关：缺失 → null（保持「未知」），编辑页据此决定「不提交这两个字段」（不传=不修改）
+    pickupEnabled: normalizeProductBinaryOrNull(detail.pickupEnabled),
+    deliveryEnabled: normalizeProductBinaryOrNull(detail.deliveryEnabled),
     mainImage: resolveMediaUrl(detail.mainImage),
     images: resolveMediaArray(normalizeStringArray(detail.images)),
     videoUrl: detail.videoUrl || '',
