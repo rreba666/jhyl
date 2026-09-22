@@ -215,7 +215,9 @@ onShow(() => { void refreshCategories() })
 .pg { display: flex; flex-direction: column; min-height: 100vh; background: #f5f6f8; }
 
 /* ===== 导航栏 ===== */
-.nav { position: fixed; left: 0; right: 0; z-index: 100; display: flex; align-items: center; padding-left: 26rpx; background: #fff; box-sizing: border-box; }
+/* 顶部导航底色跟页面一致（2026-09-22 用户反馈「全部商品这个盒子是白的」）：
+   上一轮把 .pg 改成浅灰后，这条 fixed 导航还是白底，顶上就像贴了一条白条。 */
+.nav { position: fixed; left: 0; right: 0; z-index: 100; display: flex; align-items: center; padding-left: 26rpx; background: #f5f6f8; box-sizing: border-box; }
 .nav-tit { color: #232423; font-size: 28rpx; font-weight: 600; flex-shrink: 0; }
 .nav-sch { flex: 1; height: 68rpx; margin-left: 14rpx; background: rgba(214,214,214,.51); border-radius: 34rpx; display: flex; align-items: center; padding: 0 24rpx; }
 .nav-sch-txt { color: #999; font-size: 26rpx; }
