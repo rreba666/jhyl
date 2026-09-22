@@ -941,7 +941,10 @@ function openAddressEditor(): void {
     if (selectedAddress.value) uni.setStorageSync(ADDRESS_DRAFT_KEY, selectedAddress.value)
     else uni.removeStorageSync(ADDRESS_DRAFT_KEY)
   } catch { /* 忽略 */ }
-  uni.navigateTo({ url: '/subpkg-order/address/edit' })
+  // ⚠️ 必须带 mode=payment（2026-09-22 修）：不带参数时地址页按「地址簿模式」走 ——
+    // 保存只写后端、不写 ADDRESS_DRAFT_KEY 草稿，也不渲染「选择已有地址」入口，
+    // 于是结算页既选不了地址、也不会自动回填（真机反馈）。
+    uni.navigateTo({ url: '/subpkg-order/address/edit?mode=payment' })
 }
 
 /** 校验并保存本地地址。 */
