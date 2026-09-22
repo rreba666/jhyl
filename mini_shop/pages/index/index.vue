@@ -356,7 +356,10 @@ onShow(() => {
 </template>
 
 <style>
-.home-page { display: flex; width: 100%; min-height: 100vh; flex-direction: column; align-items: center; background: #fff; color: #1d2129; }
+/* 页面底色改浅灰（2026-09-22 用户要求）：
+   商品卡是白色 + 双层阴影，压在纯白底上阴影几乎看不见、卡片"贴"在背景里；
+   换成浅灰后白卡自然浮起来，立体感才成立（金刚区/福利区等白色区块也更有层次）。 */
+.home-page { display: flex; width: 100%; min-height: 100vh; flex-direction: column; align-items: center; background: #f5f6f8; color: #1d2129; }
 .top-shell { position: relative; z-index: 5; width: 100%; box-sizing: border-box; background: #fff; transition: box-shadow .2s ease; }
 .top-shell.scrolled { position: sticky; top: 0; box-shadow: 0 2rpx 16rpx rgba(29, 33, 41, .08); }
 .brand-row { display: flex; width: 100%; height: 96rpx; align-items: center; padding: 0 24rpx; box-sizing: border-box; }

@@ -142,15 +142,45 @@ async function locate(): Promise<void> {
 }
 
 /**
+ * 从地图选点返回的地址串里拆出「省 / 市 / 区」。
+ *
+ * 为什么需要：`chooseLocation` 返回的 `address` 是「江西省九江市柴桑区水葵路」这样一整串，
+ * 原来直接把它塞进「详细地址」→ 和「所在地区」完全重复（2026-09-22 真机截图反馈），
+ * 而「所在地区」又一直空着。这里把省市区拆出来填联动选择器，剩下的街道部分才留给详细地址。
+ */
+function parseRegion(text: string): { province: string; city: string; district: string; rest: string } | null {
+  const raw = String(text || '').trim()
+  if (!raw) return null
+  // 普通省份：江西省 / 广西壮族自治区 / 内蒙古自治区…
+  const normal = raw.match(/^(.{2,10}?(?:省|自治区|特别行政区))(.{2,12}?(?:市|自治州|地区|盟))(.{2,12}?(?:区|县|旗|市))(.*)$/)
+  if (normal) return { province: normal[1], city: normal[2], district: normal[3], rest: normal[4] || '' }
+  // 直辖市：北京市朝阳区…（省市同名，选择器里两级都填「北京市」）
+  const municipality = raw.match(/^(北京市|上海市|天津市|重庆市)(.{2,12}?(?:区|县))?(.*)$/)
+  if (municipality) return { province: municipality[1], city: municipality[1], district: municipality[2] || '', rest: municipality[3] || '' }
+  return null
+}
+
+/**
  * 地图选点：拿到**精确坐标**与地址文本。
  * 同城配送的距离就是靠这个坐标算的 —— 自动定位只到「省市区」精度，选点才够准。
+ *
+ * ⚠️ 2026-09-22 修：选点后要把省市区回填到「所在地区」，
+ * 详细地址只用**选点名称**（如「XX小区」）或剥掉省市区后的街道部分 —— 见 parseRegion。
  */
 function pickOnMap(): void {
   uni.chooseLocation({
     success: (res) => {
       form.latitude = Number(res.latitude)
       form.longitude = Number(res.longitude)
-      const detail = String(res.address || res.name || '').trim()
+      const address = String(res.address || '').trim()
+      const pointName = String(res.name || '').trim()
+      const parsed = parseRegion(address)
+      if (parsed) {
+        if (!form.province) form.province = parsed.province
+        if (!form.city) form.city = parsed.city
+        if (!form.district) form.district = parsed.district
+      }
+      const detail = pointName || (parsed ? parsed.rest : address)
       if (detail) form.detail = detail
     },
     fail: () => { /* 用户取消，不打扰 */ },

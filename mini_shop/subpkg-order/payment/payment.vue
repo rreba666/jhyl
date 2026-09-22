@@ -169,6 +169,33 @@ function loadFormCache(): void {
   } catch { /* 缓存读取失败忽略 */ }
 }
 
+/**
+ * 从「新增/编辑收货地址」页返回时，回读地址草稿并回显。
+ *
+ * 背景（2026-09-22 真机反馈「按保存地址后回到支付页面地址消失」）：
+ * 地址页在 payment 模式下是写 `ADDRESS_DRAFT_KEY` 草稿再 `navigateBack()` 的，
+ * 而结算页原来**没有 onShow 刷新**（`onShow` 只 import 未使用）→ 返回后地址一直是空的。
+ */
+onShow(() => {
+  try {
+    const draft = uni.getStorageSync(ADDRESS_DRAFT_KEY) as Partial<{
+      name: string; phone: string; detail: string; province: string; city: string; district: string
+      latitude: number; longitude: number
+    }> | undefined
+    if (!draft || !String(draft.detail || '').trim()) return
+    selectedAddress.value = {
+      name: cleanText(draft.name || ''),
+      phone: normalizeEditableMobile(draft.phone || ''),
+      detail: cleanText(draft.detail || ''),
+      province: cleanText(draft.province || ''),
+      city: cleanText(draft.city || ''),
+      district: cleanText(draft.district || ''),
+      ...(typeof draft.latitude === 'number' ? { latitude: draft.latitude } : {}),
+      ...(typeof draft.longitude === 'number' ? { longitude: draft.longitude } : {}),
+    }
+  } catch { /* 草稿读取失败忽略：不影响结算页其它功能 */ }
+})
+
 /** 保存结算表单到本地缓存。 */
 function saveFormCache(): void {
   try {
