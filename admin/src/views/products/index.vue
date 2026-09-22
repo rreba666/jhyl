@@ -9,6 +9,7 @@ import { getStockDimensions } from '@/api/ledger'
 import type { StockDimension } from '@/types/ledger'
 import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus, ProductSwitchStatusValue } from '@/types/product'
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
+import { DETAIL_IMAGE_MAX_COUNT, planDetailSliceForFile, sliceDetailImageToFiles } from '@/utils/detailImageSlice'
 import { getAdminGoodsBrands } from '@/api/brand'
 import { Delete, Edit, View } from '@element-plus/icons-vue'
 
@@ -327,7 +328,7 @@ function addSku(): void { form.skuList.push({ skuName: '', specs: '', skuImage: 
 /** 删除 SKU 编辑行。 */
 function removeSku(index: number): void { form.skuList.splice(index, 1) }
 
-/** 上传媒体文件并追加到指定数组或写入视频字段。 */
+/** 上传媒体文件并追加到指定数组或写入视频字段（详情图先做「超长切片」，见 uploadDetailImages）。 */
 async function uploadFile(options: UploadRequestOptions, field: 'mainImage' | 'images' | 'videoUrl' | 'detailImages'): Promise<void> {
   const file = options.file as File
   const isVideo = field === 'videoUrl'
@@ -336,14 +337,61 @@ async function uploadFile(options: UploadRequestOptions, field: 'mainImage' | 'i
   if (field === 'images' && form[field].length >= 5) { ElMessage.warning('商品轮播图最多上传5张图片'); return }
   if (isDetailImage && form[field].length + detailUploadCount.value >= 15) { ElMessage.warning('商品详情图最多上传15张图片'); return }
   if (isVideo ? file.type !== 'video/mp4' && !file.name.toLowerCase().endsWith('.mp4') : !file.type.startsWith('image/')) { ElMessage.error(isVideo ? '商品视频仅支持 MP4' : '请上传图片文件'); return }
-  if (isDetailImage) detailUploadCount.value += 1
+  // 详情图走「超长图自动切片」链路（2026-09-22 新增，见下）；主图 / 轮播图 / 视频保持原逻辑完全不变
+  if (isDetailImage) { await uploadDetailImages(file); return }
   try {
     const url = await store.uploadFile(file)
     if (field === 'mainImage' || field === 'videoUrl') form[field] = url
     else form[field].push(url)
     ElMessage.success('文件上传成功')
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : '文件上传失败') }
-  finally { if (isDetailImage) detailUploadCount.value = Math.max(detailUploadCount.value - 1, 0) }
+}
+
+/**
+ * 详情图上传：读真实尺寸 → 超长则按 3000px 自动切片（宽度收敛到 1200px）→ **逐段顺序**上传。
+ *
+ * 为什么在**上传侧**切：`detailImages` 本来就是 URL 数组、C 端 `v-for` 顺序渲染，切片后 C 端**零改动**；
+ * 而实测那张 790 × 21222px / 9.0MB 的详情图，解码位图约需 `790×21222×4 ≈ 671MB` 内存，
+ * 移动端必然解码失败（小程序 `<image>` 一片灰，`@error` 也未必触发）。
+ *
+ * 三种结果：
+ * 1. 高度 ≤ 3000px：**不切片**，按原逻辑直接上传（既有行为完全不变）；
+ * 2. 超长且「段数 + 已占用张数 ≤ 15」：切片后逐段上传，**按顺序** push 进 `form.detailImages`；
+ * 3. 超长但会突破 15 张上限：**拒绝并提示**（不让用户白等一轮上传）。
+ * 任何读取/切片异常：回退为「原图直接上传」+ 警告提示（保持旧行为，不阻断业务）。
+ */
+async function uploadDetailImages(file: File): Promise<void> {
+  /** 已占用张数 = 表单里已有的 + 正在上传中的（并发多选多张长图时靠它兜住上限） */
+  const occupied = form.detailImages.length + detailUploadCount.value
+  let files: File[] = [file]
+  let sliced = false
+  try {
+    const plan = await planDetailSliceForFile(file)
+    if (plan.needSlice) {
+      // 切片后总张数会超上限 → 直接拒绝，并说明「需切几段 / 已有几张」
+      if (occupied + plan.totalSegments > DETAIL_IMAGE_MAX_COUNT) {
+        ElMessage.warning(`该详情图过长，需切成 ${plan.totalSegments} 段，加上已有 ${occupied} 张会超过 ${DETAIL_IMAGE_MAX_COUNT} 张上限；请减少图片或缩短详情图`)
+        return
+      }
+      files = await sliceDetailImageToFiles(file, plan)
+      sliced = true
+    }
+  } catch {
+    ElMessage.warning('详情图切片失败，已按原图上传，可能在小程序端显示异常')
+    files = [file]
+    sliced = false
+  }
+  // 先按**实际段数**占位，避免并发上传时各算各的、突破 15 张上限
+  detailUploadCount.value += files.length
+  try {
+    // 严格串行上传：详情图有阅读顺序，只能顺序 push（并发会打乱段序）
+    for (const segment of files) {
+      const url = await store.uploadFile(segment)
+      form.detailImages.push(url)
+    }
+    ElMessage.success(sliced ? `详情图过长，已自动切成 ${files.length} 段并上传成功` : '文件上传成功')
+  } catch (error) { ElMessage.error(error instanceof Error ? error.message : '文件上传失败') }
+  finally { detailUploadCount.value = Math.max(detailUploadCount.value - files.length, 0) }
 }
 
 async function loadList(): Promise<void> { try { await store.fetchList() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '商品列表查询失败') } }
@@ -391,6 +439,7 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="详情图" class="form-item-full">
           <ImageGridUpload v-model="form.detailImages" :max="15" :multiple="true" :display-limit="3" thumbnail-mode="long" :uploading="mediaUploading" @upload="onDetailImagesUpload" @remove="form.detailImages.splice($event, 1)" />
+          <p class="upload-hint">超长详情图（单张高度 &gt; 3000px）会自动切成多段依次上传：宽度收敛到 1200px、单段高 ≤ 3000px、单段体积 ≤ 2MB（超了自动降质量）。切片段数计入 15 张上限 —— 手机端无法解码 2 万像素高的整图，不切会在小程序里显示空白。</p>
         </el-form-item>
         <el-form-item label="产地"><el-input v-model="form.originPlace" /></el-form-item>
         <el-form-item label="品牌">
