@@ -456,7 +456,16 @@ function goBack(): void {
 <style scoped>
 .page {
   position: relative;
-  min-height: 100vh;
+  /* ⚠️ 2026-09-22 修（用户反馈"顶部应该固定、不该跟着滚"）：
+     原来这里是 `min-height: 100vh`（页面自身可滚动），而 `.content` 的高度写死成
+     `calc(100vh - 92rpx)` —— **没有减去状态栏高度**（导航实际高 = 状态栏 + 92rpx）→
+     两者相加比一屏还高 → 页面整体滚动 → 顶部导航（门店名 / 头像 / 身份箭头）跟着一起滚。
+     现在改成「页面不滚、只让 scroll-view 滚」：导航天然固定在顶部，`.content` 用 flex 吃剩余高度
+     （顺带把状态栏高度也算进去了，不用再手写 calc）。 */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
   box-sizing: border-box;
   background: #f2f3f7;
 }
@@ -545,7 +554,10 @@ function goBack(): void {
 .content {
   position: relative;
   z-index: 1;
-  height: calc(100vh - 92rpx);
+  /* ⚠️ 2026-09-22 修：原为 `height: calc(100vh - 92rpx)` —— 漏算状态栏高度导致整页可滚（见 .page 注释）。
+     改为吃父级剩余空间（`.page` 已是 flex column + 固定 100vh），导航因此固定、只有这里滚动。 */
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
   padding: 23rpx;
 }
