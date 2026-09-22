@@ -175,6 +175,14 @@ const router = createRouter({
           meta: { title: '提现审核', permission: ['withdraw:read'], roles: rolesForPath('/withdraw'), requiresAuth: true },
         },
         {
+          // 商户提现审核（平台财务端）：审的是**商户（品牌主体）**按发票发起的提现，与上面 C 端「提现审核」是两套业务。
+          // 后端 `/api/admin/merchant-withdraw/**` 已登记为**仅超管 + 财务**，矩阵里也只给这两个角色。
+          path: 'merchant-withdraw',
+          name: 'MerchantWithdraw',
+          component: () => import('@/views/merchant-withdraw/index.vue'),
+          meta: { title: '商户提现审核', permission: ['withdraw:read'], roles: rolesForPath('/merchant-withdraw'), requiresAuth: true },
+        },
+        {
           path: 'logs/verify',
           name: 'VerifyLogs',
           component: () => import('@/views/logs/verify.vue'),

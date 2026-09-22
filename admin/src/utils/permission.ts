@@ -40,7 +40,7 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/dashboard', '/merchant', '/homepage', '/homepage/bottom-recommendation', '/announcement',
     '/users', '/products', '/categories', '/brands', '/delivery', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/profit', '/wallets', '/transfers',
-    '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
+    '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
@@ -55,11 +55,17 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
   ],
   FINANCE: [
-    '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/logs/audit', '/logs/ledger', '/shops',
+    '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/audit', '/logs/ledger', '/shops',
   ],
 }
 
-/** 路由 path 对应的权限中文名（与 router meta.title 保持一致）。 */
+/**
+ * 路由 path 对应的权限中文名（与 router meta.title 保持一致）。
+ * ⚠️ 注意区分两个「提现审核」：
+ * - `/withdraw` —— C 端**用户**提现审核（商户管理员及以上可见）；
+ * - `/merchant-withdraw` —— **商户（品牌主体）**提现审核（后端 `RoleGuardInterceptor` 登记为**仅超管 + FINANCE**，
+ *   故矩阵里只给 SUPER_ADMIN 与 FINANCE，商户管理员越权会被后端拦掉）。
+ */
 const ROUTE_LABELS: Record<string, string> = {
   '/dashboard': '仪表盘',
   '/merchant': '商户业务台',
@@ -86,6 +92,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/wallets': '钱包管理',
   '/transfers': '余额转账记录',
   '/withdraw': '提现审核',
+  '/merchant-withdraw': '商户提现审核',
   '/logs/verify': '核销日志',
   '/logs/audit': '操作追溯',
   '/logs/ledger': '留痕台账',

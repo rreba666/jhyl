@@ -295,6 +295,12 @@ onUnmounted(() => {
           <el-icon><Tickets /></el-icon>
           <template #title>提现审核</template>
         </el-menu-item>
+        <!-- 商户提现审核（平台财务端）：审的是**商户（品牌主体）**按发票发起的提现，
+             与上面 C 端用户的「提现审核」是两套业务；后端仅超管 + 财务可访问 -->
+        <el-menu-item v-if="canVisit('/merchant-withdraw')" index="/merchant-withdraw">
+          <el-icon><WalletFilled /></el-icon>
+          <template #title>商户提现审核</template>
+        </el-menu-item>
         <!-- 日志管理：核销(全部) + 操作追溯(超管/商户管理员) + 留痕台账(仅平台角色：超管/客服/财务) + 接口调用计数(仅超管) -->
         <el-sub-menu v-if="showLogsMenu" index="/logs">
           <template #title><el-icon><Document /></el-icon><span>日志管理</span></template>

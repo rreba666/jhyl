@@ -21,7 +21,7 @@ const MENU_PATHS = [
   '/dashboard', '/merchant', '/merchants', '/admins', '/homepage', '/announcement', '/users', '/products',
   '/categories', '/brands', '/delivery', '/shop-console', '/shop-delivery', '/shops', '/staff',
   '/orders', '/orders/pickup', '/orders/address-audit', '/after-sale', '/invoices', '/profit',
-  '/wallets', '/transfers', '/withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/settings',
+  '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/settings',
 ]
 
 let failed = 0
@@ -42,6 +42,13 @@ for (const path of ['/merchants', '/admins', '/users', '/categories', '/brands',
 // ②′ 留痕台账（跨商户全量视图，含金额/库存）只给平台角色
 for (const role of ['SUPER_ADMIN', 'CUSTOMER_SERVICE', 'FINANCE'] as const) {
   assert(`${role} 可访问 /logs/ledger`, canAccess(role, '/logs/ledger'), true)
+}
+// ②‴ 商户提现审核（平台财务端）：后端 `/api/admin/merchant-withdraw/**` 登记为**仅超管 + 财务**，
+//      前端矩阵必须同源收紧（商户管理员/客服既看不到菜单，也进不去路由）
+assert('SUPER_ADMIN 可访问 /merchant-withdraw', canAccess('SUPER_ADMIN', '/merchant-withdraw'), true)
+assert('FINANCE 可访问 /merchant-withdraw', canAccess('FINANCE', '/merchant-withdraw'), true)
+for (const role of ['ADMIN', 'CUSTOMER_SERVICE'] as const) {
+  assert(`${role} 不可访问 /merchant-withdraw`, canAccess(role, '/merchant-withdraw'), false)
 }
 // ②″ 接口调用计数（平台级经营数据：全平台接口结构 + 任意商户 shopId + 调用明细）**只给超管** ——
 //     后端该模块尚未声明权限点，前端先收紧；后端口径明确后再放开（见 docs/logs/2026-09/2026-09-22-接口调用计数apicount评估.md 第五节）
