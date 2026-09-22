@@ -11,6 +11,8 @@ import { isApiRequestError } from '@/utils/request'
 import { createRequestId } from '@/utils/request-id'
 import { isLoggedIn } from '@/utils/auth'
 import LoginGuide from '@/components/LoginGuide.vue'
+// 秒退必须填写退款理由 → 统一的理由输入弹层（订单详情页共用同一个组件）
+import RefundReasonSheet from '@/components/RefundReasonSheet.vue'
 
 /** 订单 tab 定义。「退款售后」走售后单接口（key='aftersale'），其余走订单列表。 */
 const tabs: Array<{ key: string; label: string; statuses: OrderStatus[]; pickupType?: 0 | 1 }> = [
@@ -54,6 +56,14 @@ let requestToken = 0
  * 用普通对象（非 ref）：它只参与请求，不参与渲染，不需要响应式。
  */
 const fastRefundRequestIds: Record<string, string> = {}
+
+/** 退款理由弹层：当前正在填写理由的订单（null = 弹层关闭）。 */
+const refundSheetOrder = ref<OrderSummary | null>(null)
+const refundSheetVisible = ref(false)
+/** 理由弹层提交中（禁用输入与按钮、不允许关闭）。 */
+const refundSheetSubmitting = ref(false)
+/** 理由弹层内的错误（提交失败时**不关弹层**，理由不丢，可直接改完重试）。 */
+const refundSheetError = ref('')
 
 /** 微信胶囊按钮位置，用于自定义导航栏精确定位。 */
 const menuTop = ref(0)
@@ -272,43 +282,55 @@ async function refund(order: OrderSummary): Promise<void> {
 }
 
 /**
- * **秒退**（支付后 30 分钟内）：免人工审核、提交后立即原路退款。
+ * 打开秒退的**理由弹层**（📌 秒退必须先填退款理由，2026-09-22 起的产品规则）。
  * 窗口口径见 `utils/refund-window.ts` 的 `canFastRefund`；超出 30 分钟时按钮会变回「退款」（人工审核）。
  */
-async function refundFast(order: OrderSummary): Promise<void> {
+function openFastRefund(order: OrderSummary): void {
   if (actionLoading.value) return
-  actionLoading.value = `refund-fast:${order.id}`
-  const confirmed = await new Promise<boolean>((resolve) => {
-    uni.showModal({
-      title: '立即退款',
-      content: '「秒退」提交后立即原路退款，无需客服审核。确定现在退款吗？',
-      success: (res) => resolve(res.confirm),
-      fail: () => resolve(false),
-    })
-  })
-  if (!confirmed) { actionLoading.value = null; return }
+  refundSheetOrder.value = order
+  refundSheetError.value = ''
+  refundSheetVisible.value = true
+}
+
+/**
+ * 提交秒退（理由来自弹层 `confirm` 事件，**已过校验与清洗**）。
+ *
+ * ⚠️ 失败时**不关闭弹层**：理由留在输入框里，用户改完可直接重试；
+ * 且重试会复用同一个 `X-Request-Id` 幂等键（见 `fastRefundRequestIds`）。
+ */
+async function submitFastRefund(reason: string): Promise<void> {
+  const order = refundSheetOrder.value
+  if (!order || refundSheetSubmitting.value) return
+  refundSheetSubmitting.value = true
+  refundSheetError.value = ''
   const requestKey = String(order.id)
   // 同一笔秒退动作复用同一个幂等键：已有则沿用（重试 / 连点），没有才新生成
   if (!fastRefundRequestIds[requestKey]) fastRefundRequestIds[requestKey] = createRequestId()
   const requestId = fastRefundRequestIds[requestKey]
   try {
-    await fastRefundOrder(order.id, requestId)
+    await fastRefundOrder(order.id, { requestId, reason })
     // 成功后清空该订单的幂等键：本次动作已结束，下次退款重新生成
     delete fastRefundRequestIds[requestKey]
+    refundSheetVisible.value = false
+    refundSheetOrder.value = null
     uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
     // 与人工退款保持一致：跳到「退款售后」分类，让用户看到进度
     activeIndex.value = AFTER_SALE_TAB_INDEX
     await load(true)
   } catch (error) {
     if (isApiRequestError(error) && error.code === 8705) {
+      // 已有处理中的售后单：这不是"理由写错"，关弹层并跳到分类查看
+      refundSheetVisible.value = false
+      refundSheetOrder.value = null
       uni.showToast({ title: '该订单已提交过售后', icon: 'none' })
       activeIndex.value = AFTER_SALE_TAB_INDEX
       await load(true)
       return
     }
-    uni.showToast({ title: error instanceof Error ? error.message : '退款失败', icon: 'none' })
+    // 其它失败：保留弹层与已填理由，错误显示在弹层里（用户改完可重试，重试复用同一个幂等键）
+    refundSheetError.value = error instanceof Error ? error.message : '退款失败，请稍后重试'
   } finally {
-    actionLoading.value = null
+    refundSheetSubmitting.value = false
   }
 }
 
@@ -412,8 +434,9 @@ onShow(() => {
             </template>
             <template v-if="order.status === 1 && order.pickupType === 1">
               <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
-              <!-- 秒退：支付后 30 分钟内可免审核立即退款（与订单详情页同一口径，见 utils/refund-window.ts） -->
-              <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="refundFast(order)">{{ actionLoading === 'refund-fast:' + order.id ? '处理中...' : '立即退款' }}</text>
+              <!-- 秒退：支付后 30 分钟内可免审核立即退款（与订单详情页同一口径，见 utils/refund-window.ts）；
+                   📌 2026-09-22 起**必须先填退款理由** → 点击只开理由弹层，提交逻辑在 submitFastRefund -->
+              <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="openFastRefund(order)">立即退款</text>
               <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '退款' }}</text>
               <text class="btn primary" @click.stop="openDetail(order)">去自提</text>
             </template>
@@ -427,7 +450,8 @@ onShow(() => {
                    ⚠️ 只在「未送达」时给退款入口：已送达应走确认收货/售后，避免与确认收货按钮打架。 -->
               <template v-if="order.status === 1 && progressNodeMap[order.orderNo] !== 'DELIVERED'">
                 <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
-                <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="refundFast(order)">{{ actionLoading === 'refund-fast:' + order.id ? '处理中...' : '立即退款' }}</text>
+                <!-- 秒退同上述自提单口径：先填退款理由再提交（📌 2026-09-22 起必填） -->
+                <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="openFastRefund(order)">立即退款</text>
                 <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '申请退款' }}</text>
               </template>
               <text v-if="order.pickupType === 2 && order.status === 1 && progressNodeMap[order.orderNo] === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>
@@ -440,6 +464,17 @@ onShow(() => {
     </scroll-view>
 
     <LoginGuide v-model="loginGuideVisible" />
+
+    <!-- 秒退理由弹层：📌 秒退必须先填退款理由（提交失败不关弹层：理由不丢，重试复用同一个幂等键） -->
+    <RefundReasonSheet
+      v-model="refundSheetVisible"
+      title="填写退款理由"
+      subtitle="提交后立即原路退款，无需客服审核。退款理由为必填项。"
+      submit-text="确认退款"
+      :submitting="refundSheetSubmitting"
+      :error-message="refundSheetError"
+      @confirm="submitFastRefund"
+    />
   </view>
 </template>
 

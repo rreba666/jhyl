@@ -13,6 +13,8 @@ import { isApiRequestError, resolveImageUrl } from '@/utils/request'
 import { createRequestId } from '@/utils/request-id'
 import { cleanDigits, cleanText, validateMobile, validateText } from '@/utils/input-validation'
 import LoginGuide from '@/components/LoginGuide.vue'
+// 秒退必须填写退款理由 → 与订单列表页共用同一个理由输入弹层
+import RefundReasonSheet from '@/components/RefundReasonSheet.vue'
 // @ts-ignore uqrcode 为 UMD 单文件库（随分包 subpkg-order 打包，避免主包出现未使用的 JS 文件）
 import UQRCode from '@/subpkg-order/utils/uqrcode'
 
@@ -47,6 +49,11 @@ const processingAfterSale = ref(false)
  * **成功后清空**（下一次退款是新的动作，要生成新的 id）。用普通变量（非 ref）：只参与请求、不参与渲染。
  */
 let fastRefundRequestId = ''
+
+/** 秒退理由弹层：可见性 / 提交中 / 提交失败文案（失败时**不关弹层**，理由不丢，改完可重试）。 */
+const refundSheetVisible = ref(false)
+const refundSheetSubmitting = ref(false)
+const refundSheetError = ref('')
 
 /** 地址修改申请表单，内容按当前用户和订单自动缓存。 */
 interface AddressChangeForm {
@@ -569,7 +576,8 @@ watch(addressChangeForm, () => {
   }
 }, { deep: true })
 
-async function action(type: 'cancel' | 'receive' | 'refund' | 'refund-fast' | 'confirm-delivery'): Promise<void> {
+// 秒退不走这里：它必须先填退款理由 → 见 openFastRefund / submitFastRefund
+async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'): Promise<void> {
   if (!order.value || actionLoading.value) return
   actionLoading.value = true
   try {
@@ -580,18 +588,6 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'refund-fast' | 'c
       await confirmReceiveDelivery(String(order.value.orderNo || ''))
       uni.showToast({ title: '已确认收货', icon: 'success' })
       await load(String(order.value.id))
-      return
-    }
-    // 秒退：支付后 30 分钟内免人工审核、立即原路退款（窗口判断见 utils/refund-window.ts 的 canFastRefund）
-    if (type === 'refund-fast') {
-      // 同一笔秒退动作复用同一个幂等键：已有则沿用（失败重试 / 连点），没有才新生成
-      if (!fastRefundRequestId) fastRefundRequestId = createRequestId()
-      await fastRefundOrder(order.value.id, fastRefundRequestId)
-      // 成功后清空幂等键：本次动作已结束，下次退款重新生成
-      fastRefundRequestId = ''
-      uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
-      // 与人工退款一致：跳到「退款售后」分类看进度
-      uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
       return
     }
     if (type === 'refund') {
@@ -612,6 +608,48 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'refund-fast' | 'c
     }
     uni.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
   } finally { actionLoading.value = false }
+}
+
+/**
+ * 打开秒退的**理由弹层**（📌 秒退必须先填退款理由，2026-09-22 起的产品规则）。
+ * 窗口判断见 `utils/refund-window.ts` 的 `canFastRefund`。
+ */
+function openFastRefund(): void {
+  if (!order.value || actionLoading.value) return
+  refundSheetError.value = ''
+  refundSheetVisible.value = true
+}
+
+/**
+ * 提交秒退（理由来自弹层 `confirm`，**已过校验与清洗**）。
+ * ⚠️ 失败不关弹层：理由不丢，用户改完可直接重试；重试复用同一个 `X-Request-Id` 幂等键。
+ */
+async function submitFastRefund(reason: string): Promise<void> {
+  if (!order.value || refundSheetSubmitting.value) return
+  refundSheetSubmitting.value = true
+  refundSheetError.value = ''
+  // 同一笔秒退动作复用同一个幂等键：已有则沿用（失败重试 / 连点），没有才新生成
+  if (!fastRefundRequestId) fastRefundRequestId = createRequestId()
+  try {
+    await fastRefundOrder(order.value.id, { requestId: fastRefundRequestId, reason })
+    // 成功后清空幂等键：本次动作已结束，下次退款重新生成
+    fastRefundRequestId = ''
+    refundSheetVisible.value = false
+    uni.showToast({ title: '已提交退款，将原路退回', icon: 'success' })
+    // 与人工退款一致：跳到「退款售后」分类看进度
+    uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
+  } catch (error) {
+    if (isApiRequestError(error) && error.code === 8705) {
+      // 已有处理中的售后单：关弹层并跳分类查看
+      refundSheetVisible.value = false
+      uni.showToast({ title: '该订单已提交过售后', icon: 'none' })
+      uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
+      return
+    }
+    refundSheetError.value = error instanceof Error ? error.message : '退款失败，请稍后重试'
+  } finally {
+    refundSheetSubmitting.value = false
+  }
 }
 /** 状态栏高度：本页为自定义导航（navigationStyle: custom），需自行避开状态栏与右上角胶囊按钮。 */
 const statusBarHeight = ref(0)
@@ -764,7 +802,7 @@ onUnload(() => {
 
       <!-- ⚠️ 秒退按钮的判据必须**调用** canFastRefund(order)：它是函数，模板里不加括号会被求值成"函数对象"（恒 truthy），
            于是 30 分钟窗口判断完全失效、任何"已支付未送达"的单都会显示「立即退款」（2026-09-22 修的 bug）。 -->
-      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefund(order)" :disabled="actionLoading" @click="action('refund-fast')">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
+      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefund(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->
@@ -780,6 +818,17 @@ onUnload(() => {
     </view>
 
     <LoginGuide v-model="loginGuideVisible" />
+
+    <!-- 秒退理由弹层：📌 秒退必须先填退款理由（提交失败不关弹层：理由不丢，重试复用同一个幂等键） -->
+    <RefundReasonSheet
+      v-model="refundSheetVisible"
+      title="填写退款理由"
+      subtitle="提交后立即原路退款，无需客服审核。退款理由为必填项。"
+      submit-text="确认退款"
+      :submitting="refundSheetSubmitting"
+      :error-message="refundSheetError"
+      @confirm="submitFastRefund"
+    />
   </view>
 </template>
 

@@ -259,15 +259,29 @@ export function refundOrder(orderId: number | string, reason?: string): Promise<
  * **秒退**：已支付且未发货/未核销的订单**免人工审核**，提交后立即触发退款（原路退回）。
  *
  * 契约：`POST /api/order/refund/fast/{orderId}`（`api_doc.json` 摘要「秒退（已支付未发货，免人工审核）」，
- * 入参与 `refundOrder` 同为可空的 `OrderRefundDTO`，这里跟随姊妹项目「今华有肽」的用法传空对象）。
+ * 请求体与 `refundOrder` 同为 `OrderRefundDTO`，**该 DTO 只有 `reason` 一个字段**）。
  *
  * ⚠️ 前端**只在「支付后 30 分钟内」显示秒退入口**（见 `utils/refund-window.ts` 的 `canFastRefund`）——
  * 这是产品规则；接口本身的窗口以后端为准（若后端拒绝，提示用户改走「申请退款」）。
  *
+ * 📌 **秒退必须填写退款理由**（2026-09-22 起的产品规则）：入口不再是"弹个确认框就提交"，
+ * 而是先开 `components/RefundReasonSheet.vue` 收集理由（必填）→ 校验通过后才调本函数。
+ * 理由的清洗与字符白名单见 `utils/refund-reason.ts`（与后端 `@Pattern` 对齐，前端先拦住避免"填完才报错"）。
+ *
  * @param orderId 订单 ID
- * @param requestId 可选幂等键：会作为请求头 `X-Request-Id` 上送（见 `utils/request-id.ts`）。
+ * @param payload.reason 退款理由（清洗后的值；为空则不传该字段，与历史 `{}` 请求体一致）
+ * @param payload.requestId 可选幂等键：作为请求头 `X-Request-Id` 上送（见 `utils/request-id.ts`）。
  *   **同一笔秒退动作的失败重试 / 连点必须复用同一个值**，否则后端「接口调用计数」会重复计数；不传则无幂等。
  */
-export function fastRefundOrder(orderId: number | string, requestId?: string): Promise<void> {
-  return request<void>({ url: `/api/order/refund/fast/${orderId}`, method: 'POST', data: {}, requestId })
+export function fastRefundOrder(
+  orderId: number | string,
+  payload: { reason?: string; requestId?: string } = {},
+): Promise<void> {
+  return request<void>({
+    url: `/api/order/refund/fast/${orderId}`,
+    method: 'POST',
+    // 理由为空 → 不传该键（请求体仍是 `{}`）；传了就按 OrderRefundDTO 的 reason 上送
+    data: payload.reason ? { reason: payload.reason } : {},
+    requestId: payload.requestId,
+  })
 }
