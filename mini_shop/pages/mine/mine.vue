@@ -99,8 +99,8 @@ const menuItems = [
   { key: 'favorite', label: '我的收藏', icon: '/static/my/收藏_slices/收藏.png' },
   { key: 'materials', label: '商品素材', icon: '/static/my/商品素材_slices/商品素材.png' },
   { key: 'merchant-apply', label: '商家入驻', icon: '/static/my/商品素材_slices/商品素材.png' },
-  { key: 'agreement', label: '用户协议', icon: '/static/my/隐私_slices/隐私.png' },
-  { key: 'privacy', label: '隐私保护指引', icon: '/static/my/隐私_slices/隐私.png' },
+  // 2026-09-22 用户要求：「用户协议」「隐私保护指引」**不在个人中心显示**，入口已挪到「设置」页。
+  // 协议页本身（pages/user-agreement、pages/privacy）保留不动 —— 必须仍然可达。
 ]
 
 /** 功能菜单可见性按模块开关过滤：发票记录→invoice，其余条目不受模块控制（basic/通用）。客服项单独渲染（微信原生客服）。 */

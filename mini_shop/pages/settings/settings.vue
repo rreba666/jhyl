@@ -148,6 +148,20 @@ function goBankCards(): void {
           <text class="row-arrow">›</text>
         </view>
       </view>
+
+      <!-- 协议入口（2026-09-22 从个人中心挪来）：
+           个人中心不再显示这两项，但协议页必须仍然可达（小程序审核要求有隐私协议入口）。
+           本页已有在模板里直接调 uni API 的先例（见返回按钮），这里沿用同样写法。 -->
+      <view class="card">
+        <view class="row" @click="uni.navigateTo({ url: '/pages/user-agreement/user-agreement' })">
+          <text class="row-label">用户协议</text>
+          <text class="row-arrow">›</text>
+        </view>
+        <view class="row" @click="uni.navigateTo({ url: '/pages/privacy/privacy' })">
+          <text class="row-label">隐私保护指引</text>
+          <text class="row-arrow">›</text>
+        </view>
+      </view>
     </scroll-view>
 
     <RealnameVerifySheet v-model="realnameVisible" @verified="onRealnameVerified" />
