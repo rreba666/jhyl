@@ -10,6 +10,13 @@ export interface MerchantApplyShopDTO {
   latitude?: number
   longitude?: number
   mainBusiness?: string
+  /**
+   * 门店图片 URL（门头/店内照）。
+   * ⚠️ 2026-09-22 新增：门店本身有该字段（后端 `ShopCreateDTO.shopImage`，建议 690x345、<2MB），
+   * 但**入驻申请的 `ShopPart` 目前缺这个字段** —— 需要后端补上，并在审核通过建店时映射到
+   * `ShopCreateDTO.shopImage`；否则这里传的值会被忽略（前端照传，后端加字段后自动生效）。
+   */
+  shopImage?: string
 }
 
 /** 入驻申请请求体。 */

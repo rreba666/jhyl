@@ -193,18 +193,21 @@ async function loadData(): Promise<void> {
       uni.removeStorageSync('identity_entry')
     }
   }
+  // 身份列表（可切换身份 / 待开通占位）：**只要有登录态就拉**，与"资料是否完善"无关。
+  // ⚠️ 2026-09-22 修（用户反馈"入驻通过了还是看不到门店管理"）：原先这一步在下面 `registeredUser`
+  // 判断**之后**，而资料未完善的用户会在那里直接 return → `getIdentity()` 压根没被调用
+  // → 身份区永远不显示，只改显示条件是没用的（上一版就漏了这里）。
+  void loadIdentity()
   if (!registeredUser.value) {
-    // 资料拉不到 / 非注册用户（如后端返回「用户不存在」）→ 一律按游客处理：
-    // 清空身份与本地身份缓存，避免出现"没登录却显示「我的身份」"的错乱
-    identity.value = null
+    // 资料未完善（「我的」页顶部显示"游客"）：钱包与推广兜底确实依赖注册用户 → 清掉；
+    // 但**身份照常展示** —— 身份绑在微信/token 上，与资料是否完善无关。
+    // 也不再清 `identity_entry`：那是身份切换缓存（骑手页店名、弹层默认选中都用它），
+    // 在"资料未完善"场景清掉只会让店长/骑手丢展示信息。
     wallet.value = null
     promotionFrozenAmount.value = 0
     clearPromotionSettlement()
-    uni.removeStorageSync('identity_entry')
     return
   }
-  // 身份列表（可切换身份 / 待开通占位）：仅注册用户拉取，失败按无身份处理
-  void loadIdentity()
   try {
     // 钱包信息优先拉取：后端已下发 unsettledPromotion 时无需再拉 60 天推广明细做汇总
     const walletInfo = await getWalletInfo()

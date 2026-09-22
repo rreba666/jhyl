@@ -26,6 +26,13 @@ const form = ref({
   latitude: null as number | null,
   longitude: null as number | null,
   licenseImage: '',
+  /**
+   * 门店图片（门头/店内照，提交到 `shop.shopImage`）。
+   * ⚠️ 2026-09-22 需求：门店本身有图片字段（后端 `ShopCreateDTO.shopImage`，建议 690x345、<2MB），
+   * 但**入驻申请的 `ShopPart` 目前没有这个字段** → 需要后端补上并在审核通过建店时映射过去，
+   * 否则这里传的值会被后端忽略（前端照传，后端加字段后即自动生效，不会报错）。
+   */
+  shopImage: '',
   remark: '',
 })
 
@@ -123,6 +130,31 @@ function chooseLicense(): void {
   })
 }
 
+/**
+ * 门店图片（门头/店内照）：选图 → 上传（`/api/common/upload`）→ 回填 `shopImage`。
+ * 与营业执照同一套上传通道；后端对图片的要求是 690x345、<2MB（见 `ShopCreateDTO.shopImage`），
+ * 这里只做「单张 + 压缩」的轻量约束，尺寸由商户自己把握。
+ */
+function chooseShopImage(): void {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    success: async (res) => {
+      const filePath = res.tempFilePaths?.[0]
+      if (!filePath) return
+      uploading.value = true
+      try {
+        form.value.shopImage = await uploadFile(filePath)
+        uni.showToast({ title: '门店图片已上传', icon: 'success' })
+      } catch (error) {
+        uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
+      } finally {
+        uploading.value = false
+      }
+    },
+  })
+}
+
 /** 提交入驻申请。 */
 async function submit(): Promise<void> {
   brandError.value = ''
@@ -130,6 +162,11 @@ async function submit(): Promise<void> {
   if (!form.value.shopName.trim()) { uni.showToast({ title: '请输入门店名称', icon: 'none' }); return }
   if (form.value.latitude == null || form.value.longitude == null) {
     uni.showToast({ title: '请先选择门店位置（必须选点）', icon: 'none' })
+    return
+  }
+  // 门店图片必填（2026-09-22 需求）：审核方要能看到门店实际长什么样，光有地址与坐标不够
+  if (!form.value.shopImage) {
+    uni.showToast({ title: '请上传门店图片', icon: 'none' })
     return
   }
   submitting.value = true
@@ -144,6 +181,8 @@ async function submit(): Promise<void> {
         latitude: form.value.latitude,
         longitude: form.value.longitude,
         mainBusiness: form.value.mainBusiness.trim() || undefined,
+        // 门店图片（需后端在 ShopPart 补该字段并在建店时映射到 ShopCreateDTO.shopImage，见 MerchantApplyShopDTO 注释）
+        shopImage: form.value.shopImage || undefined,
       },
       licenseImage: form.value.licenseImage || undefined,
       remark: form.value.remark.trim() || undefined,
@@ -243,6 +282,16 @@ function goBack(): void {
         <label class="field"><text class="field-label">联系人</text><input v-model="form.contactName" class="field-input" placeholder="请输入联系人姓名" /></label>
         <label class="field"><text class="field-label">联系电话</text><input v-model="form.contactPhone" class="field-input" type="number" maxlength="11" placeholder="请输入手机号" /></label>
 
+        <!-- 门店图片（2026-09-22 需求）：有门店就必须上传，审核方据此核对门店真实性 -->
+        <view class="field">
+          <text class="field-label">门店图片 *</text>
+          <view class="license-row">
+            <image v-if="form.shopImage" class="license-img" :src="form.shopImage" mode="aspectFit" @click="chooseShopImage" />
+            <button class="license-btn" :disabled="uploading" @click="chooseShopImage">{{ uploading ? '上传中…' : (form.shopImage ? '重新上传' : '上传门店图片') }}</button>
+          </view>
+          <text class="field-hint">门头或店内实拍，建议 690×345、小于 2MB</text>
+        </view>
+
         <view class="field">
           <text class="field-label">营业执照</text>
           <view class="license-row">
@@ -291,6 +340,8 @@ function goBack(): void {
 .license-row { display: flex; align-items: center; gap: 20rpx; }
 .license-img { width: 180rpx; height: 180rpx; border-radius: 16rpx; background: #f2f3f5; }
 .license-btn { margin: 0; border-radius: 16rpx; background: #f2f3f5; color: #1d2129; font-size: 28rpx; line-height: 80rpx; }
+/* 上传项的辅助说明（尺寸建议等），比主标签弱一档 */
+.field-hint { display: block; margin-top: 12rpx; color: #86909c; font-size: 24rpx; line-height: 34rpx; }
 .btn { margin-top: 40rpx; border-radius: 44rpx; background: linear-gradient(135deg, #ffb341 0%, #ff5500 100%); color: #fff; font-size: 30rpx; line-height: 88rpx; }
 .btn[disabled] { opacity: .6; }
 </style>
