@@ -18,6 +18,13 @@ import { isLoggedIn } from '@/utils/auth'
 
 type LayoutMode = 'grid' | 'list'
 
+/**
+ * 首页分享卡片图（2026-09-22 换新切图 `分享海报/share 1.png`，1400×1120 正好 5:4）。
+ * 微信聊天里展示的就是这张图；海报弹窗「发送群或好友」按钮走的是同一条 `onShareAppMessage`。
+ * ⚠️ 官方文档明确 `imageUrl` **只支持 PNG / JPG**，所以这里用 JPG，不能用 WebP。
+ */
+const SHARE_CARD_IMAGE = '/static/design-cuts/figma-share/share-card.jpg'
+
 /** 兜底金刚区（后端未配置时使用）。 */
 const defaultCategories: Array<{ label: string; icon: string; background: string; iconOffset: { left: number; top: number } }> = [
   { label: '营养膳食', icon: '/static/figma-home/category-nutrition.webp', background: '/static/figma-home/category-nutrition-bg.svg', iconOffset: { left: -2, top: 4 } },
@@ -213,6 +220,7 @@ onLoad((options) => {
 onShareAppMessage(() => ({
   title: brandName.value,
   path: buildPromotionSharePath('/pages/index/index'),
+  imageUrl: SHARE_CARD_IMAGE,
 }))
 
 /** 屏幕可视高度（px），用于把 scrollTop 换算成"滚过了几行"；取不到时按 0（靠触底兜底）。 */

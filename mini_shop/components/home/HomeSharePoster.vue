@@ -29,9 +29,21 @@ const POSTER_QR_FALLBACK = '/static/design-cuts/figma-share/poster-qr-placeholde
 const POSTER_CLOSE_ICON = '/static/design-cuts/figma-share/poster-close.svg'
 const POSTER_WIDTH = 1000
 const POSTER_HEIGHT = 1600
-const QR_X = 385
-const QR_Y = 1219
-const QR_SIZE = 240
+/**
+ * 二维码落位（画布坐标，单位 = 背景切图原始像素）。
+ *
+ * 依据（2026-09-22 换新背景 `分享海报/share 2.png` 实测）：新背景底部是米色底 + **纯白圆形占位**
+ * （无内嵌二维码），用严格阈值（R/G/B 均 > 250）逐像素扫描并取最大连通域，得
+ * 占位 bbox = **(375,1211)-(632,1467)**，即 258×257 的正圆（连通域填充率 0.786 ≈ π/4），圆心 (503.5,1339)。
+ * 故 QR_X=375 / QR_Y=1211 / QR_SIZE=258：正方形按占位外接框绘制，与旧图（240 画在 ~256 白圆上）同口径。
+ * 旧常量 385/1219/240 对应的是**旧背景里已经烘焙好的二维码**位置，新背景没有烘焙二维码，必须按上表重算。
+ *
+ * ⚠️ 二维码素材（含兜底 `poster-qr-placeholder.webp`）是**白底正方形**，四个角会盖住金环的对角位置；
+ * 若设计希望金环完整可见，需换成四角透明的小程序码素材。
+ */
+const QR_X = 375
+const QR_Y = 1211
+const QR_SIZE = 258
 
 const props = defineProps<{
   modelValue: boolean
@@ -215,7 +227,10 @@ function copyShareLink(): void {
 .home-share-dialog { display: flex; width: 100%; flex-shrink: 0; flex-direction: column; align-items: center; padding-bottom: calc(96rpx + 12rpx); box-sizing: border-box; }
 .home-share-poster { position: relative; width: 460rpx; height: 736rpx; overflow: hidden; border-radius: 16rpx; background: #f5f1ea; box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, .18); }
 .home-share-poster-bg { display: block; width: 100%; height: 100%; }
-.home-share-poster-qr { position: absolute; top: 560rpx; left: 177rpx; width: 110rpx; height: 110rpx; }
+/* 预览态二维码落点：与 createPosterFile() 的 QR_X/QR_Y/QR_SIZE 严格一致。
+   换算系数 0.46 = 海报展示宽 460rpx ÷ 画布宽 1000px（高度同为 736rpx ÷ 1600px = 0.46）：
+   left = 375 × 0.46 = 172.5rpx、top = 1211 × 0.46 ≈ 557rpx、宽高 = 258 × 0.46 ≈ 118.7rpx。 */
+.home-share-poster-qr { position: absolute; top: 557rpx; left: 172.5rpx; width: 118.7rpx; height: 118.7rpx; }
 .home-share-close { display: block; width: 56rpx; height: 56rpx; margin-top: 16rpx; }
 .home-share-actions { position: fixed; right: 0; bottom: 0; left: 0; z-index: 5; display: flex; width: 100%; height: 96rpx; align-items: center; gap: 16rpx; padding: 16rpx 24rpx; box-sizing: border-box; background: #fff; }
 .home-share-action, .home-share-send { display: flex; height: 64rpx; align-items: center; justify-content: center; padding: 0 20rpx; box-sizing: border-box; border-radius: 999rpx; color: #ff5500; font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
