@@ -212,7 +212,7 @@ onShow(() => { void refreshCategories() })
 </template>
 
 <style>
-.pg { display: flex; flex-direction: column; min-height: 100vh; background: #fff; }
+.pg { display: flex; flex-direction: column; min-height: 100vh; background: #f5f6f8; }
 
 /* ===== 导航栏 ===== */
 .nav { position: fixed; left: 0; right: 0; z-index: 100; display: flex; align-items: center; padding-left: 26rpx; background: #fff; box-sizing: border-box; }
@@ -235,13 +235,16 @@ onShow(() => { void refreshCategories() })
 /* 商品区 */
 .prod { flex: 1; padding: 16rpx 0 0 14rpx; }
 .prod-grid { display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: space-between; }
-.card { width: 270rpx; margin-bottom: 24rpx; }
-/* 图区 270rpx 正方，图片撑满 */
-.card-img { width: 270rpx; height: 270rpx; background: #e9e7dd; position: relative; overflow: hidden; border-radius: 8rpx; }
-.c-img { width: 100%; height: 100%; }
-.c-img-ph { width: 100%; height: 100%; background: rgba(0,0,0,.05); }
+/* 两列各占一半（减掉列间距 14rpx）。原来写死 width:270rpx，而卡片是 flex item、默认会被收缩，
+   内容和图片一撑就两列不等宽 —— 这正是「排列不齐」的根源之一。 */
+.card { flex: 0 0 calc((100% - 14rpx) / 2); margin-bottom: 24rpx; }
+/* 图区用 padding-top:100% 撑成正方形（与图片原始比例无关）。
+   原来写死 270rpx×270rpx：卡片宽度一被收缩，图片就跟着大小不一。 */
+.card-img { position: relative; width: 100%; padding-top: 100%; background: #e9e7dd; overflow: hidden; border-radius: 8rpx; }
+.c-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.c-img-ph { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.05); }
 /* 价格 + 加购：商品名下方，价格在左、加购在右，两端对齐 */
-.c-bot { display: flex; width: 270rpx; align-items: center; justify-content: space-between; margin-top: 8rpx; }
+.c-bot { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: 8rpx; }
 .c-pri { display: flex; align-items: baseline; }
 .p-y { color: #ff5500; font-size: 20rpx; font-weight: 500; }
 .p-n { color: #ff5500; font-size: 30rpx; font-weight: 600; margin-left: 2rpx; }
@@ -250,7 +253,8 @@ onShow(() => { void refreshCategories() })
 .add-cart-h { position: absolute; width: 18rpx; height: 3rpx; background: #fff; border-radius: 2rpx; }
 .add-cart-v { position: absolute; width: 3rpx; height: 18rpx; background: #fff; border-radius: 2rpx; }
 /* 商品名 */
-.c-name { width: 270rpx; color: #0a0a0a; font-size: 24rpx; font-weight: 500; line-height: 30rpx; margin-top: 12rpx; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
+/* 商品名固定两行高度：只有一行的商品也占满两行，两列底部的价格行才会对齐 */
+.c-name { width: 100%; min-height: 60rpx; color: #0a0a0a; font-size: 24rpx; font-weight: 500; line-height: 30rpx; margin-top: 12rpx; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
 
 .ld { text-align: center; padding-top: 200rpx; }
 .ld-t { color: #999; font-size: 28rpx; }
