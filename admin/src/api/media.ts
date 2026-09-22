@@ -1,4 +1,6 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+// ⚠️ 前缀必须与请求层同源（`api/request.ts` 的 API_BASE_URL，已归一化末尾斜杠）：
+// 之前这里自己读 `VITE_API_BASE_URL`（= 小程序的生产值，内网地址）→ 生产后台图片全部指向内网、全裂。
+import { API_BASE_URL } from './request'
 
 /** 将后端返回的相对媒体路径补全为当前 API 服务地址。 */
 export function resolveMediaUrl(value: unknown): string {

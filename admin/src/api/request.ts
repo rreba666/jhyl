@@ -25,11 +25,25 @@ function redirectToLogin(): void {
 }
 
 /**
- * 后端基址：优先 `VITE_API_BASE_URL`（admin 通过 `vite.config.ts` 的 `envDir: '../mini_shop'` **复用小程序的环境文件**），
- * 缺失时兜底到 dev 内网地址 —— 今华有肽的教训：baseURL 为 `undefined` 时 axios 会静默走相对路径、打到当前站点，报错很隐蔽。
- * ⚠️ 生产构建必须由 `mini_shop/.env.production` 提供正式 HTTPS 域名。
+ * 后端基址（按优先级）：
+ * 1. `VITE_ADMIN_API_BASE_URL` —— **admin 专用覆盖**（仍复用 `mini_shop` 的 env 文件，见 `vite.config.ts` 的 `envDir`）。
+ *    为什么需要这一层：微信小程序的「request 合法域名」**不允许带端口**（必须 443 https），
+ *    而后端 2026-09-22 对外暴露的是 `https://yladmin.jinhuayou365.com:8443`（带端口）
+ *    → **后台能用、小程序不能用**，两者必须允许配成不同的值。
+ * 2. `VITE_API_BASE_URL` —— 与小程序的共用值（未单独覆盖时的回退）。
+ * 3. 兜底：dev 用内网地址、生产用正式域名 —— 今华有肽的教训：baseURL 为 `undefined` 时 axios 会静默走相对路径、
+ *    打到当前站点，报错很隐蔽。⚠️ 用 `import.meta.env.DEV` 分支是为了让**内网地址不出现在生产包里**（构建时被常量折叠）。
  */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.4:8080'
+const FALLBACK_API_BASE_URL = import.meta.env.DEV ? 'http://192.168.1.4:8080' : 'https://yladmin.jinhuayou365.com:8443'
+
+/**
+ * 后端基址（**全项目唯一来源**，末尾斜杠已归一化）。
+ * ⚠️ `api/media.ts` 也 import 这个常量来补全图片地址 —— 它原先自己读 `VITE_API_BASE_URL`，
+ * 于是后台的图片/头像前缀用的是**小程序那个值**（生产=内网）→ 部署后后台图片会全裂（2026-09-22 发现并修）。
+ */
+export const API_BASE_URL = String(
+  import.meta.env.VITE_ADMIN_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || FALLBACK_API_BASE_URL,
+).replace(/\/+$/, '')
 
 // 统一请求实例，使用 Vite 环境变量区分不同部署环境的后端地址。
 export const request = axios.create({
