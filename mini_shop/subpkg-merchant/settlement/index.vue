@@ -344,6 +344,17 @@ function goBill(): void {
   uni.navigateTo({ url: '/subpkg-merchant/bill/index' })
 }
 
+/**
+ * 去「我的」页切换身份。
+ *
+ * ⚠️ 结算与提现按**当前身份**判定：入驻会同时授予「商家（MERCHANT_OWNER）」与「店长（MANAGER）」
+ * 两个身份，若当前是店长，后端就返回 13016。商户主体需要回「我的」切到商家身份。
+ * `pages/mine/mine` 是 tabBar 页 ⇒ 必须用 `switchTab`（navigateTo 会失败）。
+ */
+function goSwitchIdentity(): void {
+  uni.switchTab({ url: '/pages/mine/mine' })
+}
+
 function goBack(): void {
   const pages = getCurrentPages()
   if (pages.length > 1) uni.navigateBack()
@@ -363,7 +374,15 @@ function goBack(): void {
       <view v-if="notMerchantOwner" class="blocked-card">
         <text class="blocked-title">仅商户品牌主体可查看结算账户与提现</text>
         <text class="blocked-desc">当前身份为店长/店员，只能查看本门店订单口径营业额。</text>
+        <!-- ⚠️ 2026-09-25 补充可操作指引：入驻审核通过会**同时**授予「商家」与「店长」两个身份，
+             而结算/提现是按**当前身份**判定的 ⇒ 不少商户主体会卡在这张卡上（真实反馈：
+             "我的账号是商户主体，为什么显示这个"）。所以要直接告诉他怎么切回去。 -->
+        <text class="blocked-hint">
+          一个账号常同时拥有「商家」和「店长」两个身份，而结算与提现按当前身份判定。
+          如果你本身就是品牌主体，请到「我的」页切换到商家身份后再回来查看。
+        </text>
         <view class="blocked-button" @click="goBill">去「账单」看本店营业额</view>
+        <view class="blocked-button blocked-button--ghost" @click="goSwitchIdentity">去「我的」切换身份</view>
       </view>
 
       <template v-else>
@@ -566,6 +585,22 @@ function goBack(): void {
   font-size: 25rpx;
   line-height: 40rpx;
   text-align: center;
+}
+/* 可操作指引（2026-09-25）：商户主体被卡在「店长」身份时，明确告诉他去哪儿切回来 */
+.blocked-hint {
+  margin-top: 20rpx;
+  color: #4e5969;
+  font-size: 24rpx;
+  line-height: 38rpx;
+  text-align: center;
+}
+/* 次要按钮：白色描边。
+   ⚠️ 用 `.blocked-card` 前缀提高特异性（2 个 class），否则会被后面的 `.blocked-button` 覆盖 */
+.blocked-card .blocked-button--ghost {
+  margin-top: 20rpx;
+  background: #ffffff;
+  border: 1rpx solid #ff5500;
+  color: #ff5500;
 }
 .blocked-button {
   margin-top: 38rpx;
