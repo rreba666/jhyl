@@ -139,7 +139,16 @@ async function submit(): Promise<void> {
       latitude: form.value.latitude,
       longitude: form.value.longitude,
     })
-    uni.showToast({ title: '门店已创建', icon: 'success' })
+    // ⚠️ 新门店**默认还不能同城配送**：C 端结算页的「发货门店」列表来自 `/api/shop/deliverable`，
+    // 它按「该门店已上架这些商品（shop_product.status=1）」+ 门店启用状态筛选；
+    // 新门店的同城配送规则默认是关闭的，必须去后台开启，否则用户下单时选不到这家店。
+    uni.showModal({
+      title: '门店已创建',
+      content: '新门店默认还不能同城配送：请到「配送工作台」开启该店的配送规则，并把商品上架到该门店；'
+        + '之后用户端结算页的「发货门店」才会出现它。',
+      showCancel: false,
+      confirmText: '知道了',
+    })
     formVisible.value = false
     await loadShops()
   } catch (error) {
@@ -255,6 +264,16 @@ onPullDownRefresh(async () => {
             </button>
           </view>
         </view>
+      </view>
+
+      <!-- 新建门店后的必做事项：不是漏做，是链路要求 -->
+      <view class="card note-card">
+        <text class="note-title">新门店为什么在用户端选不到？</text>
+        <text class="note-text">
+          用户端结算页的「发货门店」由可配送门店接口筛选，条件有两层：
+          ① 该门店已把这些商品上架（门店商品关系为启用）；② 该门店已启用同城配送规则。
+          新门店两者默认都没开，所以只建店是不够的 —— 还要去后台开启该店配送规则、并把商品上架到该店。
+        </text>
       </view>
 
       <!-- 编辑能力的说明：不是漏做 -->
