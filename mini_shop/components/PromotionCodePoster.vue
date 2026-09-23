@@ -57,9 +57,9 @@ const POSTER_HEIGHT = 1600
  * 用于吃掉抗锯齿边缘（阈值 >250 时边缘像素被排除，实际白圆视觉直径略大于 255px）。
  * 与首页分享海报保持同一组常量，避免同一张图两处坐标不一致。
  */
-const QR_X = 375
-const QR_Y = 1211
-const QR_SIZE = 258
+const QR_X = 385
+const QR_Y = 1219
+const QR_SIZE = 240
 
 /**
  * 预览态 CSS 换算系数 = 0.56。

@@ -41,9 +41,9 @@ const POSTER_HEIGHT = 1600
  * ⚠️ 二维码素材（含兜底 `poster-qr-placeholder.webp`）是**白底正方形**，四个角会盖住金环的对角位置；
  * 若设计希望金环完整可见，需换成四角透明的小程序码素材。
  */
-const QR_X = 375
-const QR_Y = 1211
-const QR_SIZE = 258
+const QR_X = 385
+const QR_Y = 1219
+const QR_SIZE = 240
 
 const props = defineProps<{
   modelValue: boolean
