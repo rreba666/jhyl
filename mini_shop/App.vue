@@ -42,5 +42,9 @@ page {
   background: #f6f8fc;
   color: #172033;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  /* 全局禁止横向滚动（2026-09-22 iOS 反馈「可以左右滑动」）：
+     任何元素只要超出屏宽一点，WebKit 就允许整体横向拖拽；
+     页面级横向滚动在小程序里没有正当用途，统一裁掉兜底。 */
+  overflow-x: hidden;
 }
 </style>

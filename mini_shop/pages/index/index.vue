@@ -386,7 +386,8 @@ onShow(() => {
 .share-pill::after { border: 0; }
 /* 2026-09-22: was a CSS-drawn circle faking a magnifier (no handle) -> now iconfont rider-icon-sousuo */
 .search-icon { flex-shrink: 0; }
-.search-icon::after { position: absolute; right: -8rpx; bottom: -5rpx; width: 14rpx; height: 3rpx; transform: rotate(45deg); background: #86909c; content: ''; }
+/* 2026-09-22: 原先这里用 CSS 画「镜柄」伪元素（right: -8rpx 会往右溢出到屏外），
+   搜索图标已改为 iconfont 的完整放大镜，故删除 —— 它也是 iOS 能左右滑动的主要嫌疑。 */
 .share-icon { color: #4e5969; font-size: 34rpx; line-height: 1; }
 .hero-module { width: calc(100% - 16px); margin-bottom: 12px; padding-bottom: 16rpx; box-sizing: border-box; overflow: hidden; border-radius: 16rpx; background: #148c48; }
 .hero-swiper, .hero-placeholder { width: 100%; height: 280rpx; overflow: hidden; border-radius: 16rpx; }
