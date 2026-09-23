@@ -290,11 +290,11 @@ onShow(() => {
       </view>
       <view class="search-row">
         <view class="search-pill" @click="goSearch">
-          <text class="search-icon" aria-hidden="true" />
+          <text class="rider-icon rider-icon-sousuo search-icon" aria-hidden="true" />
           <text class="search-placeholder">老字号精选好物</text>
         </view>
         <button class="share-pill" @click="openSharePoster">
-          <text class="share-icon" aria-hidden="true">↗</text>
+          <text class="rider-icon rider-icon-fenxiang share-icon" aria-hidden="true" />
           <text>分享</text>
         </button>
       </view>
@@ -373,7 +373,8 @@ onShow(() => {
 .search-pill { flex: 1; gap: 12rpx; padding: 0 24rpx; }
 .share-pill { width: 128rpx; flex-shrink: 0; justify-content: center; gap: 8rpx; padding: 0; }
 .share-pill::after { border: 0; }
-.search-icon { position: relative; width: 36rpx; height: 36rpx; flex-shrink: 0; border: 3rpx solid #86909c; border-radius: 50%; box-sizing: border-box; }
+/* 2026-09-22: was a CSS-drawn circle faking a magnifier (no handle) -> now iconfont rider-icon-sousuo */
+.search-icon { flex-shrink: 0; }
 .search-icon::after { position: absolute; right: -8rpx; bottom: -5rpx; width: 14rpx; height: 3rpx; transform: rotate(45deg); background: #86909c; content: ''; }
 .share-icon { color: #4e5969; font-size: 34rpx; line-height: 1; }
 .hero-module { width: calc(100% - 16px); margin-bottom: 12px; padding-bottom: 16rpx; box-sizing: border-box; overflow: hidden; border-radius: 16rpx; background: #148c48; }
@@ -402,4 +403,11 @@ onShow(() => {
 .empty-products, .load-more { width: 100%; padding: 28rpx 0 8rpx; box-sizing: border-box; color: #86909c; font-size: 24rpx; line-height: 40rpx; text-align: center; }
 @keyframes skeleton-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .skeleton-card { animation: none; } }
+
+/* 搜索 / 分享图标（2026-09-22 用户反馈「icon 不正确」）：
+   原实现里搜索是个**空** <text>（根本看不见图标），分享用的是文字字符「↗」。
+   现改用 iconfont —— 字体在 styles/rider-iconfont.wxss 已全局加载（iconfont 项目 5230143 完整字体，
+   19 个图标），其中 search = rider-icon-sousuo(\e89b)、share = rider-icon-fenxiang(\e898)。 */
+.search-pill .search-icon { font-size: 30rpx; line-height: 1; color: #86909c; }
+.share-pill .share-icon { font-size: 32rpx; line-height: 1; color: #4e5969; }
 </style>
