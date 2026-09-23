@@ -24,7 +24,7 @@ export const useProductStore = defineStore('product', () => {
   const uploading = ref(false)
   const page = ref(1)
   const pageSize = ref(10)
-  const filters = reactive<ProductFilters>({ keyword: '', categoryId: '', originPlace: '', sortBy: '' })
+  const filters = reactive<ProductFilters>({ keyword: '', categoryId: '', originPlace: '', sortBy: '', shopId: '' })
 
   /** 将筛选状态转换为后端查询参数。 */
   function getQueryParams(): ProductQueryParams {
@@ -35,6 +35,8 @@ export const useProductStore = defineStore('product', () => {
       ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
       ...(filters.originPlace ? { originPlace: filters.originPlace } : {}),
       ...(filters.sortBy ? { sortBy: filters.sortBy as ProductSortBy } : {}),
+      // 按门店查询（api_doc 的既有参数；空串 = 不限门店）
+      ...(filters.shopId ? { shopId: filters.shopId } : {}),
     }
   }
 
@@ -134,7 +136,7 @@ export const useProductStore = defineStore('product', () => {
   }
 
   function resetFilters(): void {
-    Object.assign(filters, { keyword: '', categoryId: '', originPlace: '', sortBy: '' })
+    Object.assign(filters, { keyword: '', categoryId: '', originPlace: '', sortBy: '', shopId: '' })
     page.value = 1
   }
 

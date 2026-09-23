@@ -175,6 +175,14 @@ export interface ProductQueryParams {
   keyword?: string
   sortBy?: ProductSortBy
   originPlace?: string
+  /**
+   * 按门店过滤。
+   * ⚠️ 2026-09-25 核对 `api_doc.json`：`/api/admin/product/list` 的参数里**已有 `shopId`**
+   * （与 `categoryId`/`merchantId`/`keyword`/`originPlace`/`sortBy` 并列）⇒ 此前"等后端支持"的阻塞已解除。
+   */
+  shopId?: string
+  /** 按商户（品牌）过滤。同样来自 api_doc 的既有参数。 */
+  merchantId?: string
 }
 
 export interface ProductPageResult {
@@ -196,6 +204,8 @@ export interface ProductFilters {
   categoryId: string
   originPlace: string
   sortBy: ProductSortBy | ''
+  /** 门店 ID（空串 = 不限门店）。 */
+  shopId: string
 }
 
 export type Product = ProductListItem
