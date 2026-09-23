@@ -3,7 +3,7 @@ import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
-import { canFastRefund } from '@/utils/refund-window'
+import { canFastRefund, isFastRefundGateClosed } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
 import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
@@ -614,6 +614,19 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'
  * 打开秒退的**理由弹层**（📌 秒退必须先填退款理由，2026-09-22 起的产品规则）。
  * 窗口判断见 `utils/refund-window.ts` 的 `canFastRefund`。
  */
+/**
+ * 同城单已过履约闸门时的提示。
+ * 按钮置灰仍可点，就是为了这里能解释原因 —— 对应后端 `2013`（秒退通道已关闭），
+ * 并给出可走的路：**提交取消申请，由商家确认**（详情页目前没有该入口，让用户联系商家/等客服）。
+ */
+function showFastRefundGateTip(): void {
+  uni.showToast({
+    title: '商家已出餐，无法直接退款；可提交取消申请，由商家确认',
+    icon: 'none',
+    duration: 3000,
+  })
+}
+
 function openFastRefund(): void {
   if (!order.value || actionLoading.value) return
   refundSheetError.value = ''
@@ -829,7 +842,11 @@ onUnload(() => {
 
       <!-- ⚠️ 秒退按钮的判据必须**调用** canFastRefund(order)：它是函数，模板里不加括号会被求值成"函数对象"（恒 truthy），
            于是 30 分钟窗口判断完全失效、任何"已支付未送达"的单都会显示「立即退款」（2026-09-22 修的 bug）。 -->
-      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefund(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
+      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><!-- 同城单已过履约闸门（已出餐/已派单/配送中）→ 置灰并改为「申请取消（需商家确认）」。
+           ⚠️ 用 class 置灰而**不用 disabled**：disabled 会让点击彻底无效，用户不知道为什么；
+           可点则能给出解释（对应后端的 2013 错误码）。 -->
+        <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">申请取消（需商家确认）</button>
+        <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefund(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->
@@ -908,4 +925,6 @@ onUnload(() => {
 .delivery-proofs-title { display: block; margin-bottom: 12rpx; color: #86909c; font-size: 23rpx; }
 .delivery-proof-list { display: flex; flex-wrap: wrap; }
 .delivery-proof-image { width: 150rpx; height: 150rpx; margin: 0 12rpx 12rpx 0; border-radius: 10rpx; background: #f2f3f7; }
+/* 同城单已过履约闸门：按钮置灰但仍可点（点击给出解释，而不是静默禁用） */
+.is-gate-closed { color: #86909c !important; background: #f2f3f7 !important; border-color: #e5e6eb !important; }
 </style>

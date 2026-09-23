@@ -65,3 +65,45 @@ export function fastRefundRemainingText(order: Pick<OrderSummary, 'status' | 'pa
   const minutes = Math.max(0, Math.ceil(left / 60000))
   return minutes > 0 ? `剩余 ${minutes} 分钟` : ''
 }
+
+/**
+ * 同城配送单「已过履约进度闸门」的 `deliveryStatus` 取值（秒退通道已关闭）。
+ *
+ * 依据《前端变更说明·秒退与退款口径》（2026-09-22）：
+ * `WAIT_ASSIGN`（**= 备货完成/已出餐**）/ `ASSIGNED`（已派单）/ `PICKED_UP`（已取货）/
+ * `DELIVERING`（配送中）/ `NEARBY`（即将送达）/ `EXCEPTION`（异常）⇒ 一律不可秒退，后端返回 `2013`。
+ * 可秒退的只有：`WAIT_ACCEPT` / `ACCEPTED` / `PREPARING` / `CANCELLED`。
+ */
+export const FAST_REFUND_CLOSED_DELIVERY_STATUSES: readonly string[] = [
+  'WAIT_ASSIGN',
+  'ASSIGNED',
+  'PICKED_UP',
+  'DELIVERING',
+  'NEARBY',
+  'EXCEPTION',
+]
+
+/**
+ * 同城单是否已过履约闸门（过了就不该再给「立即退款」入口）。
+ *
+ * ⚠️⚠️ **`deliveryStatus` 在两个端点里不是同一个东西**（这是本批最容易踩的坑）：
+ * | 端点 | 类型 | 含义 | 同城单取值 |
+ * |---|---|---|---|
+ * | 订单**详情** | `String` | **同城履约进度枚举** | `WAIT_ACCEPT` / `WAIT_ASSIGN` / … |
+ * | 订单**列表** | `Integer` | **物流发货状态**（0 已发货 / 1 已送达，仅物流单有值） | **恒为 `null`** |
+ *
+ * 所以这里**三重限定**：① `pickupType === 2`（同城才走闸门，物流/自提不受影响）；
+ * ② `deliveryStatus` 必须是**非空字符串**（挡掉列表页的 Integer / null）；
+ * ③ 命中关闭取值。
+ * 任一条不满足 ⇒ 返回 `false`（= **未关闭**）⇒ 页面继续显示「立即退款」，
+ * 真的被后端拦下时由 `2013` 分支给出提示（列表页正是靠这个降级）。
+ */
+export function isFastRefundGateClosed(
+  order: Pick<OrderSummary, 'pickupType' | 'deliveryStatus'> | null | undefined,
+): boolean {
+  if (!order) return false
+  if (Number(order.pickupType) !== 2) return false
+  const status = order.deliveryStatus
+  if (typeof status !== 'string' || !status) return false
+  return FAST_REFUND_CLOSED_DELIVERY_STATUSES.includes(status)
+}
