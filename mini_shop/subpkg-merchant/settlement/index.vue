@@ -40,6 +40,7 @@ import {
   type SettlementWithdrawRulesVO,
 } from '@/api/settlement'
 import { isApiRequestError, resolveImageUrl, uploadFile } from '@/utils/request'
+import { getIdentity } from '@/api/identity'
 
 const statusBarHeight = ref(0)
 /** 内容区顶部留白 = 状态栏 + 自定义导航栏高度（与 bill/index.vue 同口径）。 */
@@ -65,13 +66,38 @@ const payeeQrUrl = ref('')
 const uploading = ref(false)
 const qrUploading = ref(false)
 
+/**
+ * 账号里是否**存在**「商家（MERCHANT_OWNER）」身份。
+ *
+ * ⚠️ 2026-09-25 新增（诊断用）：结算/提现是按**当前身份**判定的，而一个自然人常常
+ * **同时**有「商家」与「店长」两个身份（入驻审核通过时一并授予）
+ * ⇒ 在店长身份下就会拿到 `13016`。
+ *
+ * 此时必须能区分两种情况，否则用户只能反复试、排查的人也只能猜：
+ * ① 账号**有** owner 身份 ⇒ 是"身份没切过去"，去「我的」页切一下即可；
+ * ② 账号**没有** owner 身份 ⇒ 是真的没权限，得找平台处理。
+ */
+const hasOwnerIdentity = ref(false)
+
+/** 读一次身份，标记账号是否含商家身份（失败不影响页面，只是不显示这半句提示）。 */
+async function loadOwnerIdentityFlag(): Promise<void> {
+  try {
+    const data = await getIdentity()
+    const list = data?.identities || []
+    hasOwnerIdentity.value = list.some((item) => String(item.role || '').toUpperCase() === 'MERCHANT_OWNER')
+  } catch {
+    hasOwnerIdentity.value = false
+  }
+}
+
 onLoad(() => {
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
   uni.setNavigationBarTitle({ title: '结算与提现' })
 })
 
 // 每次显示都重新拉数据：提交后余额/规则会变（申请即冻结），返回本页也必须是最新值
-onShow(() => { void refreshData() })
+// ⚠️ 同时重新判定「账号是否有商家身份」：用户可能刚去「我的」页切了身份再回来
+onShow(() => { void refreshData(); void loadOwnerIdentityFlag() })
 
 // ===== 金额与状态展示 =====
 
@@ -374,12 +400,13 @@ function goBack(): void {
       <view v-if="notMerchantOwner" class="blocked-card">
         <text class="blocked-title">仅商户品牌主体可查看结算账户与提现</text>
         <text class="blocked-desc">当前身份为店长/店员，只能查看本门店订单口径营业额。</text>
-        <!-- ⚠️ 2026-09-25 补充可操作指引：入驻审核通过会**同时**授予「商家」与「店长」两个身份，
-             而结算/提现是按**当前身份**判定的 ⇒ 不少商户主体会卡在这张卡上（真实反馈：
-             "我的账号是商户主体，为什么显示这个"）。所以要直接告诉他怎么切回去。 -->
-        <text class="blocked-hint">
-          一个账号常同时拥有「商家」和「店长」两个身份，而结算与提现按当前身份判定。
-          如果你本身就是品牌主体，请到「我的」页切换到商家身份后再回来查看。
+        <!-- 区分「身份没切过去」与「账号真没权限」：这两句话的可操作动作完全不同 -->
+        <text v-if="hasOwnerIdentity" class="blocked-hint">
+          检测到你的账号确实拥有「商家」身份：结算与提现按当前身份判定，现在用的是「店长」身份。
+          请到「我的」页切换到商家身份后再回来。
+        </text>
+        <text v-else class="blocked-hint">
+          当前账号没有「商家（品牌主体）」身份，所以看不到结算账户与提现。如需开通请联系平台。
         </text>
         <view class="blocked-button" @click="goBill">去「账单」看本店营业额</view>
         <view class="blocked-button blocked-button--ghost" @click="goSwitchIdentity">去「我的」切换身份</view>
