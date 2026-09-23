@@ -136,10 +136,20 @@ async function onBrandChange(): Promise<void> {
 }
 
 /**
- * 高德地图 JS API Key（Web端）。⚠️ 这里用 **v1.4.15**：该版本不需要 `securityJsCode`，
- * 只需一个 Key；若控制台把 Key 强绑到 2.0，会报 INVALID_USER_SCODE —— 那时需再补安全密钥并升到 2.0。
+ * 高德地图 JS API 配置（Web端）。
+ *
+ * ⚠️⚠️ 2026-09-25 更新为「新 Key + 安全密钥」：
+ * - **2021-12-02 之后申请的 Key 必须配合「安全密钥」使用**，否则插件（逆地理 / 行政区划…）
+ *   会报 `USERKEY_PLAT_NOMATCH`（Key 平台不匹配）或 `INVALID_USER_SCODE`；地图本身却可能是好的
+ *   —— 所以"地图能显示、只有逆地理失败"正是这个症状；
+ * - 安全密钥必须**在加载 JS API 脚本之前**写入 `window._AMapSecurityConfig`，脚本加载后再设无效；
+ * - 版本随之用 **2.0**（1.4.15 是"不需要安全密钥"时代的写法）。
+ *
+ * ⚠️ 安全密钥在前端必然可见（高德的设计如此）；但**不要把它贴进公开仓库、issue 或截图**。
+ * 若日后换 Key：**两个值必须一起换**，只换一个会继续报 `PLAT_NOMATCH`。
  */
-const AMAP_KEY = '62b0a892c14c6e067b5b09a0d1e54b5b'
+const AMAP_KEY = '18478011acab4f18b17ec32c8e2773b8'
+const AMAP_SECURITY_CODE = '72521c414362e8f46ad12628dda46e25'
 
 /** 地图选点弹窗状态。 */
 const mapVisible = ref(false)
@@ -153,12 +163,17 @@ let amapMarker: any = null
 
 /** 动态注入高德脚本：只在首次打开选点弹窗时加载，不增加打包体积。 */
 function loadAmap(): Promise<any> {
-  const w = window as unknown as { AMap?: any }
+  const w = window as unknown as { AMap?: any; _AMapSecurityConfig?: { securityJsCode?: string } }
   if (w.AMap) return Promise.resolve(w.AMap)
+  // ⚠️⚠️ 必须在**创建并插入 script 之前**设置：脚本加载后再写 `_AMapSecurityConfig` 无效，
+  // 插件会继续按"无安全密钥"调用，表现为逆地理/行政区划报 USERKEY_PLAT_NOMATCH。
+  w._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_CODE }
   return new Promise((resolve, reject) => {
     const el = document.createElement('script')
-    // ⚠️ Geocoder（逆地理编码）是插件，必须在这里声明，否则 AMap.Geocoder 不可用
-    el.src = `https://webapi.amap.com/maps?v=1.4.15&key=${AMAP_KEY}&plugin=AMap.Geocoder,AMap.Autocomplete,AMap.PlaceSearch,AMap.Geolocation`
+    // ⚠️ Geocoder（逆地理）/ DistrictSearch（行政区划）都是插件，必须在这里声明，否则不可用；
+    //    另外引擎内还有 `AMap.plugin()` 兜底（脚本 URL 的 plugin 只在首次加载时生效）。
+    el.src = `https://webapi.amap.com/maps?v=2.0&key=${AMAP_KEY}`
+      + '&plugin=AMap.Geocoder,AMap.Autocomplete,AMap.PlaceSearch,AMap.Geolocation,AMap.DistrictSearch'
     el.onload = () => (w.AMap ? resolve(w.AMap) : reject(new Error('高德脚本已加载但 AMap 未就绪')))
     el.onerror = () => reject(new Error('高德地图脚本加载失败：请检查 Key 是否为「Web端(JS API)」以及域名白名单'))
     document.head.appendChild(el)
