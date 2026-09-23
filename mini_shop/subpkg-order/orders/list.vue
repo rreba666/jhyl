@@ -327,6 +327,31 @@ async function submitFastRefund(reason: string): Promise<void> {
       await load(true)
       return
     }
+    // ===== 秒退闸门类业务错误（2026-09-25 接入）=====
+    // 这些**不是**"理由写错"，不该让用户留在弹层里改理由 —— 都要引导走售后/取消申请。
+    // 依据《前端变更说明·秒退与退款口径》：
+    //   2013 = 履约进度闸门（商家已备货完成/已出餐）→ 引导提交取消申请（由商家确认）
+    //   2014 = 金额超上限（默认 500 元）→ 引导售后申请；⚠️ 闸门排在"每日次数"之前，**不能**提示"次数已用完"
+    //   2011 = 已超秒退时限 / 2012 = 今日秒退次数上限 → 引导售后申请
+    if (isApiRequestError(error)) {
+      const gateMessageMap: Record<number, string> = {
+        2013: '商家已出餐，无法直接退款；请在订单详情申请取消，由商家确认',
+        2014: '订单金额超过秒退上限，请提交售后申请（人工审核）',
+        2011: '已超过秒退时限，请提交售后申请',
+        2012: '今日秒退次数已达上限，请提交售后申请',
+      }
+      const gateMessage = gateMessageMap[Number(error.code)]
+      if (gateMessage) {
+        // 与 8705 一致：关弹层、清幂等键、跳「退款/售后」分类
+        refundSheetVisible.value = false
+        refundSheetOrder.value = null
+        delete fastRefundRequestIds[requestKey]
+        uni.showToast({ title: gateMessage, icon: 'none', duration: 3000 })
+        activeIndex.value = AFTER_SALE_TAB_INDEX
+        await load(true)
+        return
+      }
+    }
     // 其它失败：保留弹层与已填理由，错误显示在弹层里（用户改完可重试，重试复用同一个幂等键）
     refundSheetError.value = error instanceof Error ? error.message : '退款失败，请稍后重试'
   } finally {

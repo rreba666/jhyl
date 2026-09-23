@@ -646,6 +646,33 @@ async function submitFastRefund(reason: string): Promise<void> {
       uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
       return
     }
+    // ===== 秒退闸门类业务错误（2026-09-25 接入，与订单列表页同一套文案）=====
+    // 2013 = 履约进度闸门（商家已备货完成/已出餐）→ 引导**提交取消申请**（由商家确认）
+    // 2014 = 金额超上限（默认 500 元）/ 2011 = 超时限 / 2012 = 次数上限 → 引导**售后申请**
+    // ⚠️ 都不是"理由写错"，不该留在弹层里改理由；⚠️ 2014 不能提示"次数已用完"（金额闸排在次数闸之前）。
+    if (isApiRequestError(error)) {
+      const code = Number(error.code)
+      if (code === 2013) {
+        // 取消申请不属于「售后」入口 —— 只关弹层给提示，不跳分类，避免把用户引错地方
+        refundSheetVisible.value = false
+        fastRefundRequestId = ''
+        uni.showToast({ title: '商家已出餐，无法直接退款；可提交取消申请，由商家确认', icon: 'none', duration: 3000 })
+        return
+      }
+      const gateMessageMap: Record<number, string> = {
+        2014: '订单金额超过秒退上限，请提交售后申请（人工审核）',
+        2011: '已超过秒退时限，请提交售后申请',
+        2012: '今日秒退次数已达上限，请提交售后申请',
+      }
+      const gateMessage = gateMessageMap[code]
+      if (gateMessage) {
+        refundSheetVisible.value = false
+        fastRefundRequestId = ''
+        uni.showToast({ title: gateMessage, icon: 'none', duration: 3000 })
+        uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
+        return
+      }
+    }
     refundSheetError.value = error instanceof Error ? error.message : '退款失败，请稍后重试'
   } finally {
     refundSheetSubmitting.value = false
