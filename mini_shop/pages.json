@@ -296,6 +296,14 @@
           }
         },
         {
+          "path": "shops/index",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "门店管理",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
+        },
+        {
           "path": "settlement/index",
           "style": {
             "navigationStyle": "custom",

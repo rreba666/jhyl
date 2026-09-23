@@ -121,6 +121,11 @@ const serviceScoreText = computed(() => {
   return value == null ? '—' : Number(value).toFixed(1)
 })
 
+/** 进「门店管理」（品牌商家自建 / 启停门店；后端 `/api/merchant/shop*`）。 */
+function goShops(): void {
+  uni.navigateTo({ url: '/subpkg-merchant/shops/index' })
+}
+
 function goOrders(): void {
   uni.navigateTo({ url: '/subpkg-merchant/orders/list' })
 }
@@ -407,6 +412,16 @@ function goBack(): void {
             </view>
           </view>
         </view>
+      </view>
+
+      <!-- 门店管理入口（2026-09-25 新增）：后端 `/api/merchant/shop*` 支持品牌商家自建/启停门店。
+           与下方「结算与提现」一样用文字入口（四宫格卡片依赖 card-*.png 切图，本项无对应切图）。 -->
+      <view class="settle-entry" @click="goShops">
+        <view class="settle-text">
+          <text class="settle-title">门店管理</text>
+          <text class="settle-sub">查看门店 · 新建门店 · 启用停用</text>
+        </view>
+        <view class="settle-arrow">›</view>
       </view>
 
       <!-- 结算与提现入口：仅品牌主体可见（店长/店员调结算接口返回 13016） -->

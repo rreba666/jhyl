@@ -622,3 +622,72 @@ export function getMerchantOverview(shopId?: number): Promise<MerchantOverviewVO
     data: shopId ? { shopId } : undefined,
   })
 }
+
+/* ==================== 门店（品牌商家自建） ==================== */
+
+/**
+ * 商家门店列表项（`GET /api/merchant/shops`）。
+ *
+ * ⚠️ 后端该接口复用的是 **`StaffAccountVO`**：一行 = 一个**门店** + 该店的店长/骑手/绑定微信人数。
+ * 商家账号看全部门店，店长只看本店。
+ *
+ * ⚠️⚠️ **它不含门店地址 / 图片 / 营业时间**，而 `/api/merchant/shop/{id}` **只有 PUT、没有 GET**
+ * ⇒ 小程序侧**做不了"编辑门店"的回填**（拿不到单店现值）。
+ * 已在 CLAUDE.md 记为待后端补「单店详情接口」。
+ */
+export interface MerchantShopVO {
+  /** 门店 ID。 */
+  shopId: number
+  /** 门店名称。 */
+  shopName: string
+  merchantId?: number
+  merchantName?: string
+  /** 门店状态：1 启用 / 0 停用（停用后 C 端下单不可选该店）。 */
+  shopStatus?: number
+  /** 该店店长数量（一店一店长 → 0 或 1）。 */
+  managerCount?: number
+  /** 该店骑手数量。 */
+  riderCount?: number
+  /** 该店已绑定微信的人数。 */
+  boundUserCount?: number
+}
+
+/** 门店列表（本商家；店长只看本店）。 */
+export function getMerchantShops(): Promise<MerchantShopVO[]> {
+  return request<MerchantShopVO[]>({ url: '/api/merchant/shops', method: 'GET' })
+}
+
+/** 新建门店的请求体（后端 `ShopCreateDTO`；门店自动归属当前品牌）。 */
+export interface MerchantShopCreateDTO {
+  /** 门店名称（必填）。 */
+  name: string
+  /** 门店地址（必填）。 */
+  address: string
+  phone?: string
+  /**
+   * 门店定位（GCJ-02，**必填**）。用 `uni.chooseLocation` 选点回填。
+   * ⚠️ 缺坐标的门店在下单试算时会被拒绝（"商家门店坐标未配置，暂不支持配送"）。
+   */
+  latitude: number
+  longitude: number
+  /** 门店图片 URL（建议 690x345、<2MB）。 */
+  shopImage?: string
+  /** 营业时间（展示用字符串，如 `06:00-23:00`）；改营业时间配置请走 `/api/merchant/business/schedule`。 */
+  openTime?: string
+}
+
+/**
+ * 品牌商家自建门店（`POST /api/merchant/shop`）。
+ * ⚠️ 商家只能在自己品牌下建店、不能跨品牌；成功返回**新门店 ID**。
+ */
+export function createMerchantShop(payload: MerchantShopCreateDTO): Promise<number> {
+  return request<number>({ url: '/api/merchant/shop', method: 'POST', data: payload })
+}
+
+/**
+ * 启用 / 停用门店（`PUT /api/merchant/shop/{id}/status`）。
+ * 停用后 C 端下单时不可选该门店。商家只能操作自己品牌下的门店。
+ */
+export function updateMerchantShopStatus(id: number | string, status: 0 | 1): Promise<void> {
+  return request<void>({ url: `/api/merchant/shop/${id}/status`, method: 'PUT', data: { status } })
+}
