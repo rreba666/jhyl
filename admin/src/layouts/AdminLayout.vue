@@ -322,6 +322,11 @@ onUnmounted(() => {
           <el-icon><Setting /></el-icon>
           <template #title>业务设置</template>
         </el-menu-item>
+        <!-- 短信模板管理：仅超管（后端 /api/admin/sms/** 对非超管 403） -->
+        <el-menu-item v-if="canVisit('/settings/sms-templates')" index="/settings/sms-templates">
+          <el-icon><Tickets /></el-icon>
+          <template #title>短信模板管理</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 

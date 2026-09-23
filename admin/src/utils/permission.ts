@@ -41,6 +41,8 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/profit', '/wallets', '/transfers',
     '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
+    // 短信模板管理：后端 `/api/admin/sms/**` 是超管专属（非超管 403）⇒ 只给 SUPER_ADMIN
+    '/settings/sms-templates',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
@@ -103,6 +105,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/logs/ledger': '留痕台账',
   '/logs/apicount': '接口调用计数',
   '/settings': '业务设置',
+  '/settings/sms-templates': '短信模板管理',
 }
 
 /** 各角色登录后的默认落地页。 */

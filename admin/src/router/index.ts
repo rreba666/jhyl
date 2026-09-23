@@ -223,6 +223,13 @@ const router = createRouter({
           component: () => import('@/views/settings/index.vue'),
           meta: { title: '业务设置', roles: rolesForPath('/settings'), requiresAuth: true },
         },
+        {
+          // 短信模板管理。⚠️ 仅超管：后端该接口对非超管返回 403（`/api/admin/sms/**` 是超管专属）。
+          path: 'settings/sms-templates',
+          name: 'SettingsSmsTemplates',
+          component: () => import('@/views/settings/sms-templates/index.vue'),
+          meta: { title: '短信模板管理', roles: rolesForPath('/settings/sms-templates'), requiresAuth: true },
+        },
       ],
     },
   ],
