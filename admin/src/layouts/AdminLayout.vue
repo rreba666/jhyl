@@ -245,6 +245,12 @@ onUnmounted(() => {
           <el-icon><Van /></el-icon>
           <template #title>同城配送</template>
         </el-menu-item>
+        <!-- 幽灵单巡检（体检页）：补上待办深链 `/delivery/ghost?types=...` 的落点（此前该 route 没有页面，
+             铃铛点进去 = 路由不存在）。超管 / 客服 / 商户管理员可见（商户只有自己门店的可见性）。 -->
+        <el-menu-item v-if="canVisit('/delivery/ghost')" index="/delivery/ghost">
+          <el-icon><Search /></el-icon>
+          <template #title>幽灵单巡检</template>
+        </el-menu-item>
         <!-- 店铺运营：商户管理员 + 超管（营业状态/时间、门店价/门店库存/本店上下架） -->
         <el-menu-item v-if="canVisit('/shop-console')" index="/shop-console">
           <el-icon><Shop /></el-icon>

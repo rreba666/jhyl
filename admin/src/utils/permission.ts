@@ -38,7 +38,7 @@ export const ALL_ADMIN_ROLES: AdminRole[] = ['SUPER_ADMIN', 'ADMIN', 'CUSTOMER_S
 const ROLE_ROUTES: Record<AdminRole, string[]> = {
   SUPER_ADMIN: [
     '/dashboard', '/merchant', '/homepage', '/homepage/bottom-recommendation', '/announcement',
-    '/users', '/products', '/categories', '/brands', '/delivery', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
+    '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/profit', '/wallets', '/transfers',
     '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
   ],
@@ -47,11 +47,15 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     // ⚠️ 不含 '/logs/apicount'：接口调用计数是**平台级经营数据**（全平台接口结构 + 任意商户 shopId 的调用量 + 调用明细），
     //    且后端该模块**尚未声明权限点**（`auth/me` 的 permissions 里没有对应项）→ 前端先按**仅超管**处理，
     //    待后端明确「仅超管/含客服财务」后再放开（见 docs/logs/2026-09/2026-09-22-接口调用计数apicount评估.md 第五节）。
-    '/dashboard', '/merchant', '/products', '/shops', '/staff', '/orders', '/orders/pickup',
+    // ⚠️ 含 '/delivery/ghost'：商户管理员的待办里有「取消待审核超时」，其 route 深链到
+    //    `/delivery/ghost?types=CANCEL_REQUESTED_TOO_LONG`（后端只给"可见性"，ADMIN 走门店过滤）。
+    //    若前端路由守卫不给 ADMIN 这个 path，商户点自己的待办会被打回商户业务台。
+    //    ⚠️ 待确认：体检接口本身对 ADMIN 的数据范围（全量 or 本门店）需后端明确。
+    '/dashboard', '/merchant', '/products', '/shops', '/staff', '/orders', '/orders/pickup', '/delivery/ghost',
     '/orders/address-audit', '/after-sale', '/logs/verify', '/logs/audit', '/shop-console', '/shop-delivery',
   ],
   CUSTOMER_SERVICE: [
-    '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/shops', '/orders', '/orders/pickup',
+    '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
   ],
   FINANCE: [
@@ -78,6 +82,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/categories': '分类管理',
   '/brands': '商品品牌',
   '/delivery': '同城配送管理',
+  '/delivery/ghost': '幽灵单巡检',
   '/shop-console': '店铺运营',
   '/shop-delivery': '配送工作台',
   '/shops': '门店管理',

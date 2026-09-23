@@ -91,6 +91,14 @@ const router = createRouter({
           meta: { title: '同城配送管理', permission: ['delivery:read'], roles: rolesForPath('/delivery'), requiresAuth: true },
         },
         {
+          // 幽灵单巡检（体检页）。⚠️ 路径必须是 `/delivery/ghost`：后端 4 个待办类型的 route
+          // 都深链到这里（`?types=<CHECK_KEY>` 只跑指定项），此前该 route 不存在 ⇒ 铃铛点了没反应。
+          path: 'delivery/ghost',
+          name: 'DeliveryGhostInspect',
+          component: () => import('@/views/delivery/ghost/index.vue'),
+          meta: { title: '幽灵单巡检', permission: ['delivery:read'], roles: rolesForPath('/delivery/ghost'), requiresAuth: true },
+        },
+        {
           path: 'shop-console',
           name: 'ShopConsole',
           component: () => import('@/views/shop-console/index.vue'),
