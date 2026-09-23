@@ -3,7 +3,7 @@ import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
-import { canFastRefund, isFastRefundGateClosed } from '@/utils/refund-window'
+import { canFastRefund, isFastRefundGateClosed, refundStatusOverrideText } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
 import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
@@ -328,8 +328,15 @@ const expectedClock = computed(
  * 顶部状态横幅文案。
  * ⚠️ 同城订单优先显示**配送节点**（配送中/已送达…）—— 原来的「已支付」是交易状态，
  * 订单都在配送中了还写「已支付」，看不出进度（2026-09-19 截图反馈）。
+ *
+ * ⚠️⚠️ **退款口径优先于上面两条**（2026-09-25 按《秒退与退款口径》§2）：
+ * 退款中(6) / 已退款(7) 的订单已经不该再看履约进度，且后端 `statusDesc` 对 6 只给「退款中」
+ * （没有到账预期）⇒ 必须**放在最前面**覆盖，否则物流/自提单会显示"退款中"、
+ * 同城单甚至可能仍显示"配送中"。
  */
 const bannerText = computed(() => {
+  const override = refundStatusOverrideText(order.value?.status)
+  if (override) return override
   if (order.value?.pickupType !== 2) return order.value?.statusDesc || ''
   return deliveryNodeText(order.value?.deliveryStatus, order.value?.statusDesc || '')
 })

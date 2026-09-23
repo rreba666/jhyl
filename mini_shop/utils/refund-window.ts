@@ -107,3 +107,58 @@ export function isFastRefundGateClosed(
   if (typeof status !== 'string' || !status) return false
   return FAST_REFUND_CLOSED_DELIVERY_STATUSES.includes(status)
 }
+
+/* ------------------------------------------------------------------ *
+ * 退款到账口径（《前端变更说明·秒退与退款口径》§2 铁律）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 退款中（`status === 6`）的**列表短文案**。
+ *
+ * ⚠️ 列表卡片的状态位是 `flex-shrink: 0` 的行内文本，放完整句会把订单号挤扁，
+ * 所以列表只用状态词；**完整到账预期只在详情页横幅**（那里能换行）。
+ */
+export const REFUNDING_SHORT_TEXT = '退款处理中'
+
+/**
+ * 退款中（`status === 6`）的**详情完整文案**（含到账预期）。
+ *
+ * ## 为什么要前端覆盖（2026-09-25 按文档原文修正）
+ * 后端 `OrderStatusEnum.REFUNDING(6, "退款中")` 是**三类订单通用**的，
+ * 即 `statusDesc` / `statusTextByType` 对 `6` 都只会返回「**退款中**」——
+ * **不会**显示空白（原以为会空白，2026-09-23 文档已修正），但也**没有到账预期**。
+ * 而这一步用户最关心"钱什么时候回来"，所以按文档要求覆盖成完整句。
+ *
+ * ## 铁律（文档原文）
+ * - **只有 `status === 7` 才能显示「已退款」**；
+ * - `status === 6` **必须**显示本句，**不要写"已退款"**；
+ * - 同城单（`pickupType=2`）结算口径：`0 待支付 / 1 履约中（进度看 deliveryStatus） /
+ *   4 已完成 / 5 已关闭 / 6 退款中 / 7 已退款` —— ⚠️ **6 是"退款受理中"，不是已到账**。
+ *
+ * 注意这里用的是 **en dash「–」**（与后端文档原文一致），不是连字符。
+ */
+export const REFUNDING_TEXT = '退款处理中，预计 1–3 个工作日原路退回'
+
+/**
+ * 按订单状态**覆盖**状态文案（退款到账口径），未命中返回**空串**（由调用方回落原逻辑）。
+ *
+ * ⚠️⚠️ 必须放在状态文案计算的**最前面**，原因：
+ * 详情页 `bannerText` / 列表页 `orderStatusText` 原来对**非同道单**是直接返回
+ * `statusDesc`（= 后端「退款中」），对同城单是返回**配送节点文案**（配送中/已送达…）。
+ * 而退款中(6) 的订单已经不该再看履约进度了，两条老路径都会给出**错的口径**
+ * （前者缺到账预期；后者更糟 —— 退款中的单还可能显示"配送中"）。
+ *
+ * @param status 订单状态（`6` 退款中 / `7` 已退款）
+ * @param variant `full`（详情页，默认）或 `short`（列表页）
+ */
+export function refundStatusOverrideText(
+  status: number | string | null | undefined,
+  variant: 'full' | 'short' = 'full',
+): string {
+  const n = Number(status)
+  // 6 = 退款受理中：给到账预期，别让用户以为已经到账
+  if (n === 6) return variant === 'short' ? REFUNDING_SHORT_TEXT : REFUNDING_TEXT
+  // 7 = 已退款到账：显式覆盖，保证"只有 7 才出现已退款"这条铁律由前端也兜一层
+  if (n === 7) return '已退款'
+  return ''
+}

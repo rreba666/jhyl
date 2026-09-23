@@ -3,7 +3,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
 import { cancelOrder, fastRefundOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单详情页共用同一套口径
-import { canFastRefund } from '@/utils/refund-window'
+import { canFastRefund, refundStatusOverrideText } from '@/utils/refund-window'
 import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
@@ -120,12 +120,23 @@ async function loadProgressNodes(orders: OrderSummary[], reset: boolean, token: 
 }
 
 /**
+ * 订单列表的状态文案（**唯一出口**，模板里所有状态位都必须走这里）。
+ *
+ * ⚠️⚠️ 退款口径放**最前面**（2026-09-25《秒退与退款口径》§2）：
+ * `status === 6`（退款中）是**物流/自提/同城三类通用**的，原来模板写成
+ * `pickupType === 2 ? orderStatusText(order) : order.statusDesc` ⇒ 非同道单**绕过**本函数
+ * 直接渲染后端 `statusDesc`，只能得到「退款中」（没有到账预期）；
+ * 同城单则可能落到配送节点文案、显示成"配送中"。现在统一走本函数，两处都覆盖掉。
+ *
  * 同城订单的状态文案：履约中且能拿到 progress 节点时优先用配送节点（配送中/已送达…），
  * 拿不到就保持原来的 `statusDesc`。物流/自提订单不受影响。
  * ⚠️ 末行兜底仍写 `deliveryNodeText(order.deliveryStatus, order.statusDesc)`：列表接口不返回同城
  * `deliveryStatus`，运行时它必然回落到 `statusDesc`（保留这个写法只为兼容旧契约断言，它**不是**判定依据）。
  */
 function orderStatusText(order: OrderSummary): string {
+  // 退款中(6) / 已退款(7)：列表用短文案（状态位 `flex-shrink: 0`，完整句会挤扁订单号）
+  const override = refundStatusOverrideText(order.status, 'short')
+  if (override) return override
   if (order.pickupType !== 2) return order.statusDesc
   const node = progressNodeMap.value[order.orderNo]
   if (node) return deliveryNodeText(node, order.statusDesc)
@@ -431,7 +442,7 @@ onShow(() => {
       <!-- 订单列表（其余分类） -->
       <template v-else>
         <view v-for="order in list" :key="order.id" class="order-card" @click="openDetail(order)">
-          <view class="card-head"><text class="card-title">{{ order.pickupType === 1 ? (order.shopName || '门店自提') : order.orderNo }}</text><text class="card-status">{{ order.pickupType === 2 ? orderStatusText(order) : order.statusDesc }}</text></view>
+          <view class="card-head"><text class="card-title">{{ order.pickupType === 1 ? (order.shopName || '门店自提') : order.orderNo }}</text><text class="card-status">{{ orderStatusText(order) }}</text></view>
           <text class="card-time">{{ order.createTime }}</text>
 
           <!-- 物流状态条（仅待收货，两态：已发货/已送达） -->
