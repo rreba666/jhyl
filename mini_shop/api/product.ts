@@ -22,7 +22,7 @@ export interface ProductDetail {
   pickupEnabled?: 0 | 1 | '0' | '1' | boolean
   /**
    * 商品级「是否支持物流(0)/同城配送(2)」（后端 2026-09-22 新增，默认 1=支持）。
-   * 0 表示该商品不能走快速配送与同城配送，下单会被后端以 13024 拦下。
+   * 0 表示该商品不能走快递配送与同城配送，下单会被后端以 13024 拦下。
    */
   deliveryEnabled?: 0 | 1 | '0' | '1' | boolean
   minPrice: number

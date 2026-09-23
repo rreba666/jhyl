@@ -17,7 +17,7 @@ import { isLoggedIn } from '@/utils/auth'
 import { getModules, isModuleEnabled, type ModuleConfig } from '@/utils/config'
 import LoginGuide from '@/components/LoginGuide.vue'
 
-/** 配送方式：0=物流(快速配送) 1=线下自提 2=同城配送（2026-09-19 起开放下单：需选发货门店 + 填收货地址，配送费走试算）。 */
+/** 配送方式：0=物流(快递配送) 1=线下自提 2=同城配送（2026-09-19 起开放下单：需选发货门店 + 填收货地址，配送费走试算）。 */
 type PickupType = 0 | 1 | 2
 type InvoiceType = 'personal' | 'company'
 /**
@@ -479,7 +479,7 @@ interface DeliveryOption {
 /**
  * 商品级配送开关（后端 2026-09-22 新增，默认 1=支持；缺失/非法值由 normalizeDeliverySwitch 按 1 兜底）：
  * - 任一已选商品 pickupEnabled=0 → 不提供「门店自提」（后端会以 13023 拦）；
- * - 任一已选商品 deliveryEnabled=0 → 不提供「快速配送」与「同城配送」（后端会以 13024 拦）。
+ * - 任一已选商品 deliveryEnabled=0 → 不提供「快递配送」与「同城配送」（后端会以 13024 拦）。
  * 与「模块开关」「同城可送性」是三重叠加关系，缺一层都会出现「能选但下不了单」。
  */
 const pickupBlockedByProduct = computed(() => items.value.some((item) => normalizeDeliverySwitch(item.pickupEnabled) === 0))
@@ -525,7 +525,7 @@ const sameCityShopBlockedReason = computed(() => (
 const deliveryOptions = computed<DeliveryOption[]>(() => {
   const modules = moduleConfig.value
   const options: DeliveryOption[] = []
-  if (isModuleEnabled(modules, 'delivery')) options.push({ type: 0, label: '快速配送' })
+  if (isModuleEnabled(modules, 'delivery')) options.push({ type: 0, label: '快递配送' })
   if (isModuleEnabled(modules, 'pickup')) options.push({ type: 1, label: '门店自提' })
   if (isModuleEnabled(modules, 'samecity')) options.push({ type: 2, label: '同城配送' })
   // 给被过滤掉的方式挂上原因（页面据此置灰 + 说明 + 拦切换/拦提交）
