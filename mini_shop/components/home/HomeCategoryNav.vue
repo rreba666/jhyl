@@ -45,7 +45,9 @@ function onTap(index: number): void {
 </template>
 
 <style scoped>
-.category-nav { display: flex; align-items: baseline; justify-content: space-between; padding: 10rpx 24rpx; box-sizing: border-box; background: #fff; }
+/* 2026-09-22 用户反馈：页面其他区域都是浅灰，只有金刚区是白块 ——
+   这里原来自己写了 background:#fff，改成透明跟着页面底色走。 */
+.category-nav { display: flex; align-items: baseline; justify-content: space-between; padding: 10rpx 24rpx; box-sizing: border-box; background: transparent; }
 .category-item { display: flex; min-width: 0; flex-direction: column; align-items: center; }
 .category-icon-frame { position: relative; width: 50px; height: 50px; flex-shrink: 0; }
 .category-icon-background, .category-icon { position: absolute; display: block; width: 50px; height: 50px; }
