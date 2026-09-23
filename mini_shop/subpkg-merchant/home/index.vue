@@ -143,7 +143,25 @@ function goBill(): void {
  * 店长（MANAGER）与店员调 `/api/merchant/settlement/**` 会返回 `13016`，
  * 所以入口对他们直接隐藏，避免点进去只看得到"没权限"。
  */
-const isMerchantOwner = computed(() => String(identity.value?.staffRole || '').toUpperCase() === 'MERCHANT_OWNER')
+/**
+ * 是否**品牌主体**（可提现）。
+ *
+ * ⚠️⚠️ 2026-09-25 修正：原来只看 `staffRole === 'MERCHANT_OWNER'`。
+ * 而 `staffRole` 是**当前身份**的账号主角色 —— 商户切到「店长」身份时（例如刚新建的门店）
+ * 它是 `MANAGER`，于是工作台的「结算与提现」入口**整个消失**，用户会以为"小程序没有提现入口"。
+ * 更矛盾的是：结算页**早就准备好了** 13016「仅品牌主体可提现」的提示卡，却永远用不到
+ * （`subpkg-merchant/settlement/index.vue` 的那段注释写的就是"店长/店员误入"）。
+ *
+ * 现在改为看 `identities` **全集**里是否存在 `MERCHANT_OWNER`
+ * ⇒ 只要这个账号是品牌主体，**在任何门店/任何身份下都能看到入口**；
+ * 真正的非品牌主体点进去，由结算页给出 13016 提示（而不是让功能凭空消失）。
+ */
+const isMerchantOwner = computed(() => {
+  const list = identity.value?.identities || []
+  if (list.some((item) => String(item.role || '').toUpperCase() === 'MERCHANT_OWNER')) return true
+  // 兜底：identities 缺失/为空（老接口或异常场景）时退回 `staffRole` 判断
+  return String(identity.value?.staffRole || '').toUpperCase() === 'MERCHANT_OWNER'
+})
 
 /** 进「结算与提现」：账户卡片 + 提现申请表单 + 账户流水/提现记录入口。 */
 function goSettlement(): void {
