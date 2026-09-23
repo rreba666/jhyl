@@ -22,6 +22,11 @@ const tabs: Array<{ key: string; label: string; statuses: OrderStatus[]; pickupT
   { key: 'received', label: '待收货', statuses: [2] },
   { key: 'pickup', label: '待自提', statuses: [1], pickupType: 1 },
   { key: 'completed', label: '已完成', statuses: [3, 4, 8] },
+  // 退款中(6) 与 已退款(7) 必须分成两个 tab（2026-09-25 按后端《秒退与退款口径》§2）：
+  // 6 = 钱还没到账（用户会追问、客服要跟进），7 = 钱已到账（可闭环）——
+  // 混在一个列表里用户无法判断"我的退款到底好了没"。
+  { key: 'refunding', label: '退款中', statuses: [6] },
+  { key: 'refunded', label: '已退款', statuses: [7] },
   { key: 'aftersale', label: '退款售后', statuses: [] },
 ]
 /** 「退款售后」tab 索引，退款成功后自动切换到该分类。 */
