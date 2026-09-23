@@ -12,9 +12,8 @@ export interface MerchantApplyShopDTO {
   mainBusiness?: string
   /**
    * 门店图片 URL（门头/店内照）。
-   * ⚠️ 2026-09-22 新增：门店本身有该字段（后端 `ShopCreateDTO.shopImage`，建议 690x345、<2MB），
-   * 但**入驻申请的 `ShopPart` 目前缺这个字段** —— 需要后端补上，并在审核通过建店时映射到
-   * `ShopCreateDTO.shopImage`；否则这里传的值会被忽略（前端照传，后端加字段后自动生效）。
+   * ✅ 2026-09-25 核对 `api_doc.json`：后端 `ShopPart` **已含 `shopImage`**（建议 690x345、<2MB），
+   * 审核通过建店时会映射到门店门头图 —— 此前注释里"ShopPart 缺这个字段"已不成立。
    */
   shopImage?: string
 }
@@ -27,8 +26,20 @@ export interface MerchantApplyDTO {
   contactPhone?: string
   /** 首店（必填）。 */
   shop: MerchantApplyShopDTO
-  /** 营业执照图 URL。 */
+  /** 营业执照图 URL（只存申请单，**不写入门店门头图**）。 */
   licenseImage?: string
+  /**
+   * 身份证号。
+   * ⚠️ 2026-09-25 按 `api_doc.json` 补齐：后端 `POST /api/merchant/apply` 的 `MerchantApplyDTO`
+   * 明确列了 `idCard` / `idCardFrontImage` / `idCardBackImage`（"提交时需填写身份证号及身份证正反面照"）。
+   * ⚠️ 它的 `required` 只列了 `brandName` + `shop` ⇒ 不传**不会**被接口拒，
+   * 但审核方要据此核验身份，所以前端按**必填**处理。
+   */
+  idCard?: string
+  /** 身份证正面照 URL。 */
+  idCardFrontImage?: string
+  /** 身份证反面照 URL。 */
+  idCardBackImage?: string
   remark?: string
 }
 

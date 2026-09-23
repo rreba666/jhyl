@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import { getMyMerchantApply, submitMerchantApply, type MerchantApplyVO } from '@/api/merchant'
 import { ApiRequestError, uploadFile } from '@/utils/request'
+import { validateIdCard } from '@/utils/input-validation'
 
 /** 我的申请单（null = 未提交过，展示表单）。 */
 const apply = ref<MerchantApplyVO | null>(null)
@@ -33,6 +34,16 @@ const form = ref({
    * 否则这里传的值会被后端忽略（前端照传，后端加字段后即自动生效，不会报错）。
    */
   shopImage: '',
+  /**
+   * 身份证号 + 正反面照。
+   * ⚠️ 2026-09-25 按 `api_doc.json` 补：`MerchantApplyDTO` 明确列了 `idCard` / `idCardFrontImage` /
+   * `idCardBackImage`（描述："提交时需填写身份证号及身份证正反面照，与提现身份证验证一致"）。
+   * ⚠️ 这三个是**申请层**字段，**不在 `shop` 里**；且提现用的是 `idCardFrontUrl`/`idCardBackUrl`，
+   * **字段名不同，别混用**。
+   */
+  idCard: '',
+  idCardFrontImage: '',
+  idCardBackImage: '',
   remark: '',
 })
 
@@ -155,6 +166,33 @@ function chooseShopImage(): void {
   })
 }
 
+/**
+ * 身份证正/反面照：选图 → 上传（`/api/common/upload`）→ 回填对应字段。
+ * 与营业执照/门店图片同一套上传通道；后端字段是**申请层**的
+ * `idCardFrontImage` / `idCardBackImage`（不是门店层，也不是提现的 `idCardFrontUrl`）。
+ */
+function chooseIdCardImage(side: 'front' | 'back'): void {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    success: async (res) => {
+      const filePath = res.tempFilePaths?.[0]
+      if (!filePath) return
+      uploading.value = true
+      try {
+        const url = await uploadFile(filePath)
+        if (side === 'front') form.value.idCardFrontImage = url
+        else form.value.idCardBackImage = url
+        uni.showToast({ title: side === 'front' ? '身份证正面已上传' : '身份证反面已上传', icon: 'success' })
+      } catch (error) {
+        uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
+      } finally {
+        uploading.value = false
+      }
+    },
+  })
+}
+
 /** 提交入驻申请。 */
 async function submit(): Promise<void> {
   brandError.value = ''
@@ -167,6 +205,18 @@ async function submit(): Promise<void> {
   // 门店图片必填（2026-09-22 需求）：审核方要能看到门店实际长什么样，光有地址与坐标不够
   if (!form.value.shopImage) {
     uni.showToast({ title: '请上传门店图片', icon: 'none' })
+    return
+  }
+  // 身份证：号 + 正反面照（2026-09-25 按 api_doc 补）。
+  // ⚠️ 后端 `required` 只列了 `brandName`/`shop`，不传接口**不会**拒；但审核方要据此核验身份，
+  // 且接口描述明确写了"提交时需填写身份证号及身份证正反面照"⇒ 前端按必填处理。
+  const idCardResult = validateIdCard(form.value.idCard)
+  if (!idCardResult.ok) {
+    uni.showToast({ title: idCardResult.message || '身份证号格式不正确', icon: 'none' })
+    return
+  }
+  if (!form.value.idCardFrontImage || !form.value.idCardBackImage) {
+    uni.showToast({ title: '请上传身份证正反面照片', icon: 'none' })
     return
   }
   submitting.value = true
@@ -185,6 +235,10 @@ async function submit(): Promise<void> {
         shopImage: form.value.shopImage || undefined,
       },
       licenseImage: form.value.licenseImage || undefined,
+      // 身份证（**申请层**字段，不在 `shop` 里）：号用校验后的规范值（去空格、末位 X 大写）
+      idCard: idCardResult.value,
+      idCardFrontImage: form.value.idCardFrontImage,
+      idCardBackImage: form.value.idCardBackImage,
       remark: form.value.remark.trim() || undefined,
     })
     showForm.value = false
@@ -298,6 +352,27 @@ function goBack(): void {
             <image v-if="form.licenseImage" class="license-img" :src="form.licenseImage" mode="aspectFit" @click="chooseLicense" />
             <button class="license-btn" :disabled="uploading" @click="chooseLicense">{{ uploading ? '上传中…' : (form.licenseImage ? '重新上传' : '上传营业执照') }}</button>
           </view>
+        </view>
+
+        <!-- 身份证（2026-09-25 按 api_doc 补）：号 + 正反面照。审核方据此核验身份，故前端标必填 -->
+        <label class="field">
+          <text class="field-label">身份证号 *</text>
+          <input v-model="form.idCard" class="field-input" maxlength="18" placeholder="请输入 18 位身份证号" />
+        </label>
+        <view class="field">
+          <text class="field-label">身份证正面照 *（人像面）</text>
+          <view class="license-row">
+            <image v-if="form.idCardFrontImage" class="license-img" :src="form.idCardFrontImage" mode="aspectFit" @click="chooseIdCardImage('front')" />
+            <button class="license-btn" :disabled="uploading" @click="chooseIdCardImage('front')">{{ uploading ? '上传中…' : (form.idCardFrontImage ? '重新上传' : '上传人像面') }}</button>
+          </view>
+        </view>
+        <view class="field">
+          <text class="field-label">身份证反面照 *（国徽面）</text>
+          <view class="license-row">
+            <image v-if="form.idCardBackImage" class="license-img" :src="form.idCardBackImage" mode="aspectFit" @click="chooseIdCardImage('back')" />
+            <button class="license-btn" :disabled="uploading" @click="chooseIdCardImage('back')">{{ uploading ? '上传中…' : (form.idCardBackImage ? '重新上传' : '上传国徽面') }}</button>
+          </view>
+          <text class="field-hint">仅用于平台资质核验</text>
         </view>
 
         <label class="field"><text class="field-label">申请备注</text><input v-model="form.remark" class="field-input" placeholder="可选，如：希望尽快审核" /></label>
