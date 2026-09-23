@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 type LayoutMode = 'grid' | 'list'
 
 const props = defineProps<{
@@ -34,5 +34,5 @@ function selectMode(mode: LayoutMode): void {
 .layout-option.active { background: #fff; }
 /* 图标：iconfont 字体（原来是用 CSS 画的 2x2 网格与三根横线，已按用户要求换成在线图标） */
 .layout-icon { font-size: 36rpx; line-height: 1; color: #86909c; }
-.layout-option.active .layout-icon { color: #1d2129; }
+.layout-option.active .layout-icon { color: #ff5500; }
 </style>
