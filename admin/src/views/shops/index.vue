@@ -53,6 +53,9 @@ const visiblePageSize = computed(() => (brandMode.value ? Math.max(brandShops.va
 
 /** 门店 → 品牌名（后端 ShopVO.merchantName；为空表示平台自营单店）。 */
 function brandNameOf(shop: Shop): string {
+  // ⚠️ 2026-09-25：优先用后端下发的 `platformOwned`（`ShopVO` 恒不为 null）判断平台自营，
+  // 不再靠"merchantId 是否为空"去推断 —— 后端已把该口径写进 api_doc（见 types/shop.ts 字段注释）。
+  if (shop.platformOwned) return '平台自营'
   return shop.merchantName || (shop.merchantId ? `商户${shop.merchantId}` : '平台自营')
 }
 
@@ -416,7 +419,9 @@ onMounted(() => {
       <DataTable :data="visibleList" :loading="store.loading" :total="visibleTotal" :page="visiblePage" :page-size="visiblePageSize" empty-text="暂无门店数据" @selection-change="selected = $event" @page-change="store.page = $event; selected = []; void loadList()" @size-change="store.pageSize = $event; store.page = 1; selected = []; void loadList()">
         <el-table-column label="所属品牌" min-width="170">
           <template #default="{ row }">
-            <el-tag v-if="row.merchantName" type="warning" effect="light">{{ row.merchantName }}</el-tag>
+            <!-- 平台自营：用后端 platformOwned 判断（用户要求标记；别拿 merchantName 做字符串匹配） -->
+            <el-tag v-if="row.platformOwned" type="success" effect="dark">平台自营</el-tag>
+            <el-tag v-else-if="row.merchantName" type="warning" effect="light">{{ row.merchantName }}</el-tag>
             <el-tag v-else type="info" effect="plain">{{ brandNameOf(row) }}</el-tag>
             <span v-if="row.merchantId" class="muted brand-id">{{ row.merchantId }}</span>
           </template>
