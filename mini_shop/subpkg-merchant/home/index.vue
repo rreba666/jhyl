@@ -152,9 +152,12 @@ function goBill(): void {
  * 更矛盾的是：结算页**早就准备好了** 13016「仅品牌主体可提现」的提示卡，却永远用不到
  * （`subpkg-merchant/settlement/index.vue` 的那段注释写的就是"店长/店员误入"）。
  *
- * 现在改为看 `identities` **全集**里是否存在 `MERCHANT_OWNER`
- * ⇒ 只要这个账号是品牌主体，**在任何门店/任何身份下都能看到入口**；
- * 真正的非品牌主体点进去，由结算页给出 13016 提示（而不是让功能凭空消失）。
+ * 现在改为看 `identities` **全集**里是否存在 `MERCHANT_OWNER`。
+ *
+ * ⚠️ 但**「结算与提现」入口已不再用它**（2026-09-25 二次修改）：前端不该用身份判断去
+ * **隐藏功能** —— 那正是"用户以为功能不存在"的根因。入口改为对所有商家端身份可见，
+ * 权限交给后端（13016）与结算页的提示卡。本 computed 保留给将来"确实需要按身份区分"的场景，
+ * 届时请用它、不要退回只看 staffRole。
  */
 const isMerchantOwner = computed(() => {
   const list = identity.value?.identities || []
@@ -442,8 +445,15 @@ function goBack(): void {
         <view class="settle-arrow">›</view>
       </view>
 
-      <!-- 结算与提现入口：仅品牌主体可见（店长/店员调结算接口返回 13016） -->
-      <view v-if="isMerchantOwner" class="settle-entry" @click="goSettlement">
+      <!-- 结算与提现入口：**对所有商家端身份可见**（2026-09-25 改）。
+           ⚠️ 这里原来写的是 `v-if="isMerchantOwner"`，而 isMerchantOwner 早先只看
+           `staffRole === 'MERCHANT_OWNER'`（**当前身份**的主角色）⇒ 商户切到「店长」身份后
+           入口**整个消失**，用户会以为"小程序根本没有提现功能"（已连续困惑两次）。
+           现在不再用前端判断来"隐藏功能"：
+           · 真正的权限由后端校验（非品牌主体返回 13016）；
+           · 结算页**本来就准备好了** 13016 的「仅品牌主体可提现」提示卡 —— 入口放开后它才真正生效。
+           结论：**不要**再给这个入口加身份 `v-if`，否则提示卡又会变成死代码。 -->
+      <view class="settle-entry" @click="goSettlement">
         <view class="settle-text">
           <text class="settle-title">结算与提现</text>
           <text class="settle-sub">可提现余额 · 账户流水 · 提现记录</text>
