@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getCategoryList, getGoodsBrands, getProducts, type CategoryNode, type CategoryProduct } from '@/api/category'
 import { getLandingConfig, type LandingConfigV2 } from '@/api/homepage'
