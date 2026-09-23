@@ -230,6 +230,13 @@ const router = createRouter({
           component: () => import('@/views/settings/sms-templates/index.vue'),
           meta: { title: '短信模板管理', roles: rolesForPath('/settings/sms-templates'), requiresAuth: true },
         },
+        {
+          // 语音配置管理。⚠️ 同样仅超管（`/api/admin/voice/**` 非超管 403）。
+          path: 'settings/voice',
+          name: 'SettingsVoice',
+          component: () => import('@/views/settings/voice/index.vue'),
+          meta: { title: '语音配置管理', roles: rolesForPath('/settings/voice'), requiresAuth: true },
+        },
       ],
     },
   ],

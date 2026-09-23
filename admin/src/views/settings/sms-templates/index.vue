@@ -17,6 +17,7 @@
  * 4. ⛔ 不给 `adminEditable === false` 的条目渲染编辑框（会让运营以为改成功了）。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getSmsTemplates, updateSmsTemplateCode } from '@/api/sms'
 import type {
@@ -30,6 +31,8 @@ import type {
 } from '@/types/sms'
 
 const loading = ref(false)
+/** 用于 SPA 内跳转到语音配置页（用 `href` 会整页刷新，丢当前筛选状态）。 */
+const router = useRouter()
 const saving = ref(false)
 const data = ref<SmsTemplateListData | null>(null)
 const loadError = ref('')
@@ -383,7 +386,13 @@ onMounted(() => {
             <template v-if="item.note">{{ item.note }}</template>
           </p>
           <div class="row-actions">
-            <el-link v-if="item.channel === 'VOICE'" type="primary" href="/settings/voice">去「语音配置管理」↗</el-link>
+            <el-link
+              v-if="item.channel === 'VOICE'"
+              type="primary"
+              @click="router.push('/settings/voice')"
+            >
+              去「语音配置管理」↗
+            </el-link>
           </div>
         </el-card>
       </div>

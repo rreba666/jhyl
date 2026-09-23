@@ -327,6 +327,11 @@ onUnmounted(() => {
           <el-icon><Tickets /></el-icon>
           <template #title>短信模板管理</template>
         </el-menu-item>
+        <!-- 语音配置管理：仅超管（后端 /api/admin/voice/** 对非超管 403） -->
+        <el-menu-item v-if="canVisit('/settings/voice')" index="/settings/voice">
+          <el-icon><Bell /></el-icon>
+          <template #title>语音配置管理</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
