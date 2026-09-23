@@ -116,6 +116,10 @@ const AMAP_KEY = '62b0a892c14c6e067b5b09a0d1e54b5b'
 /** 地图选点弹窗状态。 */
 const mapVisible = ref(false)
 const mapMessage = ref('')
+/** 搜索框内容（高德 AutoComplete 会直接写这个 input，这里只用于 v-model 占位与清空）。 */
+const mapKeyword = ref('')
+/** 弹窗内回显"解析出的地址"，让用户能立刻确认自动填写生效了。 */
+const pickedAddress = ref('')
 let amapMap: any = null
 let amapMarker: any = null
 
@@ -126,7 +130,7 @@ function loadAmap(): Promise<any> {
   return new Promise((resolve, reject) => {
     const el = document.createElement('script')
     // ⚠️ Geocoder（逆地理编码）是插件，必须在这里声明，否则 AMap.Geocoder 不可用
-    el.src = `https://webapi.amap.com/maps?v=1.4.15&key=${AMAP_KEY}&plugin=AMap.Geocoder`
+    el.src = `https://webapi.amap.com/maps?v=1.4.15&key=${AMAP_KEY}&plugin=AMap.Geocoder,AMap.Autocomplete,AMap.PlaceSearch,AMap.Geolocation`
     el.onload = () => (w.AMap ? resolve(w.AMap) : reject(new Error('高德脚本已加载但 AMap 未就绪')))
     el.onerror = () => reject(new Error('高德地图脚本加载失败：请检查 Key 是否为「Web端(JS API)」以及域名白名单'))
     document.head.appendChild(el)
@@ -136,6 +140,8 @@ function loadAmap(): Promise<any> {
 /** 打开选点弹窗（真正的初始化放到 @opened，确保地图容器已挂载）。 */
 function openMapPicker(): void {
   mapMessage.value = ''
+  pickedAddress.value = ''
+  mapKeyword.value = ''
   mapVisible.value = true
 }
 
@@ -144,12 +150,36 @@ async function onMapOpened(): Promise<void> {
   try {
     const AMap = await loadAmap()
     const hasPoint = typeof form.latitude === 'number' && typeof form.longitude === 'number'
+    // 中心：优先门店已有坐标；没有就先用一个中性默认值，随后尝试浏览器定位纠正
     const center: [number, number] = hasPoint ? [form.longitude as number, form.latitude as number] : [116.397428, 39.90923]
     amapMap = new AMap.Map('shop-map-picker', { zoom: 15, center })
     amapMap.on('click', (e: { lnglat: { getLng: () => number; getLat: () => number } }) => {
       applyMapPoint(e.lnglat.getLng(), e.lnglat.getLat())
     })
     amapMarker = new AMap.Marker({ position: center, map: amapMap })
+
+    // 关键字搜索：输入门店名/路名 → 选中结果即定位并落点（比手拖地图快得多）
+    if (AMap.Autocomplete && AMap.PlaceSearch) {
+      const auto = new AMap.Autocomplete({ input: 'shop-map-search', city: '全国' })
+      auto.on('select', (e: { poi?: { location?: { lng: number; lat: number } } }) => {
+        const loc = e?.poi?.location
+        if (!loc) return
+        amapMap.setCenter(loc)
+        amapMap.setZoom(16)
+        applyMapPoint(loc.lng, loc.lat)
+      })
+    }
+
+    // 没选过点时才自动定位（避免覆盖已有坐标）；失败静默，保持默认中心
+    if (!hasPoint && AMap.Geolocation) {
+      const geolocation = new AMap.Geolocation({ enableHighAccuracy: true, timeout: 8000 })
+      geolocation.getCurrentPosition((status: string, result: { position?: { getLng: () => number; getLat: () => number } }) => {
+        if (status !== 'complete' || !result?.position) return
+        const pos = result.position
+        amapMap.setCenter(pos)
+        applyMapPoint(pos.getLng(), pos.getLat())
+      })
+    }
   } catch (error) {
     mapMessage.value = error instanceof Error ? error.message : '地图加载失败'
   }
@@ -167,7 +197,10 @@ function resolveAddress(lng: number, lat: number): void {
   geocoder.getAddress([lng, lat], (status: string, result: { regeocode?: { formattedAddress?: string } }) => {
     if (status !== 'complete') return
     const formatted = result?.regeocode?.formattedAddress
-    if (formatted) form.address = formatted
+    if (formatted) {
+      form.address = formatted
+      pickedAddress.value = formatted
+    }
   })
 }
 
@@ -385,7 +418,9 @@ onMounted(() => {
     </el-dialog>
     <!-- 地图选点（动态加载高德脚本，初始化在 @opened 里做） -->
     <el-dialog v-model="mapVisible" title="选择门店位置" width="720px" append-to-body @opened="onMapOpened">
+      <input id="shop-map-search" v-model="mapKeyword" class="map-search-input" placeholder="搜索门店名 / 路名定位，例如：水葵路" />
       <div id="shop-map-picker" class="shop-map" />
+      <p v-if="pickedAddress" class="map-picked">已解析地址：{{ pickedAddress }}</p>
       <p v-if="mapMessage" class="map-error">{{ mapMessage }}</p>
       <p v-else class="map-tip">点击地图任意位置落点；当前：{{ form.longitude ?? '—' }}, {{ form.latitude ?? '—' }}</p>
       <template #footer><el-button type="primary" @click="mapVisible = false">确定</el-button></template>
@@ -413,6 +448,9 @@ onMounted(() => {
 .map-coord { color: var(--vben-text-secondary, #4e5969); font-size: 13px; }
 .map-coord--empty { color: var(--vben-muted, #86909c); }
 .shop-map { width: 100%; height: 420px; border-radius: 6px; background: #f5f6f7; }
+.map-search-input { width: 100%; height: 34px; margin-bottom: 8px; padding: 0 12px; box-sizing: border-box; border: 1px solid #dcdfe6; border-radius: 6px; font-size: 14px; outline: none; }
+.map-search-input:focus { border-color: #409eff; }
+.map-picked { margin: 8px 0 0; color: #1d2129; font-size: 13px; }
 .map-tip { margin: 8px 0 0; color: #86909c; font-size: 12px; }
 .map-error { margin: 8px 0 0; color: #e1251b; font-size: 13px; }
 </style>
