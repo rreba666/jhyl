@@ -17,7 +17,9 @@ const restorableSelected = computed(() => selected.value.filter((shop) => shop.d
 const formVisible = ref(false)
 const editingId = ref<string>()
 const formRef = ref<FormInstance>()
-const form = reactive<ShopCreateDTO>({ name: '', address: '', phone: '', merchantId: '' })
+// latitude/longitude 用交叉类型挂上：后端 DTO 里这两个字段的必填性不稳定，
+// 这里统一按「可选」处理，保存时「没填就不传」，避免用 0 覆盖已有坐标。
+const form = reactive<ShopCreateDTO & { latitude?: number; longitude?: number }>({ name: '', address: '', phone: '', merchantId: '' })
 /**
  * 表单校验规则。
  * ⚠️ 「所属品牌 `merchantId`」**不做硬性必填**：契约写的是「中控为品牌开店时必填；
@@ -105,6 +107,68 @@ async function onBrandChange(): Promise<void> {
   }
 }
 
+/**
+ * 高德地图 JS API Key（Web端）。⚠️ 这里用 **v1.4.15**：该版本不需要 `securityJsCode`，
+ * 只需一个 Key；若控制台把 Key 强绑到 2.0，会报 INVALID_USER_SCODE —— 那时需再补安全密钥并升到 2.0。
+ */
+const AMAP_KEY = '62b0a892c14c6e067b5b09a0d1e54b5b'
+
+/** 地图选点弹窗状态。 */
+const mapVisible = ref(false)
+const mapMessage = ref('')
+let amapMap: any = null
+let amapMarker: any = null
+
+/** 动态注入高德脚本：只在首次打开选点弹窗时加载，不增加打包体积。 */
+function loadAmap(): Promise<any> {
+  const w = window as unknown as { AMap?: any }
+  if (w.AMap) return Promise.resolve(w.AMap)
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script')
+    el.src = `https://webapi.amap.com/maps?v=1.4.15&key=${AMAP_KEY}`
+    el.onload = () => (w.AMap ? resolve(w.AMap) : reject(new Error('高德脚本已加载但 AMap 未就绪')))
+    el.onerror = () => reject(new Error('高德地图脚本加载失败：请检查 Key 是否为「Web端(JS API)」以及域名白名单'))
+    document.head.appendChild(el)
+  })
+}
+
+/** 打开选点弹窗（真正的初始化放到 @opened，确保地图容器已挂载）。 */
+function openMapPicker(): void {
+  mapMessage.value = ''
+  mapVisible.value = true
+}
+
+/** 地图挂载完成后初始化：以当前坐标为中心，点击地图即落点。 */
+async function onMapOpened(): Promise<void> {
+  try {
+    const AMap = await loadAmap()
+    const hasPoint = typeof form.latitude === 'number' && typeof form.longitude === 'number'
+    const center: [number, number] = hasPoint ? [form.longitude as number, form.latitude as number] : [116.397428, 39.90923]
+    amapMap = new AMap.Map('shop-map-picker', { zoom: 15, center })
+    amapMap.on('click', (e: { lnglat: { getLng: () => number; getLat: () => number } }) => {
+      applyMapPoint(e.lnglat.getLng(), e.lnglat.getLat())
+    })
+    amapMarker = new AMap.Marker({ position: center, map: amapMap })
+  } catch (error) {
+    mapMessage.value = error instanceof Error ? error.message : '地图加载失败'
+  }
+}
+
+/** 落点：写回表单并同步地图标记。坐标系 GCJ-02，与后端同义。 */
+function applyMapPoint(lng: number, lat: number): void {
+  form.longitude = Number(lng)
+  form.latitude = Number(lat)
+  if (amapMarker) amapMarker.setPosition([lng, lat])
+}
+
+/** 清空已选坐标（允许门店先不填定位）。 */
+function clearMapPoint(): void {
+  form.latitude = undefined
+  form.longitude = undefined
+  if (amapMarker) amapMarker.setMap(null)
+  amapMarker = null
+}
+
 /** 清空并打开门店编辑表单（编辑时回显所属品牌，便于改归属）。 */
 function openForm(shop?: Shop): void {
   editingId.value = shop?.id
@@ -114,6 +178,9 @@ function openForm(shop?: Shop): void {
     phone: shop?.phone || '',
     // merchantId 为 null 表示平台自营单店 → 下拉按空串处理
     merchantId: shop?.merchantId ? String(shop.merchantId) : '',
+    // 经纬度回显（后端 ShopVO 已返回）；没有就保持 undefined，保存时不提交
+    latitude: typeof shop?.latitude === 'number' ? shop.latitude : undefined,
+    longitude: typeof shop?.longitude === 'number' ? shop.longitude : undefined,
   })
   formVisible.value = true
 }
@@ -138,6 +205,11 @@ async function submitForm(): Promise<void> {
   try {
     // 编辑时「不传 merchantId = 不改归属」：只有真的选了品牌才带上，避免冲掉已有归属
     const payload: ShopCreateDTO = { name: form.name, address: form.address, phone: form.phone }
+    // 经纬度：两个都有才提交（GCJ-02，与后端/小程序同坐标系，不做转换）
+    if (typeof form.latitude === 'number' && typeof form.longitude === 'number') {
+      payload.latitude = form.latitude
+      payload.longitude = form.longitude
+    }
     if (form.merchantId) payload.merchantId = form.merchantId
     await store.save(editingId.value, payload)
     formVisible.value = false
@@ -289,8 +361,15 @@ onMounted(() => {
       </DataTable>
     </el-card>
     <el-dialog v-model="formVisible" :title="editingId ? '编辑门店' : '新增门店'" width="520px" append-to-body>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="门店定位"><div class="map-pick-row"><el-button size="small" @click="openMapPicker">地图选点</el-button><el-button v-if="form.latitude != null && form.longitude != null" size="small" text type="danger" @click="clearMapPoint">清除</el-button><span v-if="form.latitude != null && form.longitude != null" class="map-coord">已选：{{ form.longitude }}, {{ form.latitude }}</span><span v-else class="map-coord map-coord--empty">未选点（同城配送按门店坐标算距离，建议填写）</span></div><div class="field-hint">坐标系为 GCJ-02（高德原生，与小程序端一致），不做转换。</div></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving" @click="submitForm">保存</el-button></template>
+    </el-dialog>
+    <!-- 地图选点（动态加载高德脚本，初始化在 @opened 里做） -->
+    <el-dialog v-model="mapVisible" title="选择门店位置" width="720px" append-to-body @opened="onMapOpened">
+      <div id="shop-map-picker" class="shop-map" />
+      <p v-if="mapMessage" class="map-error">{{ mapMessage }}</p>
+      <p v-else class="map-tip">点击地图任意位置落点；当前：{{ form.longitude ?? '—' }}, {{ form.latitude ?? '—' }}</p>
+      <template #footer><el-button type="primary" @click="mapVisible = false">确定</el-button></template>
     </el-dialog>
   </section>
 </template>
@@ -310,4 +389,11 @@ onMounted(() => {
 /* 通知可达性引导 */
 .notify-alert { margin-bottom: 12px; }
 .notify-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 地图选点（2026-09-23 新增门店需传经纬度） */
+.map-pick-row { display: flex; align-items: center; gap: 8px; }
+.map-coord { color: var(--vben-text-secondary, #4e5969); font-size: 13px; }
+.map-coord--empty { color: var(--vben-muted, #86909c); }
+.shop-map { width: 100%; height: 420px; border-radius: 6px; background: #f5f6f7; }
+.map-tip { margin: 8px 0 0; color: #86909c; font-size: 12px; }
+.map-error { margin: 8px 0 0; color: #e1251b; font-size: 13px; }
 </style>

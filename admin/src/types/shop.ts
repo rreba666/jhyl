@@ -6,6 +6,10 @@ export interface Shop {
   id: string
   name: string
   address: string
+  /** 门店纬度（GCJ-02 火星坐标，与小程序端一致）。后端 ShopVO / ShopCreateDTO / ShopUpdateDTO 均已提供。 */
+  latitude?: number
+  /** 门店经度（GCJ-02）。同城配送按门店坐标算距离。 */
+  longitude?: number
   phone: string
   status: ShopStatus
   delFlag: ShopDeleteFlag
@@ -30,6 +34,10 @@ export interface Shop {
 export interface ShopCreateDTO {
   name: string
   address: string
+  /** 门店纬度（GCJ-02 火星坐标，与小程序端一致）。后端 ShopVO / ShopCreateDTO / ShopUpdateDTO 均已提供。 */
+  latitude?: number
+  /** 门店经度（GCJ-02）。同城配送按门店坐标算距离。 */
+  longitude?: number
   phone: string
   /**
    * 所属品牌商家 ID（V1.17 新增）。
