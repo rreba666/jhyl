@@ -125,7 +125,8 @@ function loadAmap(): Promise<any> {
   if (w.AMap) return Promise.resolve(w.AMap)
   return new Promise((resolve, reject) => {
     const el = document.createElement('script')
-    el.src = `https://webapi.amap.com/maps?v=1.4.15&key=${AMAP_KEY}`
+    // ⚠️ Geocoder（逆地理编码）是插件，必须在这里声明，否则 AMap.Geocoder 不可用
+    el.src = `https://webapi.amap.com/maps?v=1.4.15&key=${AMAP_KEY}&plugin=AMap.Geocoder`
     el.onload = () => (w.AMap ? resolve(w.AMap) : reject(new Error('高德脚本已加载但 AMap 未就绪')))
     el.onerror = () => reject(new Error('高德地图脚本加载失败：请检查 Key 是否为「Web端(JS API)」以及域名白名单'))
     document.head.appendChild(el)
@@ -154,11 +155,29 @@ async function onMapOpened(): Promise<void> {
   }
 }
 
-/** 落点：写回表单并同步地图标记。坐标系 GCJ-02，与后端同义。 */
+/**
+ * 逆地理编码：坐标 → 可读地址，自动填入「门店地址」。
+ * 用 `formattedAddress`（如「江西省九江市柴桑区水葵路XX号」），与后端 address 字段语义一致。
+ * ⚠️ 失败静默：只保留坐标，不打断选点。
+ */
+function resolveAddress(lng: number, lat: number): void {
+  const AMap = (window as unknown as { AMap?: any }).AMap
+  if (!AMap || !AMap.Geocoder) return
+  const geocoder = new AMap.Geocoder({ radius: 200, extensions: 'all' })
+  geocoder.getAddress([lng, lat], (status: string, result: { regeocode?: { formattedAddress?: string } }) => {
+    if (status !== 'complete') return
+    const formatted = result?.regeocode?.formattedAddress
+    if (formatted) form.address = formatted
+  })
+}
+
+/** 落点：写回表单、同步地图标记，并反解出地址。坐标系 GCJ-02，与后端同义。 */
 function applyMapPoint(lng: number, lat: number): void {
   form.longitude = Number(lng)
   form.latitude = Number(lat)
   if (amapMarker) amapMarker.setPosition([lng, lat])
+  // 选点即覆盖地址：用户点地图就是要改位置，地址必须跟着坐标走，否则两者不一致
+  resolveAddress(Number(lng), Number(lat))
 }
 
 /** 清空已选坐标（允许门店先不填定位）。 */
@@ -361,7 +380,7 @@ onMounted(() => {
       </DataTable>
     </el-card>
     <el-dialog v-model="formVisible" :title="editingId ? '编辑门店' : '新增门店'" width="520px" append-to-body>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="门店定位"><div class="map-pick-row"><el-button size="small" @click="openMapPicker">地图选点</el-button><el-button v-if="form.latitude != null && form.longitude != null" size="small" text type="danger" @click="clearMapPoint">清除</el-button><span v-if="form.latitude != null && form.longitude != null" class="map-coord">已选：{{ form.longitude }}, {{ form.latitude }}</span><span v-else class="map-coord map-coord--empty">未选点（同城配送按门店坐标算距离，建议填写）</span></div><div class="field-hint">坐标系为 GCJ-02（高德原生，与小程序端一致），不做转换。</div></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="门店定位"><div class="map-pick-row"><el-button size="small" @click="openMapPicker">地图选点</el-button><el-button v-if="form.latitude != null && form.longitude != null" size="small" text type="danger" @click="clearMapPoint">清除</el-button><span v-if="form.latitude != null && form.longitude != null" class="map-coord">已选：{{ form.longitude }}, {{ form.latitude }}</span><span v-else class="map-coord map-coord--empty">未选点（同城配送按门店坐标算距离，建议填写）</span></div><div class="field-hint">在地图上点一下即可定位，并**自动填写门店地址**；坐标系为 GCJ-02（高德原生，与小程序端一致），不做转换。</div></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item></el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving" @click="submitForm">保存</el-button></template>
     </el-dialog>
     <!-- 地图选点（动态加载高德脚本，初始化在 @opened 里做） -->
