@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
 import DataTable from '@/components/DataTable.vue'
 import { useShopStore } from '@/stores/shop'
+import { uploadShopImage } from '@/api/shop'
 import { getMerchantShops, getMerchants } from '@/api/merchant'
 import type { Shop } from '@/types/shop'
 import type { ShopCreateDTO, ShopStatus } from '@/types/shop'
@@ -20,6 +21,30 @@ const formRef = ref<FormInstance>()
 // latitude/longitude 用交叉类型挂上：后端 DTO 里这两个字段的必填性不稳定，
 // 这里统一按「可选」处理，保存时「没填就不传」，避免用 0 覆盖已有坐标。
 const form = reactive<ShopCreateDTO & { latitude?: number; longitude?: number }>({ name: '', address: '', phone: '', merchantId: '', province: '', city: '', district: '', businessName: '', shopImage: '', mainBusiness: '', openTime: '', contactName: '', contactPhone: '', description: '' })
+
+/** 门店图片上传中（禁用按钮，防连点）。 */
+const shopImageUploading = ref(false)
+
+/**
+ * 门店图片上传：复用**通用上传** `POST /api/common/upload`（与商家端发票、打款回单同一接口）。
+ * ⚠️ 2026-09-25 修正：此前这里是个**贴 URL 的输入框**，运营根本拿不到 OSS 地址、等于没法传图。
+ */
+async function onShopImageUpload(options: UploadRequestOptions): Promise<void> {
+  const file = options.file as File
+  if (!file.type.startsWith('image/')) {
+    ElMessage.error('请上传图片文件')
+    return
+  }
+  shopImageUploading.value = true
+  try {
+    form.shopImage = await uploadShopImage(file)
+    ElMessage.success('门店图片已上传')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '门店图片上传失败')
+  } finally {
+    shopImageUploading.value = false
+  }
+}
 /**
  * 表单校验规则。
  * ⚠️ 「所属品牌 `merchantId`」**不做硬性必填**：契约写的是「中控为品牌开店时必填；
@@ -209,6 +234,28 @@ function ensureGeocoder(AMap: any): Promise<any> {
 }
 
 /**
+ * 把高德返回的错误原文翻译成**运维能直接照做**的话。
+ *
+ * 高德在 `status !== 'complete'` 时 `result` 是字符串，常见取值：
+ * - `INVALID_USER_KEY` —— Key 无效 / 与当前域名不匹配（域名白名单）
+ * - `INVALID_USER_SCODE` —— 该 Key 需要配套安全密钥（新申请的 Key 会被强制要求）
+ * - `USER_DAILY_QUERY_OVER_LIMIT` / `OVER_QUOTA` —— 配额用尽
+ * - `SERVICE_NOT_AVAILABLE` / `INVALID_USER_SERVICE` —— **该 Key 未开通「逆地理编码」服务**
+ * - `INVALID_PARAMS` —— 坐标越界或格式不对
+ */
+function amapErrorHint(detail: string): string {
+  if (!detail) return ''
+  if (/INVALID_USER_KEY/i.test(detail)) return '高德 Key 无效，或当前域名不在该 Key 的白名单里'
+  if (/INVALID_USER_SCODE/i.test(detail)) return '该高德 Key 需要配套安全密钥（securityJsCode）'
+  if (/OVER_LIMIT|OVER_QUOTA|OVER_QUERY/i.test(detail)) return '高德调用配额已用尽'
+  if (/SERVICE_NOT_AVAILABLE|INVALID_USER_SERVICE|NOT_SUPPORT/i.test(detail)) {
+    return '该高德 Key 未开通「逆地理编码」服务（去高德控制台给这个 Key 勾选该服务）'
+  }
+  if (/INVALID_PARAMS/i.test(detail)) return '坐标越界或参数格式不对'
+  return ''
+}
+
+/**
  * 确保 DistrictSearch（行政区划查询）插件可用。
  *
  * ⚠️ 与 `ensureGeocoder` 同一个坑：脚本 URL 里的 `&plugin=` **只在首次加载脚本时生效**，
@@ -302,12 +349,19 @@ async function resolveAddress(lng: number, lat: number): Promise<void> {
     return
   }
   const geocoder = new Geocoder({ radius: 200, extensions: 'all' })
-  geocoder.getAddress([lng, lat], (status: string, result: { regeocode?: { formattedAddress?: string } }) => {
+  geocoder.getAddress([lng, lat], (status: string, result: unknown) => {
     if (status !== 'complete') {
-      mapMessage.value = `地址解析失败（status=${status}），坐标已保留，请手动填写门店地址`
+      // ⚠️⚠️ 高德在 `status !== 'complete'` 时 **`result` 是字符串**（错误原文），不是对象！
+      // 此前这里只显示 `status=error`，把真正原因（Key 无效 / 未开通逆地理服务 / 超配额…）吞掉了，
+      // 排查时完全无从下手。现在把原文带出来并翻译成人话。
+      const detail = typeof result === 'string' ? result : ''
+      const hint = amapErrorHint(detail)
+      mapMessage.value = `地址解析失败（status=${status}${detail ? `，${detail}` : ''}）`
+        + `${hint ? `：${hint}` : ''}。坐标已保留，请手动填写门店地址。`
       return
     }
-    const formatted = result?.regeocode?.formattedAddress
+    // 成功分支：此时 `result` 才是对象（错误分支是字符串，见上）
+    const formatted = (result as { regeocode?: { formattedAddress?: string } } | null)?.regeocode?.formattedAddress
     if (formatted) {
       form.address = formatted
       pickedAddress.value = formatted
@@ -559,7 +613,7 @@ onMounted(() => {
       </DataTable>
     </el-card>
     <el-dialog v-model="formVisible" :title="editingId ? '编辑门店' : '新增门店'" width="640px" append-to-body>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="省市区"><div class="region-row"><el-select v-model="form.province" clearable filterable placeholder="省" @change="onProvinceChange"><el-option v-for="item in provinceOptions" :key="item.adcode" :label="item.name" :value="item.name" /></el-select><el-select v-model="form.city" clearable filterable placeholder="市" :disabled="!form.province" @change="onCityChange"><el-option v-for="item in cityOptions" :key="item.adcode" :label="item.name" :value="item.name" /></el-select><el-select v-model="form.district" clearable filterable placeholder="区/县" :disabled="!form.city"><el-option v-for="item in districtOptions" :key="item.adcode" :label="item.name" :value="item.name" /></el-select></div><div class="field-hint">结构化地址，与上方「门店地址」并存（后者留给详细门牌）。⛔ 省市区下拉顺序选择，改上级会清空下级。老门店这三项可能为空，<b>不填就不会覆盖</b>。</div></el-form-item><el-form-item label="门店定位"><div class="map-pick-row"><el-button size="small" @click="openMapPicker">地图选点</el-button><el-button v-if="form.latitude != null && form.longitude != null" size="small" text type="danger" @click="clearMapPoint">清除</el-button><span v-if="form.latitude != null && form.longitude != null" class="map-coord">已选：{{ form.longitude }}, {{ form.latitude }}</span><span v-else class="map-coord map-coord--empty">未选点（同城配送按门店坐标算距离，建议填写）</span></div><div class="field-hint">在地图上点一下即可定位，并自动填写门店地址；坐标系为 GCJ-02（高德原生，与小程序端一致），不做转换。</div></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item><el-form-item label="经营名称"><el-input v-model="form.businessName" placeholder="对外经营名称，可与门店名称不同" /></el-form-item><el-form-item label="主营类目"><el-input v-model="form.mainBusiness" placeholder="如：餐饮 / 便利店" /></el-form-item><el-form-item label="营业时间"><el-input v-model="form.openTime" placeholder="如：09:00-21:00" /></el-form-item><el-form-item label="经营联系人"><el-input v-model="form.contactName" placeholder="经营联系人姓名" /></el-form-item><el-form-item label="联系人电话"><el-input v-model="form.contactPhone" placeholder="选填；与上方「联系电话」互为兜底" /></el-form-item><el-form-item label="门店图片"><el-input v-model="form.shopImage" placeholder="门头图 URL（建议 690×345、<2MB）" /><div class="field-hint">审核方据此核对门店真实性；留空 = 不改动已有图片。</div></el-form-item><el-form-item label="门店描述"><el-input v-model="form.description" type="textarea" :rows="3" placeholder="选填，门店介绍" /></el-form-item></el-form>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item label="所属品牌" prop="merchantId"><el-select v-model="form.merchantId" clearable filterable placeholder="请选择所属品牌" style="width: 100%"><el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" /></el-select><div class="field-hint">品牌即入驻商户。<b>留空 = 平台自营单店</b>（无品牌归属，保存时会二次确认）；漏选品牌会让商家端商品管理报 7310。编辑时留空 = 不改归属。</div></el-form-item><el-form-item label="门店名称" prop="name"><el-input v-model="form.name" /></el-form-item><el-form-item label="门店地址" prop="address"><el-input v-model="form.address" /></el-form-item><el-form-item label="省市区"><div class="region-row"><el-select v-model="form.province" clearable filterable placeholder="省" @change="onProvinceChange"><el-option v-for="item in provinceOptions" :key="item.adcode" :label="item.name" :value="item.name" /></el-select><el-select v-model="form.city" clearable filterable placeholder="市" :disabled="!form.province" @change="onCityChange"><el-option v-for="item in cityOptions" :key="item.adcode" :label="item.name" :value="item.name" /></el-select><el-select v-model="form.district" clearable filterable placeholder="区/县" :disabled="!form.city"><el-option v-for="item in districtOptions" :key="item.adcode" :label="item.name" :value="item.name" /></el-select></div><div class="field-hint">结构化地址，与上方「门店地址」并存（后者留给详细门牌）。⛔ 省市区下拉顺序选择，改上级会清空下级。老门店这三项可能为空，<b>不填就不会覆盖</b>。</div></el-form-item><el-form-item label="门店定位"><div class="map-pick-row"><el-button size="small" @click="openMapPicker">地图选点</el-button><el-button v-if="form.latitude != null && form.longitude != null" size="small" text type="danger" @click="clearMapPoint">清除</el-button><span v-if="form.latitude != null && form.longitude != null" class="map-coord">已选：{{ form.longitude }}, {{ form.latitude }}</span><span v-else class="map-coord map-coord--empty">未选点（同城配送按门店坐标算距离，建议填写）</span></div><div class="field-hint">在地图上点一下即可定位，并自动填写门店地址；坐标系为 GCJ-02（高德原生，与小程序端一致），不做转换。</div></el-form-item><el-form-item label="联系电话" prop="phone"><el-input v-model="form.phone" /><div class="field-hint">订单通知的短信通道发到该号码（后端取号：本字段 → 为空回退经营联系人电话）。</div></el-form-item><el-form-item label="经营名称"><el-input v-model="form.businessName" placeholder="对外经营名称，可与门店名称不同" /></el-form-item><el-form-item label="主营类目"><el-input v-model="form.mainBusiness" placeholder="如：餐饮 / 便利店" /></el-form-item><el-form-item label="营业时间"><el-input v-model="form.openTime" placeholder="如：09:00-21:00" /></el-form-item><el-form-item label="经营联系人"><el-input v-model="form.contactName" placeholder="经营联系人姓名" /></el-form-item><el-form-item label="联系人电话"><el-input v-model="form.contactPhone" placeholder="选填；与上方「联系电话」互为兜底" /></el-form-item><el-form-item label="门店图片"><div class="image-upload-row"><el-image v-if="form.shopImage" :src="form.shopImage" :preview-src-list="[form.shopImage]" fit="contain" class="shop-image-preview" preview-teleported /><el-upload :show-file-list="false" :http-request="onShopImageUpload" accept="image/*"><el-button :loading="shopImageUploading">{{ shopImageUploading ? '上传中…' : (form.shopImage ? '重新上传' : '上传门店图片') }}</el-button></el-upload><el-button v-if="form.shopImage" text type="danger" @click="form.shopImage = ''">清除</el-button></div><div class="field-hint">门头或店内实拍，建议 690×345、小于 2MB；审核方据此核对门店真实性。<b>留空 = 不改动已有图片</b>。</div></el-form-item><el-form-item label="门店描述"><el-input v-model="form.description" type="textarea" :rows="3" placeholder="选填，门店介绍" /></el-form-item></el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving" @click="submitForm">保存</el-button></template>
     </el-dialog>
     <!-- 地图选点（动态加载高德脚本，初始化在 @opened 里做） -->
@@ -579,6 +633,9 @@ onMounted(() => {
 /* 省市区三级联动：三个下拉并排、等宽 */
 .region-row { display: flex; gap: 8px; width: 100%; }
 .region-row :deep(.el-select) { flex: 1; }
+/* 门店图片上传：预览图 + 上传按钮 + 清除 */
+.image-upload-row { display: flex; align-items: center; gap: 12px; }
+.shop-image-preview { width: 160px; height: 80px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
 .operator-actions :deep(.el-button) { margin-left: 0; padding: 5px 8px; }
 .operator-actions :deep(.el-icon) { margin-right: 4px; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; }

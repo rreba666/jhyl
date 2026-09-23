@@ -1,4 +1,5 @@
 import { request } from './request'
+import { extractMediaUrl } from './media'
 import type { Shop, ShopCreateDTO, ShopDeleteFlag, ShopPageResult, ShopResponse, ShopStatus, ShopUpdateDTO } from '@/types/shop'
 
 function unwrap<T>(response: { data: ShopResponse<T> }, fallback: string): T {
@@ -50,6 +51,21 @@ export async function getEnabledShops(includeDisabled = false): Promise<Shop[]> 
 }
 
 /** 新增门店。 */
+/**
+ * 上传门店图片，返回 OSS 直链。
+ *
+ * 复用**通用上传** `POST /api/common/upload`（与商家端发票、打款回单同一接口）；
+ * 该接口支持 jpg/jpeg/png/webp/gif 且 ≤10MB，门店图业务建议 690×345、<2MB。
+ */
+export async function uploadShopImage(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await request.post<ShopResponse<unknown>>('/api/common/upload', formData)
+  const url = extractMediaUrl(unwrap(response, '门店图片上传失败'))
+  if (!url) throw new Error('门店图片上传未返回图片地址')
+  return url
+}
+
 export async function createShop(payload: ShopCreateDTO): Promise<void> {
   unwrap(await request.post<ShopResponse<null>>('/api/admin/shop', payload), '门店新增失败')
 }
