@@ -469,15 +469,15 @@ function goBack(): void {
         <view class="settle-arrow">›</view>
       </view>
 
-      <!-- 结算与提现入口：**对所有商家端身份可见**（2026-09-25 改）。
-           ⚠️ 这里原来写的是 `v-if="isMerchantOwner"`，而 isMerchantOwner 早先只看
-           `staffRole === 'MERCHANT_OWNER'`（**当前身份**的主角色）⇒ 商户切到「店长」身份后
-           入口**整个消失**，用户会以为"小程序根本没有提现功能"（已连续困惑两次）。
-           现在不再用前端判断来"隐藏功能"：
-           · 真正的权限由后端校验（非品牌主体返回 13016）；
-           · 结算页**本来就准备好了** 13016 的「仅品牌主体可提现」提示卡 —— 入口放开后它才真正生效。
-           结论：**不要**再给这个入口加身份 `v-if`，否则提示卡又会变成死代码。 -->
-      <view class="settle-entry" @click="goSettlement">
+      <!-- 结算与提现入口：**仅品牌主体可见**（店长/店员调结算接口返回 13016）。
+           ⚠️ 2026-09-25 经过一次反复，结论记在这里，避免再折腾：
+           · 曾一度把这个 `v-if` 去掉（当时的判断是"用前端身份判断隐藏功能"导致用户看不到入口）；
+           · 但**线上版本验证表明原判断本来就是对的**，当时的异常是**本地测试环境**造成的
+             ⇒ 已按用户要求**恢复这个 v-if**。
+           · `isMerchantOwner` 现在看 `identities` **全集**（不是只看 `staffRole` 单值），
+             并保留 `staffRole` 兜底 —— 比原来更准，且不影响线上既有行为。
+           ⇒ 不要因为"看不到入口"的反馈就再把它去掉：先确认是不是本地环境/身份没切。 -->
+      <view v-if="isMerchantOwner" class="settle-entry" @click="goSettlement">
         <view class="settle-text">
           <text class="settle-title">结算与提现</text>
           <text class="settle-sub">可提现余额 · 账户流水 · 提现记录</text>
