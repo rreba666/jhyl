@@ -369,12 +369,12 @@ onShow(() => {
 /* 品牌块：logo + 下方 slogan 两行（2026-09-22 用户要求 slogan 放在 logo 下方）。
    原来固定 height:96rpx 装不下两行，改为内边距撑开 —— 顶部区域总高由内容自然决定，
    navStyle 只负责状态栏 paddingTop，所以这里加高不会影响吸顶（sticky）逻辑。 */
-.brand-row { display: flex; width: 100%; align-items: center; padding: 16rpx 24rpx 6rpx; box-sizing: border-box; }
+.brand-row { display: flex; width: 100%; height: 130rpx; align-items: center; padding: 12rpx 24rpx; box-sizing: border-box; }
 .brand-block { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 6rpx; }
 .brand-logo { width: 169rpx; height: 64rpx; }
 /* 品牌 slogan：低饱和金棕、字号略小于正文；flex:1 + 居中 —— logo 与胶囊之间刚好留出这段文案 */
 /* slogan 跟在 logo 下方、左对齐（不再居中/占满整行）；低饱和金棕、字号略小于正文 */
-.brand-slogan { color: #8a6a3b; font-size: 24rpx; font-weight: 500; letter-spacing: 1rpx; line-height: 32rpx; }
+.brand-slogan { overflow: hidden; color: #8a6a3b; font-size: 24rpx; font-weight: 500; letter-spacing: 1rpx; line-height: 32rpx; text-overflow: ellipsis; white-space: nowrap; }
 .search-row { display: flex; width: 100%; height: 104rpx; align-items: center; gap: 16rpx; padding: 8rpx 24rpx 0; box-sizing: border-box; }
 .search-pill, .share-pill { display: flex; height: 72rpx; align-items: center; box-sizing: border-box; border: 0; border-radius: 999rpx; background: #f1f2f4; color: #86909c; font-size: 30rpx; line-height: 48rpx; }
 .search-pill { flex: 1; gap: 12rpx; padding: 0 24rpx; }
