@@ -16,15 +16,14 @@ function selectMode(mode: LayoutMode): void {
 
 <template>
   <view class="layout-toggle" aria-label="商品布局切换">
+    <!-- 图标改用 iconfont（2026-09-25 用户要求用在线 iconfont 里的图标）：
+         字体在 styles/rider-iconfont.wxss（iconfont 项目 5230143 完整字体），App.vue 已全局 import。
+         双列 = buju_shangxia(\e89c 布局_上下)，单列 = buju_zuoyou(\e899 布局_左右)。 -->
     <view class="layout-option" :class="{ active: modelValue === 'grid' }" @click="selectMode('grid')">
-      <view class="grid-icon" aria-hidden="true">
-        <view v-for="cell in 4" :key="cell" class="grid-cell" />
-      </view>
+      <text class="rider-icon rider-icon-buju_shangxia layout-icon" aria-hidden="true" />
     </view>
     <view class="layout-option" :class="{ active: modelValue === 'list' }" @click="selectMode('list')">
-      <view class="list-icon" aria-hidden="true">
-        <view v-for="line in 3" :key="line" class="list-line" />
-      </view>
+      <text class="rider-icon rider-icon-buju_zuoyou layout-icon" aria-hidden="true" />
     </view>
   </view>
 </template>
@@ -33,9 +32,7 @@ function selectMode(mode: LayoutMode): void {
 .layout-toggle { display: flex; gap: 4rpx; padding: 4rpx; border-radius: 999rpx; background: #f2f3f7; }
 .layout-option { display: flex; width: 80rpx; height: 64rpx; align-items: center; justify-content: center; border-radius: 999rpx; }
 .layout-option.active { background: #fff; }
-.grid-icon { display: grid; width: 36rpx; height: 36rpx; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 4rpx; }
-.grid-cell, .list-line { display: block; background: #1d2129; }
-.grid-cell { border-radius: 3rpx; }
-.list-icon { display: flex; width: 38rpx; flex-direction: column; gap: 6rpx; }
-.list-line { height: 5rpx; border-radius: 3rpx; }
+/* 图标：iconfont 字体（原来是用 CSS 画的 2x2 网格与三根横线，已按用户要求换成在线图标） */
+.layout-icon { font-size: 36rpx; line-height: 1; color: #86909c; }
+.layout-option.active .layout-icon { color: #1d2129; }
 </style>
