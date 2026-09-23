@@ -43,6 +43,8 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
     // 短信模板管理 / 语音配置管理：后端 `/api/admin/sms/**`、`/api/admin/voice/**` 都是超管专属（非超管 403）
     '/settings/sms-templates', '/settings/voice',
+    // 入驻申请审核：与 `/merchants` 同角色（现行矩阵里只有超管）；含身份证等敏感信息，不放开给其它角色
+    '/merchant-apply',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
@@ -76,6 +78,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/dashboard': '仪表盘',
   '/merchant': '商户业务台',
   '/merchants': '商户管理',
+  '/merchant-apply': '入驻申请审核',
   '/homepage': '首屏与品牌',
   '/homepage/bottom-recommendation': '底部推荐',
   '/announcement': '公告栏',

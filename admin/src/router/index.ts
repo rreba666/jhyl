@@ -48,6 +48,14 @@ const router = createRouter({
           meta: { title: '商户管理', permission: ['merchant:read'], roles: rolesForPath('/merchants'), requiresAuth: true },
         },
         {
+          // 入驻申请审核（按申请单）：能看到门店门头图 / 营业执照 / 身份证正反面照。
+          // ⚠️ 这些字段只在 /api/admin/merchant-apply/list 里（该模块**没有详情接口**）。
+          path: 'merchant-apply',
+          name: 'MerchantApply',
+          component: () => import('@/views/merchant-apply/index.vue'),
+          meta: { title: '入驻申请审核', permission: ['merchant:read'], roles: rolesForPath('/merchant-apply'), requiresAuth: true },
+        },
+        {
           path: 'admins',
           name: 'Admins',
           component: () => import('@/views/admins/index.vue'),

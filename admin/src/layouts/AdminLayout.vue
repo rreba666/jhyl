@@ -209,6 +209,11 @@ onUnmounted(() => {
           <el-icon><Shop /></el-icon>
           <template #title>商户管理</template>
         </el-menu-item>
+        <!-- 入驻申请审核：按申请单审核，能看到门店门头图/营业执照/身份证（仅超管） -->
+        <el-menu-item v-if="canVisit('/merchant-apply')" index="/merchant-apply">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>入驻申请审核</template>
+        </el-menu-item>
         <!-- 管理员管理：仅平台管理员 -->
         <el-menu-item v-if="canVisit('/admins')" index="/admins">
           <el-icon><User /></el-icon>
