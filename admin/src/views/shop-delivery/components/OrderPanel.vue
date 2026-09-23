@@ -82,20 +82,56 @@ async function flow(row: DeliveryOrderView, action: 'accept' | 'prepare' | 'read
   }
 }
 
-/** 拒单（必填原因，触发全额原路退款）。 */
+/**
+ * 拒单（必填原因，触发全额原路退款）。
+ *
+ * ⚠️⚠️ 2026-09-25 按《秒退与退款口径》§7 调整：后端已改为**先校验退款可行性，再改状态** ——
+ * 退款不可行时（支付超 7 天退款窗 / 未支付 / 金额异常）**拒单本身被拒绝**，
+ * 订单**保持 `WAIT_ACCEPT` 不变**，返回业务错误（如 `ORDER_REFUND_EXPIRED`）；
+ * 状态被他方推进仍返回 `13007`。以前是"拒单成功但退款只打日志"，会留下
+ * "订单已取消、货不送、**钱没退**"的坏账。
+ *
+ * 因此失败分支必须做到三件事：
+ * ① 把后端 `message` **原样带出**（不能吞成笼统的"拒单失败"），并提示联系客服；
+ * ② **失败后也要刷新订单** —— 退款不可行时订单仍是「待接单」，商家要继续处理，
+ *    界面不能停在"已拒单"的假象；
+ * ③ 提示**不要重试**（这类失败重试也不会成功）。
+ *
+ * 顺带修掉一个隐患：原来 `loadOrders()` 与提交写在同一个 `try` 里，
+ * 于是"拒单已成功、只是列表刷新失败"会被 `catch` 报成"拒单失败"（误导商家重复操作）。
+ * 现在把取原因 / 提交 / 刷新分成三段，各自处理错误。
+ */
 async function rejectOrder(row: DeliveryOrderView): Promise<void> {
   if (!row.orderNo) return
+
+  // ① 取拒单原因：`ElMessageBox.prompt` 取消/关闭时抛出的是字符串，不是失败
+  let reason = ''
   try {
     const result = await ElMessageBox.prompt('拒单将触发全额原路退款，请填写拒单原因', '拒单', {
       inputPattern: /\S+/,
       inputErrorMessage: '请填写拒单原因',
       type: 'warning',
     })
-    await rejectMyOrder(props.shopId || undefined, row.orderNo, result.value)
+    reason = result.value
+  } catch {
+    return
+  }
+
+  // ② 提交拒单：只有这里才代表"拒单失败"
+  try {
+    await rejectMyOrder(props.shopId || undefined, row.orderNo, reason)
     ElMessage.success('已拒单并触发退款')
-    await loadOrders()
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '拒单失败')
+    const message = error instanceof Error ? error.message : ''
+    // 业务态（如 ORDER_REFUND_EXPIRED）用 warning + 原样 message；不用 error 以免被当成系统故障
+    ElMessage.warning(message ? `该订单无法拒单：${message}，请联系客服处理` : '拒单失败，请稍后重试')
+  }
+
+  // ③ 成功/失败都要刷新（失败时订单可能仍是待接单）；刷新失败不覆盖上面的结果提示
+  try {
+    await loadOrders()
+  } catch {
+    /* 列表刷新失败无需额外提示：结果提示已经给出，商家可手动刷新 */
   }
 }
 
