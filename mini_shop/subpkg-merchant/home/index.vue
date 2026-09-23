@@ -185,18 +185,42 @@ const roleOptions = computed(() => {
   const list: { key: string; bindingId: number | null; disabled: boolean; name: string; desc: string; icon: string }[] = [
     { key: 'CUSTOMER', bindingId: null, disabled: false, ...roleMeta('CUSTOMER') },
   ]
-  const seen = new Set(['CUSTOMER'])
+  type RoleOption = { key: string; bindingId: number | null; disabled: boolean; name: string; desc: string; icon: string }
+  /**
+   * ⚠️⚠️ 2026-09-25 关键修正：按 entry 归并时**必须优先保留 `MERCHANT_OWNER`**。
+   *
+   * 入驻审核通过会**同时**授予「商家（MERCHANT_OWNER）」与「首店店长（MANAGER）」两个身份，
+   * 而两者的 `targetPage` **都是 `MANAGER`**（都进本工作台）。原来这里简单地
+   * "见过就跳过"，于是**第二张被丢掉**，保留的却是后端**先返回**的那张（通常正是店长）
+   * ⇒ 弹层里只有一个「商户管理员」，用户**没有任何办法切到商家身份**
+   * ⇒ 结算/提现页永远显示 13016「仅商户品牌主体可查看」
+   * （真实反馈："我的账号是商户主体，为什么显示这个"，且弹层里确实没有商家选项）。
+   *
+   * 商家身份权限更高（结算/提现只认品牌主体），且店长能做的它都能做
+   * ⇒ 同一入口下保留 owner 是无损的正确选择。
+   */
+  const byEntry = new Map<string, RoleOption & { role: string }>()
   ;(identity.value?.identities || []).forEach((item) => {
     const entry = (item.targetPage || 'CUSTOMER') as 'CUSTOMER' | 'MANAGER' | 'RIDER'
-    if (seen.has(entry)) return
-    seen.add(entry)
-    list.push({ key: entry, bindingId: item.bindingId, disabled: Boolean(item.pending), ...roleMeta(entry) })
+    if (entry === 'CUSTOMER') return
+    const role = String(item.role || '').toUpperCase()
+    const existing = byEntry.get(entry)
+    if (existing && !(role === 'MERCHANT_OWNER' && existing.role !== 'MERCHANT_OWNER')) return
+    byEntry.set(entry, { key: entry, bindingId: item.bindingId, disabled: Boolean(item.pending), role, ...roleMeta(entry) })
   })
+  byEntry.forEach((option) => list.push({
+    key: option.key,
+    bindingId: option.bindingId,
+    disabled: option.disabled,
+    name: option.name,
+    desc: option.desc,
+    icon: option.icon,
+  }))
   // 店长身份「内含骑手能力」（IdentityVO.deliveryCapability）：后端常常只返回一张店长卡，
   // 此时必须补一个「骑手」入口，否则门店管理员根本进不去配送页。
   // 进骑手页**不需要切换身份**（同一 token、身份仍是店长，任务接口用 C 端 token 直调），
   // 所以这一项 bindingId 保持 null，走直接跳转（见 confirmSwitch）。
-  if (identity.value?.deliveryCapability && !seen.has('RIDER')) {
+  if (identity.value?.deliveryCapability && !byEntry.has('RIDER')) {
     list.push({ key: 'RIDER', bindingId: null, disabled: false, ...roleMeta('RIDER') })
   }
   return list
