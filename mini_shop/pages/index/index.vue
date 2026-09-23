@@ -287,7 +287,7 @@ onShow(() => {
         <!-- 品牌块：logo 在上、slogan 在**下方**（2026-09-22 用户澄清位置）；文案不带句号，按用户原文 -->
         <view class="brand-block">
           <image class="brand-logo" src="/static/figma-home/brand-logo.png" mode="aspectFit" />
-          <text class="brand-slogan">非遗老字号，礼承中国心</text>
+          <text class="brand-slogan">今华有礼,礼赠万家</text>
         </view>
       </view>
       <view class="search-row">
@@ -364,8 +364,12 @@ onShow(() => {
    商品卡是白色 + 双层阴影，压在纯白底上阴影几乎看不见、卡片"贴"在背景里；
    换成浅灰后白卡自然浮起来，立体感才成立（金刚区/福利区等白色区块也更有层次）。 */
 .home-page { display: flex; width: 100%; min-height: 100vh; flex-direction: column; align-items: center; background: #f5f6f8; color: #1d2129; }
-.top-shell { position: relative; z-index: 5; width: 100%; box-sizing: border-box; background: #fff; transition: box-shadow .2s ease; }
-.top-shell.scrolled { position: sticky; top: 0; box-shadow: 0 2rpx 16rpx rgba(29, 33, 41, .08); }
+/* 头部常驻 sticky（2026-09-22 用户反馈「往下滚动时会抖一下」）：
+   原来只有 .scrolled 才把 position 从 relative 切成 sticky —— 两者定位基准不同，
+   切换瞬间要重新计算位置，而 position 不可过渡，于是滚动过阈值时抖一下。
+   现在 position 恒定不变，.scrolled 只加阴影，触发时没有任何布局变化。 */
+.top-shell { position: sticky; top: 0; z-index: 5; width: 100%; box-sizing: border-box; background: #fff; transition: box-shadow .2s ease; }
+.top-shell.scrolled { box-shadow: 0 2rpx 16rpx rgba(29, 33, 41, .08); }
 /* 品牌块：logo + 下方 slogan 两行（2026-09-22 用户要求 slogan 放在 logo 下方）。
    原来固定 height:96rpx 装不下两行，改为内边距撑开 —— 顶部区域总高由内容自然决定，
    navStyle 只负责状态栏 paddingTop，所以这里加高不会影响吸顶（sticky）逻辑。 */
