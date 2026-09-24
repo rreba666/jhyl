@@ -224,19 +224,24 @@ function copyShareLink(): void {
 
 <style>
 .home-share-mask { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding-right: 0; padding-left: 0; box-sizing: border-box; background: rgba(0, 0, 0, .22); }
-.home-share-dialog { display: flex; width: 100%; flex-shrink: 0; flex-direction: column; align-items: center; padding-bottom: calc(96rpx + 12rpx); box-sizing: border-box; }
+.home-share-dialog { display: flex; width: 100%; flex-shrink: 0; flex-direction: column; align-items: center; padding-bottom: 48rpx; box-sizing: border-box; }
 .home-share-poster { position: relative; width: 460rpx; height: 736rpx; overflow: hidden; border-radius: 16rpx; background: #f5f1ea; box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, .18); }
 .home-share-poster-bg { display: block; width: 100%; height: 100%; }
 /* 预览态二维码落点：与 createPosterFile() 的 QR_X/QR_Y/QR_SIZE 严格一致。
    换算系数 0.46 = 海报展示宽 460rpx ÷ 画布宽 1000px（高度同为 736rpx ÷ 1600px = 0.46）：
    left = 375 × 0.46 = 172.5rpx、top = 1211 × 0.46 ≈ 557rpx、宽高 = 258 × 0.46 ≈ 118.7rpx。 */
 .home-share-poster-qr { position: absolute; top: 557rpx; left: 172.5rpx; width: 118.7rpx; height: 118.7rpx; }
-.home-share-close { display: block; width: 56rpx; height: 56rpx; margin-top: 16rpx; }
-/* 底部操作区（设计稿 2026-09-24）：**去掉整条白色背景**，三个按钮直接浮在遮罩上、等宽排列 */
-.home-share-actions { position: fixed; right: 0; bottom: 0; left: 0; z-index: 5; display: flex; width: 100%; height: 96rpx; align-items: center; gap: 16rpx; padding: 16rpx 24rpx; box-sizing: border-box; background: transparent; }
-.home-share-action, .home-share-send { display: flex; height: 64rpx; align-items: center; justify-content: center; padding: 0 20rpx; box-sizing: border-box; border-radius: 999rpx; color: #ff5500; font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
-.home-share-action { flex: 1; background: #fff; }
-.home-share-send { flex: 1; margin: 0; border: 0; background: linear-gradient(135deg, #ffb341 0%, #ff5500 100%); color: #fff; }
+/* 关闭按钮：设计稿 32x32，与海报、与下方按钮区各间距 24px ≈ 46rpx */
+.home-share-close { display: block; width: 62rpx; height: 62rpx; margin-top: 46rpx; }
+/* 操作区（2026-09-24 按 Figma 实测重做）：**满宽白底条**、**不再固定贴屏幕底** ——
+   改为跟在关闭按钮下方、属于弹窗内容流；与关闭按钮间距 24px ≈ 46rpx。
+   实测：高 70px / 内边距 16px / 按钮间距 8px（×1.923 → 135rpx / 31rpx / 15rpx） */
+.home-share-actions { display: flex; width: 100%; height: 135rpx; align-items: center; justify-content: center; gap: 15rpx; margin-top: 46rpx; padding: 31rpx; box-sizing: border-box; background: #fff; }
+/* 按钮：高 38px ≈ 73rpx、全圆角、左右内边距 24px ≈ 46rpx；
+   ⚠️ **按内容自适应宽度**（设计稿实测 104 / 104 / 132，**不是等宽**） */
+.home-share-action, .home-share-send { display: flex; flex: 0 0 auto; height: 73rpx; align-items: center; justify-content: center; padding: 0 46rpx; box-sizing: border-box; border-radius: 999rpx; color: #ff5500; font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
+.home-share-action { background: #fff4e8; }
+.home-share-send { flex: 0 0 auto; margin: 0; border: 0; background: linear-gradient(135deg, #ffb341 0%, #ff5500 100%); color: #fff; }
 .home-share-send::after { border: 0; }
 .home-share-canvas { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 </style>

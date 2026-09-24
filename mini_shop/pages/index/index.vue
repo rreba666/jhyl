@@ -386,9 +386,12 @@ onShow(() => {
 .search-box, .share-pill { display: flex; height: 72rpx; align-items: center; box-sizing: border-box; color: #86909c; font-size: 30rpx; line-height: 48rpx; }
 /* 搜索框（设计稿 2026-09-24）：白底 + 橙色描边 + 圆角，右侧内嵌橙色实心「搜索」按钮。
    外层 overflow:hidden 让右侧按钮贴合圆角、不溢出描边。 */
-.search-box { flex: 1; gap: 12rpx; padding: 0 0 0 24rpx; overflow: hidden; border: 2rpx solid #ff5500; border-radius: 16rpx; background: #fff; }
-.search-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-button { display: flex; height: 100%; align-items: center; justify-content: center; padding: 0 28rpx; background: #ff5500; color: #fff; font-size: 28rpx; }
+/* 尺寸按 Figma 实测换算（设计稿 390 宽 → 750rpx，系数 1.923）：
+   框 294x36 / r8 / 描边 1px / 左内边距 8px / 右内边距 1px；按钮 52x32 / r6 / 左右内边距 12px */
+.search-box { flex: 1; gap: 12rpx; padding: 0 2rpx 0 16rpx; border: 2rpx solid #ff5500; border-radius: 15rpx; background: #fff; }
+.search-placeholder { flex: 1; overflow: hidden; color: #86909c; font-size: 29rpx; text-overflow: ellipsis; white-space: nowrap; }
+/* 「搜索」是**独立按钮**（2026-09-24 设计稿修正）：不占满高度（框 36 而按钮 32）、不贴右边框，有独立圆角 */
+.search-button { display: flex; height: 62rpx; align-items: center; justify-content: center; padding: 0 23rpx; border-radius: 12rpx; background: #ff5500; color: #fff; font-size: 27rpx; }
 .share-pill { flex-shrink: 0; width: 128rpx; justify-content: center; gap: 8rpx; padding: 0; border: 0; border-radius: 999rpx; background: #f1f2f4; }
 .share-pill { width: 128rpx; flex-shrink: 0; justify-content: center; gap: 8rpx; padding: 0; }
 .share-pill::after { border: 0; }
