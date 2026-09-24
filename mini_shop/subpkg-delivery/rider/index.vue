@@ -596,10 +596,18 @@ onLoad((options?: Record<string, string | undefined>) => {
   const matched = TABS.find((tab) => tab.key === requested || tab.api.toLowerCase() === requested)
   if (matched) activeTab.value = matched.key
 })
-/** 拉取未读数（后端拉取即清零），用于「新任务」Tab 红点。 */
+/**
+ * 拉取未读数（后端契约：`/api/delivery/tasks/unread` **拉取并清零**），用于「新任务」Tab 红点。
+ *
+ * ⚠️ 2026-09-24：后端「拉取即清零」未生效时会**长期返回同一个 >0 的值**，
+ * 前端只看 `unread > 0` 就会「一个订单都没有也一直亮红点」（线上反馈）。
+ * 这里加一道闸门：正在看「新任务」且列表为空 ⇒ 认为确实没有新任务，按 0 处理。
+ * ⚠️ 但仍需后端修清零逻辑 —— 用户在其它 Tab 时前端拿不到「新任务是否为空」，那种情况仍会亮。
+ */
 async function refreshUnread(): Promise<void> {
   try {
-    unread.value = await getRiderUnread()
+    const value = await getRiderUnread()
+    unread.value = activeTab.value === 'new' && tasks.value.length === 0 ? 0 : value
   } catch {
     // 红点是增强提示，失败静默，不影响列表
   }

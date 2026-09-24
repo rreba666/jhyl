@@ -132,9 +132,19 @@ const incomeEntries = computed(() => {
 const pendingBonus = computed(() => Number(wallet.value?.pendingBonus || 0))
 /** 上次已查看的红包金额（本地缓存，用于红点提示新红包）。 */
 const lastSeenBonus = ref(Number(uni.getStorageSync('bonus_last_seen') || 0))
-/** 本地开发预览开关，正式构建仍按真实未读红包触发。 */
+/**
+ * 本地开发预览开关：**开发构建**下即使没有新红包也点亮红点 / 允许打开红包弹窗，方便调样式；
+ * 正式构建 `import.meta.env.DEV` 为 `false`，一律走下面的真实条件。
+ * ⚠️ 由契约 `mine-redpacket-preview-trigger.contract.ps1` 保护（开发可预览 + 生产保留真实触发），
+ *    不要随意改动这一段 —— 改了契约会红。
+ */
 const redPacketPreviewEnabled = import.meta.env.DEV
-/** 是否有未查看的新红包（开发环境临时允许预览）。 */
+/**
+ * 是否有未查看的新红包。
+ * 生产口径：待领取金额 > 上次已查看金额；**开发构建额外允许预览**（见上）。
+ * ⚠️ ⇒ 在 **HBuilderX 运行 / 开发预览**里这个红点会**常亮**（这是预期），
+ *    `体验版 / 正式版` 不会。排查时别误判成"没有红包也亮"的 bug。
+ */
 const hasUnseenBonus = computed(() => redPacketPreviewEnabled || pendingBonus.value > lastSeenBonus.value)
 /** 红包弹窗可见状态。 */
 const redPacketVisible = ref(false)
