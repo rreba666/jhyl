@@ -232,9 +232,10 @@ function copyShareLink(): void {
    left = 375 × 0.46 = 172.5rpx、top = 1211 × 0.46 ≈ 557rpx、宽高 = 258 × 0.46 ≈ 118.7rpx。 */
 .home-share-poster-qr { position: absolute; top: 557rpx; left: 172.5rpx; width: 118.7rpx; height: 118.7rpx; }
 .home-share-close { display: block; width: 56rpx; height: 56rpx; margin-top: 16rpx; }
-.home-share-actions { position: fixed; right: 0; bottom: 0; left: 0; z-index: 5; display: flex; width: 100%; height: 96rpx; align-items: center; gap: 16rpx; padding: 16rpx 24rpx; box-sizing: border-box; background: #fff; }
+/* 底部操作区（设计稿 2026-09-24）：**去掉整条白色背景**，三个按钮直接浮在遮罩上、等宽排列 */
+.home-share-actions { position: fixed; right: 0; bottom: 0; left: 0; z-index: 5; display: flex; width: 100%; height: 96rpx; align-items: center; gap: 16rpx; padding: 16rpx 24rpx; box-sizing: border-box; background: transparent; }
 .home-share-action, .home-share-send { display: flex; height: 64rpx; align-items: center; justify-content: center; padding: 0 20rpx; box-sizing: border-box; border-radius: 999rpx; color: #ff5500; font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
-.home-share-action { flex: 0 0 auto; background: #fff4e8; }
+.home-share-action { flex: 1; background: #fff; }
 .home-share-send { flex: 1; margin: 0; border: 0; background: linear-gradient(135deg, #ffb341 0%, #ff5500 100%); color: #fff; }
 .home-share-send::after { border: 0; }
 .home-share-canvas { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

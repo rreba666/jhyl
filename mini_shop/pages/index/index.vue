@@ -291,9 +291,12 @@ onShow(() => {
         </view>
       </view>
       <view class="search-row">
-        <view class="search-pill" @click="goSearch">
+        <!-- 搜索框（2026-09-24 设计稿）：白底 + 橙色描边 + 右侧内嵌橙色「搜索」按钮。
+             ⚠️ 仍是**点击整块跳搜索页**，不是页内输入 —— 本次只改外观，交互与改动前完全一致 -->
+        <view class="search-box" @click="goSearch">
           <text class="rider-icon rider-icon-sousuo search-icon" aria-hidden="true" />
-          <text class="search-placeholder">老字号精选好物</text>
+          <text class="search-placeholder">搜索喜欢的商品</text>
+          <view class="search-button">搜索</view>
         </view>
         <button class="share-pill" @click="openSharePoster">
           <text class="rider-icon rider-icon-fenxiang share-icon" aria-hidden="true" />
@@ -380,8 +383,13 @@ onShow(() => {
 /* slogan 跟在 logo 下方、左对齐（不再居中/占满整行）；低饱和金棕、字号略小于正文 */
 .brand-slogan { overflow: hidden; color: #8a6a3b; font-size: 24rpx; font-weight: 500; letter-spacing: 1rpx; line-height: 32rpx; text-overflow: ellipsis; white-space: nowrap; }
 .search-row { display: flex; width: 100%; height: 104rpx; align-items: center; gap: 16rpx; padding: 8rpx 24rpx 0; box-sizing: border-box; }
-.search-pill, .share-pill { display: flex; height: 72rpx; align-items: center; box-sizing: border-box; border: 0; border-radius: 999rpx; background: #f1f2f4; color: #86909c; font-size: 30rpx; line-height: 48rpx; }
-.search-pill { flex: 1; gap: 12rpx; padding: 0 24rpx; }
+.search-box, .share-pill { display: flex; height: 72rpx; align-items: center; box-sizing: border-box; color: #86909c; font-size: 30rpx; line-height: 48rpx; }
+/* 搜索框（设计稿 2026-09-24）：白底 + 橙色描边 + 圆角，右侧内嵌橙色实心「搜索」按钮。
+   外层 overflow:hidden 让右侧按钮贴合圆角、不溢出描边。 */
+.search-box { flex: 1; gap: 12rpx; padding: 0 0 0 24rpx; overflow: hidden; border: 2rpx solid #ff5500; border-radius: 16rpx; background: #fff; }
+.search-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-button { display: flex; height: 100%; align-items: center; justify-content: center; padding: 0 28rpx; background: #ff5500; color: #fff; font-size: 28rpx; }
+.share-pill { flex-shrink: 0; width: 128rpx; justify-content: center; gap: 8rpx; padding: 0; border: 0; border-radius: 999rpx; background: #f1f2f4; }
 .share-pill { width: 128rpx; flex-shrink: 0; justify-content: center; gap: 8rpx; padding: 0; }
 .share-pill::after { border: 0; }
 /* 2026-09-22: was a CSS-drawn circle faking a magnifier (no handle) -> now iconfont rider-icon-sousuo */
