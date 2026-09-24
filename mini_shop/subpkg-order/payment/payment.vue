@@ -493,7 +493,13 @@ async function loadDeliverableShops(): Promise<void> {
   }
   try {
     const list = await getDeliverableShops(skuIds)
-    deliverableShops.value = Array.isArray(list) ? list : []
+    const shopsOfProduct = Array.isArray(list) ? list : []
+    deliverableShops.value = shopsOfProduct
+    // 可观测性：真机 / 开发者工具 Console 里一眼看出这一层到底筛没筛
+    console.info(`[shop] 按商品筛选可配送门店 skuIds=${skuIds.join(',')} → ${shopsOfProduct.length} 家（全量启用门店 ${shops.value.length} 家）`)
+    if (shopsOfProduct.length && shops.value.length && shopsOfProduct.length >= shops.value.length) {
+      console.warn('[shop] 「按商品筛选」的结果 ≥ 全量启用门店数 —— 请确认后端 /api/shop/deliverable 是否真的按 skuIds 过滤，或该商品确实被所有门店上架')
+    }
   } catch (error) {
     deliverableShops.value = null
     console.error('按商品筛选可配送门店失败，退回全量门店', error)
