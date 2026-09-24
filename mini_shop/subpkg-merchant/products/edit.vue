@@ -55,6 +55,17 @@ const detailImages = ref<string[]>([])
  */
 const descEchoed = ref(false)
 const detailImagesEchoed = ref(false)
+/**
+ * 用户是否在本次编辑里**动过**「详情描述」输入框。
+ *
+ * 用途：回显拿不到（后端未下发 `description`）时区分两种"空"——
+ * - **没碰过** → 用户只是想改别的，必须**跳过该字段**（否则空值会清空线上描述）；
+ * - **主动填了内容** → 用户就是要把它改成这个，**应当提交**。
+ *
+ * ⚠️ 缺了它，用户在空框里新写的描述会被静默丢弃：界面提示"保存成功"，其实没落库。
+ * 这比"显示一条限制说明"严重得多 —— 所以宁可多一个标志位，也不靠文字提示糊过去。
+ */
+const descTouched = ref(false)
 
 // ===== 商品级「配送方式」开关（2026-09-22 新增，§7b②） =====
 /** 支持线下自提：1=支持, 0=不支持（新增态默认 1）。 */
@@ -239,9 +250,13 @@ function buildPayload(): MerchantProductSaveDTO {
   }
   const desc = description.value.trim()
   // 新建态：用户看得到输入框，空就是真的不要描述；
-  // 编辑态：**回显确实拿到了才提交** —— 此时空代表"用户主动清空"，应当生效；
-  //        回显拿不到（后端未下发该字段）则整个跳过，绝不能拿空值覆盖线上内容。
-  if (!productId.value || descEchoed.value) payload.description = desc
+  // 编辑态三种情况：
+  //   ① 回显拿到了 → 一律提交（此时空 = 用户主动清空，应当生效）；
+  //   ② 回显拿不到、但用户**主动填了内容** → 提交，让用户的输入真正落库（否则是白填）；
+  //   ③ 回显拿不到、用户也没碰过 → 跳过，绝不能拿空值覆盖线上描述。
+  if (!productId.value || descEchoed.value || (descTouched.value && desc)) payload.description = desc
+  // 详情图维持「回显拿到才提交」：用户看不到原有图时提交会**静默删掉线上图**，风险更大，
+  // 只能等后端补 `detailImages`（见需求稿第 6 条）后自然解决。
   if (!productId.value || detailImagesEchoed.value) payload.detailImages = detailImages.value
   // 商品级配送方式（2026-09-22）：语义「不传 = 不修改」——
   // 新增态没有回显，按默认值 1 显式提交；编辑态**只有回显确实拿到了才提交**，
@@ -314,12 +329,10 @@ function goBack(): void {
     </view>
 
     <scroll-view class="content" scroll-y>
-      <!-- 编辑态诚实提示（2026-09-21）：后端**没有单商品详情 GET 接口**，本页只能回填标题/第 1 张主图/规格，
-           拿不到 description 与 detailImages —— 提交时这两个字段会被跳过（不覆盖线上内容），
-           所以本页对它们的修改不会生效。补后端详情接口后应改为正常回填并删掉这条提示。 -->
-      <view v-if="productId" class="edit-notice">
-        <text>当前版本编辑不会修改商品描述与详情图；主图只能回填第 1 张，保存后以这 1 张为准</text>
-      </view>
+      <!-- ⚠️ 这里原本有一条「编辑态诚实提示」（不许改描述/详情图…），2026-09-25 按用户要求**删除**：
+           不该把后端缺口变成给用户"立规则"的说明书 —— 用户只在乎好不好用，能做的只有把问题解决掉。
+           功能层面的解法见 buildPayload 的 descTouched / descEchoed，以及
+           docs/后端接口需求-商品SKU与门店商品-2026-09-25.md 第 6 条（请后端补 VO 字段）。 -->
 
       <!-- 卡 1：主图 + 标题 + 描述 -->
       <view class="card">
@@ -370,9 +383,8 @@ function goBack(): void {
             :maxlength="200"
             placeholder="最多输入 200 字"
             placeholder-class="field-ph"
+            @input="descTouched = true"
           />
-          <!-- 拿不到已有描述时，在输入框**正下方**说明（页面顶部那条总提示容易被划过去） -->
-          <text v-if="productId && !descEchoed" class="field-hint">未读取到已有描述（后端暂未下发该字段），留空保存不会修改线上内容</text>
         </view>
       </view>
 
@@ -409,7 +421,6 @@ function goBack(): void {
               <text class="add-icon">+</text>
             </view>
           </view>
-          <text v-if="productId && !detailImagesEchoed" class="field-hint">未读取到已有详情图（后端暂未下发该字段），留空保存不会修改线上内容</text>
         </view>
       </view>
 
@@ -508,16 +519,6 @@ function goBack(): void {
   padding: 31rpx;
   border-radius: 24rpx;
   background: #ffffff;
-}
-/* 编辑态的限制提示（后端无商品详情接口导致，属诚实告知，非报错） */
-.edit-notice {
-  margin-bottom: 15rpx;
-  padding: 20rpx 23rpx;
-  border-radius: 16rpx;
-  background: #fff4e8;
-  color: #ff6a01;
-  font-size: 25rpx;
-  line-height: 38rpx;
 }
 
 /* 主图上传 */
@@ -766,6 +767,4 @@ function goBack(): void {
   background: linear-gradient(90deg, #ff9301 0%, #ff6a01 50%, #ff4202 100%);
   color: #ffffff;
 }
-/* 「回显拿不到」时贴在输入框正下方的说明（拿得到即消失，见 descEchoed） */
-.field-hint { display: block; margin-top: 10rpx; color: #ff7d00; font-size: 22rpx; line-height: 32rpx; }
 </style>
