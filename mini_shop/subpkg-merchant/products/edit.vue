@@ -25,6 +25,55 @@ import {
   type MerchantSkuItem,
 } from '@/api/merchant'
 import { uploadFile } from '@/utils/request'
+import { getProductDetail } from '@/api/product'
+
+/**
+ * 【⚠️ 临时兜底 —— 后端在 `MerchantProductVO` 补上 `mainImages` / `description` / `detailImages`
+ *   之后，请删除本函数及其在 `onLoad` 里的调用】见
+ *   `docs/后端接口需求-商品SKU与门店商品-2026-09-25.md` 第 6 条。
+ *
+ * **为什么必须要它**：`MerchantProductVO` 只回填得到 `mainImage`（单数），
+ * 而 `MerchantProductSaveDTO` 的 `required = [mainImages, skus, title]` —— `mainImages` 是**必填**，
+ * 前端**不能靠"不提交"来避险**。
+ * ⇒ 在商家端编辑任何商品（**哪怕只改个 SKU 库存**）都会把线上第 2~5 张主图**覆盖掉**，
+ *   界面上还看不出来（2026-09-25 用户实测复现：改完库存后 C 端轮播从 2 张变 1 张）。
+ *
+ * **做法**：编辑态借用 **C 端公开接口** `GET /api/v2/product/detail/{productId}`，
+ * 它返回的 `images`（轮播图，= 全部主图）、`description`、`detailImages` 正好就是缺的三份数据。
+ *
+ * ⚠️ **已知边界**：商品**未上架 / 无权限 / 网络失败**时取不到 → 静默保持原样（不阻断编辑），
+ *    但那种情况下保存**仍会掉主图**。所以这只是止损，不能替代后端补字段。
+ */
+let merchantFieldHydrated = false
+async function hydrateProductFieldsFromC(): Promise<void> {
+  if (!productId.value || merchantFieldHydrated) return
+  merchantFieldHydrated = true
+  try {
+    const detail = await getProductDetail(String(productId.value))
+    if (!detail) return
+    // 主图：拿回全部轮播图（多于当前回填数才覆盖，避免把只有 1 张的商品又刷一遍）
+    const images = (detail.images || []).map((item) => String(item)).filter(Boolean)
+    if (images.length > mainImages.value.length) mainImages.value = images
+    // 描述 / 详情图：C 端有值即视为「回显拿到了」⇒ buildPayload 会正常提交（语义见各 echoed 注释）
+    const desc = String(detail.description || '').trim()
+    if (desc) {
+      description.value = desc
+      descEchoed.value = true
+    }
+    const details = (detail.detailImages || []).map((item) => String(item)).filter(Boolean)
+    if (details.length) {
+      detailImages.value = details
+      detailImagesEchoed.value = true
+    }
+    console.info(
+      `[merchant] 已从 C 端商品详情补全回显：主图 ${mainImages.value.length} 张 / 描述${desc ? '有' : '无'} / 详情图 ${detailImages.value.length} 张`
+      + '（临时兜底，后端补 MerchantProductVO 字段后可移除）',
+    )
+  } catch (error) {
+    // 未上架 / 无权限 / 网络失败：保持原样
+    console.warn('[merchant] 从 C 端补全商品字段失败（可能未上架），本次保存仍可能覆盖主图', error)
+  }
+}
 
 /** 编辑数据暂存 key（商品列表页写入，本页读取回填）。 */
 const EDIT_STORAGE_KEY = 'merchant_product_edit'
@@ -93,6 +142,8 @@ onLoad((options) => {
     productId.value = id
     uni.setNavigationBarTitle({ title: '编辑商品' })
     fillFromEditCache()
+    // 列表项缺 description / detailImages / mainImages（见 hydrateProductFieldsFromC 注释）
+    void hydrateProductFieldsFromC()
   }
 })
 
