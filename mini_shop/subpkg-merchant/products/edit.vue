@@ -43,6 +43,18 @@ const mainImages = ref<string[]>([])
 const description = ref('')
 const skus = ref<MerchantSkuItem[]>([])
 const detailImages = ref<string[]>([])
+/**
+ * 编辑态是否从列表项回显到了「详情描述 / 详情图」。
+ *
+ * ⚠️ 后端目前（2026-09-25）**不在 `MerchantProductVO` 里下发**这两个字段 ⇒ 回显拿不到；
+ * 而 `PUT /api/merchant/products/{id}` 是整页覆盖语义，把空值提交上去会静默清空线上内容，
+ * 所以**拿不到就不提交**（与 `pickupEchoed` 同源）。
+ * 这两个标志同时驱动 UI 提示：拿不到时在「详情描述」框下方说明「留空保存不会修改线上内容」，
+ * 免得商家看到空框以为描述被清掉了（2026-09-25 用户反馈）。
+ * ✅ 后端补上字段后：回显自动生效、提示自动消失、保存也会正常带上 —— **前端无需再改**。
+ */
+const descEchoed = ref(false)
+const detailImagesEchoed = ref(false)
 
 // ===== 商品级「配送方式」开关（2026-09-22 新增，§7b②） =====
 /** 支持线下自提：1=支持, 0=不支持（新增态默认 1）。 */
@@ -93,6 +105,13 @@ function fillFromEditCache(): void {
     price: Number(s.price) || 0,
     stock: Number(s.stock) || 0,
   }))
+  // 详情描述 / 详情图：**后端补上这两个字段后才会走到这里**（当前恒为「拿不到」，见 descEchoed 注释）
+  const cachedDesc = (cached as { description?: unknown }).description
+  descEchoed.value = typeof cachedDesc === 'string'
+  if (descEchoed.value) description.value = cachedDesc as string
+  const cachedDetailImages = (cached as { detailImages?: unknown }).detailImages
+  detailImagesEchoed.value = Array.isArray(cachedDetailImages)
+  if (detailImagesEchoed.value) detailImages.value = cachedDetailImages as string[]
   // 商品级配送方式：只记「回显拿到了没有」，拿不到就不提交（见 buildPayload / pickupEchoed 注释）
   const pickup = normalizeSwitch(cached.pickupEnabled)
   pickupEchoed.value = pickup !== null
@@ -219,9 +238,11 @@ function buildPayload(): MerchantProductSaveDTO {
     }),
   }
   const desc = description.value.trim()
-  // 新建态：用户看得到输入框，空就是真的不要描述；编辑态：空只代表「回填不到」，不能当作用户清空
-  if (!productId.value || desc) payload.description = desc
-  if (detailImages.value.length) payload.detailImages = detailImages.value
+  // 新建态：用户看得到输入框，空就是真的不要描述；
+  // 编辑态：**回显确实拿到了才提交** —— 此时空代表"用户主动清空"，应当生效；
+  //        回显拿不到（后端未下发该字段）则整个跳过，绝不能拿空值覆盖线上内容。
+  if (!productId.value || descEchoed.value) payload.description = desc
+  if (!productId.value || detailImagesEchoed.value) payload.detailImages = detailImages.value
   // 商品级配送方式（2026-09-22）：语义「不传 = 不修改」——
   // 新增态没有回显，按默认值 1 显式提交；编辑态**只有回显确实拿到了才提交**，
   // 否则提交 1 会把商家已关掉的自提/物流开关重新打开。
@@ -350,6 +371,8 @@ function goBack(): void {
             placeholder="最多输入 200 字"
             placeholder-class="field-ph"
           />
+          <!-- 拿不到已有描述时，在输入框**正下方**说明（页面顶部那条总提示容易被划过去） -->
+          <text v-if="productId && !descEchoed" class="field-hint">未读取到已有描述（后端暂未下发该字段），留空保存不会修改线上内容</text>
         </view>
       </view>
 
@@ -386,6 +409,7 @@ function goBack(): void {
               <text class="add-icon">+</text>
             </view>
           </view>
+          <text v-if="productId && !detailImagesEchoed" class="field-hint">未读取到已有详情图（后端暂未下发该字段），留空保存不会修改线上内容</text>
         </view>
       </view>
 
@@ -742,4 +766,6 @@ function goBack(): void {
   background: linear-gradient(90deg, #ff9301 0%, #ff6a01 50%, #ff4202 100%);
   color: #ffffff;
 }
+/* 「回显拿不到」时贴在输入框正下方的说明（拿得到即消失，见 descEchoed） */
+.field-hint { display: block; margin-top: 10rpx; color: #ff7d00; font-size: 22rpx; line-height: 32rpx; }
 </style>
