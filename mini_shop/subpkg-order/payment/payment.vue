@@ -4,7 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCartList, normalizeDeliverySwitch, type CartItem } from '@/api/cart'
 import { ADDRESS_DRAFT_KEY, cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
 import { createPrepay, requestPayment, payByBalance, switchToBalance } from '@/api/payment'
-import { getEnabledShops, type EnabledShop } from '@/api/shop'
+import { getEnabledShops, getDeliverableShops, type EnabledShop } from '@/api/shop'
 import { quoteDelivery, type DeliveryQuote } from '@/api/delivery-order'
 import { distanceMeters } from '@/utils/location'
 import { submitInvoice } from '@/api/invoice'
@@ -455,6 +455,88 @@ async function loadShops(): Promise<void> {
   finally { shopsLoaded.value = true }
 }
 
+/* ===================== 同城配送：按商品筛选可配送门店（2026-09-25 修） ===================== */
+
+/**
+ * 按「订单里商品的 skuId」筛出的可配送门店。
+ *
+ * ⚠️ **为什么必须要它**：`shops`（`/api/shop/all`）是「全部启用门店」。同城配送要选
+ * **发货门店**，而一家门店能不能发这单，取决于它有没有这些商品 —— 只按
+ * `deliveryEnabled` 过滤会把"没有该商品的门店"也列出来（真机反馈：商品只有 A 店有，
+ * 弹层里却列出所有门店）。正确数据源是 `/api/shop/deliverable?skuIds=`。
+ *
+ * `null` = 还没得出结论（历史订单详情只给商品名、拿不到 skuId）或筛选接口失败
+ * ⇒ 调用方一律**退回全量门店**，不能因为筛选接口故障就让用户下不了同城单。
+ */
+const deliverableShops = ref<EnabledShop[] | null>(null)
+
+/** 是否已就当前 skuId 得出结论（成功 / 失败 / 无需筛选都算），用于避免加载中误置灰。 */
+const deliverableSettled = ref(false)
+
+/** 已按哪批 skuId 拉过，避免 `items` 多次变动时重复请求。 */
+let deliverableQueryKey = ''
+
+/** 当前订单商品的 skuId 列表（仅 >0）；历史订单详情路径拿不到 skuId，返回空数组。 */
+function itemSkuIds(): number[] {
+  return items.value
+    .map((item) => Number(item.skuId))
+    .filter((id) => Number.isFinite(id) && id > 0)
+}
+
+/** 拉「只包含订单商品」的可配送门店（失败/拿不到 skuId 时保持 `null`，由调用方退回全量）。 */
+async function loadDeliverableShops(): Promise<void> {
+  const skuIds = itemSkuIds()
+  if (!skuIds.length) {
+    deliverableShops.value = null
+    deliverableSettled.value = true
+    return
+  }
+  try {
+    const list = await getDeliverableShops(skuIds)
+    deliverableShops.value = Array.isArray(list) ? list : []
+  } catch (error) {
+    deliverableShops.value = null
+    console.error('按商品筛选可配送门店失败，退回全量门店', error)
+  } finally {
+    deliverableSettled.value = true
+  }
+}
+
+/** 同城门店是否**还在按商品筛选中**（此时列表还是全量，置灰与试算判断都不准，先不做）。 */
+const deliverablePending = computed(() => itemSkuIds().length > 0 && !deliverableSettled.value)
+
+/**
+ * 商品就绪后按 skuId 拉一次可配送门店。
+ * 门店列表本身与商品是并发加载的（`Promise.all`），发起时拿不到商品，所以这里单独 watch。
+ */
+watch(items, () => {
+  const key = itemSkuIds().slice().sort((a, b) => a - b).join(',')
+  if (!key || key === deliverableQueryKey) return
+  deliverableQueryKey = key
+  deliverableSettled.value = false
+  void loadDeliverableShops()
+})
+
+/**
+ * 同城配送的候选门店 = 「能配送这批商品的门店」∩「开通了同城配送的门店」。
+ * 筛选结果拿不到（`deliverableShops === null`）时退回全量门店，保住可用性。
+ *
+ * ⚠️ 自提（`pickupType=1`）**不用**这个列表：门店级 `deliveryEnabled` 只影响同城，不影响自提。
+ */
+const sameCityShops = computed(() => {
+  const base = deliverableShops.value ?? shops.value
+  return base.filter((shop) => shop.deliveryEnabled !== false)
+})
+
+/**
+ * 门店弹层 / 置灰说明的空态文案。
+ * 同城区分两种情况：按商品筛过 = 「这批商品没有门店能送」；退回全量 = 「没有门店开通同城配送」。
+ */
+const shopEmptyText = computed(() => {
+  if (pickupType.value !== 2) return '暂无可用门店'
+  return deliverableShops.value !== null ? '暂无门店可配送该商品' : '暂无门店开通同城配送'
+})
+
 /** 当前品牌模块开关（空 = 未配置/失败，按全部启用兜底）。 */
 const moduleConfig = ref<ModuleConfig[] | null>(null)
 
@@ -497,10 +579,10 @@ function deliveryBlockedReasonFor(type: PickupType): string {
 }
 
 /**
- * 有没有门店开通同城配送（**门店级** `deliveryEnabled`，后端口径 = `delivery_rules.enabled = 1`）。
- * ⚠️ 与**商品级** `deliveryEnabled` 同名但是两回事：前者是"这家店能不能送同城"，后者是"这件商品能不能走配送"。
+ * 有没有门店能**配送当前这批商品**（= 门店级 `deliveryEnabled` + 门店有没有这些 SKU）。
+ * ⚠️ 与**商品级** `deliveryEnabled` 同名但是两回事：前者是"这家店能不能送这单"，后者是"这件商品能不能走配送"。
  */
-const hasSameCityShop = computed(() => shops.value.some((shop) => shop.deliveryEnabled !== false))
+const hasSameCityShop = computed(() => sameCityShops.value.length > 0)
 
 /**
  * 门店层的同城配送阻断原因（2026-09-22 补）。
@@ -511,9 +593,11 @@ const hasSameCityShop = computed(() => shops.value.some((shop) => shop.deliveryE
  * `delivery_rules` 没有记录 → `deliveryEnabled = false` → C 端结算页不列出该店）。
  * 文案与门店弹层里的空态保持一致；只在 `shopsLoaded` 之后判定，避免加载中先闪一下置灰。
  */
-const sameCityShopBlockedReason = computed(() => (
-  shopsLoaded.value && !hasSameCityShop.value ? '暂无门店开通同城配送' : ''
-))
+const sameCityShopBlockedReason = computed(() => {
+  // 加载中（门店列表 / 按商品筛选还没回来）不判定，避免先闪一下置灰再恢复
+  if (!shopsLoaded.value || deliverablePending.value) return ''
+  return hasSameCityShop.value ? '' : shopEmptyText.value
+})
 
 /**
  * 可用的配送方式选项（模块开关 + 商品级配送开关 + 门店层同城可用性 **三重叠加**）。
@@ -623,7 +707,7 @@ async function prepareSameCity(): Promise<void> {
     userLocation.value = null
     return
   }
-  const candidates = shops.value.filter((shop) => shop.deliveryEnabled !== false)
+  const candidates = sameCityShops.value
   if (!candidates.length) return
   const nearest = [...candidates].sort((a, b) => shopDistance(a) - shopDistance(b)).slice(0, SAME_CITY_QUOTE_LIMIT)
   const results = await Promise.all(nearest.map(async (shop) => {
@@ -648,9 +732,11 @@ async function prepareSameCity(): Promise<void> {
 }
 
 /** 门店与模块配置就绪后跑一次预试算（只跑一次）。 */
-watch([shops, moduleConfig], () => {
+watch([shops, moduleConfig, deliverableShops], () => {
   if (sameCityPrepared) return
   if (!shops.value.length) return
+  // 商品就绪后门店列表会按商品再筛一次：等筛完再试算，否则先拿全量门店白试算一轮
+  if (deliverablePending.value) return
   // 同城被商品级配送开关过滤掉时不必试算（试算了也选不了），省掉几个无意义的试算请求
   if (!deliveryOptions.value.some((option) => option.type === 2 && !option.blockedReason)) return
   sameCityPrepared = true
@@ -658,12 +744,13 @@ watch([shops, moduleConfig], () => {
 })
 
 /**
- * 门店弹层数据源：同城配送只列开通了同城配送的门店；
+ * 门店弹层数据源：同城配送只列**能配送这批商品且开通了同城配送**的门店；
  * 若预试算已出结果，则进一步只列**当前定位能送到**的门店（送不到的列出来也没意义）。
+ * ⚠️ 别再退回 `shops.value` —— 那是全量启用门店，会把没有该商品的门店也列出来。
  */
 const pickerShops = computed(() => {
   if (pickupType.value !== 2) return shops.value
-  const deliverable = shops.value.filter((shop) => shop.deliveryEnabled !== false)
+  const deliverable = sameCityShops.value
   const quotable = deliverable.filter((shop) => {
     const quote = shopQuotes.value[shop.id]
     return !quote || quote.canDelivery !== false
@@ -1597,7 +1684,7 @@ function backToCart(): void {
           <view><text class="shop-name">{{ shop.name }}</text><text class="shop-address">{{ shop.address }}</text></view>
           <text class="shop-distance">{{ shop.phone || (pickupType === 2 ? '支持同城配送' : '支持到店自提') }}</text>
         </view>
-        <text v-if="!pickerShops.length" class="shop-empty">{{ pickupType === 2 ? '暂无门店开通同城配送' : '暂无可用门店' }}</text>
+        <text v-if="!pickerShops.length" class="shop-empty">{{ shopEmptyText }}</text>
       </view>
     </view>
 
