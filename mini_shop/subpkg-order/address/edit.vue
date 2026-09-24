@@ -187,6 +187,64 @@ function pickOnMap(): void {
   })
 }
 
+/**
+ * 授权微信地址：调微信原生地址簿，一键带入用户在微信里保存的收货地址。
+ *
+ * ⚠️ 三个必须知道的点：
+ * 1. **拿不到坐标**：微信原生地址不返回经纬度 ⇒ 导入后 `latitude/longitude` 仍是「自动定位」那次的
+ *    （定位失败就为空）。同城配送的距离靠坐标，所以导入后**建议再用上方「地图选点」微调**；
+ *    下单侧的坐标兜底链（收货地址坐标 → 当前位置 → 发货门店坐标）仍在，不会因此卡住。
+ * 2. **字段名与微信原生不同**：`uni.chooseAddress` 把微信的 `provincialName` 统一成了 **`provinceName`**
+ *    （见 uni-app 官方文档「uni.chooseAddress」），所以这里两个名字都读一遍以兼容。
+ * 3. **新版选择器的详细地址在 `detailInfoNew`**（微信小程序专属），旧字段 `detailInfo` 可能为空 ——
+ *    也是两个都读；另有第四级 `streetName`，有值时拼在详细地址前面。
+ * 4. 依赖 `requiredPrivateInfos` 声明（已在 `manifest.json` 加上 `chooseAddress`）—— 没声明会直接 fail。
+ */
+function chooseWechatAddress(): void {
+  uni.chooseAddress({
+    success: (res) => {
+      const r = res as unknown as {
+        userName?: string
+        telNumber?: string
+        provinceName?: string
+        provincialName?: string
+        cityName?: string
+        countyName?: string
+        streetName?: string
+        detailInfo?: string
+        detailInfoNew?: string
+      }
+      if (r.userName) form.name = r.userName
+      if (r.telNumber) form.phone = r.telNumber
+      const province = r.provinceName || r.provincialName || ''
+      if (province) form.province = province
+      if (r.cityName) form.city = r.cityName
+      if (r.countyName) form.district = r.countyName
+      // 详细地址：新版选择器走 detailInfoNew；第四级街道有值就拼在最前（避免与 detail 重复）
+      const detail = String(r.detailInfoNew || r.detailInfo || '').trim()
+      const street = String(r.streetName || '').trim()
+      if (detail) form.detail = street && !detail.includes(street) ? `${street}${detail}` : detail
+      uni.showToast({ title: '已带入微信地址，请核对', icon: 'none' })
+    },
+    fail: (err) => {
+      const msg = String((err as { errMsg?: string })?.errMsg || '')
+      if (/cancel/i.test(msg)) return
+      // 失败原因只在 console 可见（未声明隐私接口 / 未授权 / 隐私协议未生效），便于真机定位
+      console.warn('[address] chooseAddress 调用失败：', msg || err)
+      if (/auth deny|auth denied|authorize:fail/i.test(msg)) {
+        uni.showModal({
+          title: '需要授权',
+          content: '请在设置中允许使用通讯地址后重试。是否现在去设置？',
+          confirmText: '去设置',
+          success: (r) => { if (r.confirm) uni.openSetting({}) },
+        })
+        return
+      }
+      uni.showToast({ title: '未能获取微信地址，请手动填写', icon: 'none' })
+    },
+  })
+}
+
 /** 省市区三级联动。 */
 function onRegionChange(event: { detail?: { value?: string[] } }): void {
   const [province = '', city = '', district = ''] = event?.detail?.value || []
@@ -315,6 +373,12 @@ function goBack(): void {
         <text class="locate-arrow">›</text>
       </view>
 
+      <!-- 授权微信地址：一键带入微信里保存的收货地址（不返回坐标，导入后建议再用上方地图选点微调） -->
+      <view class="wx-entry" @click="chooseWechatAddress">
+        <text class="book-entry-label">授权微信地址</text>
+        <text class="book-entry-arrow">›</text>
+      </view>
+
       <!-- 确认订单页入口：提供从地址簿一键带入，省去重复手打 -->
       <view v-if="pageMode === 'payment'" class="book-entry" @click="goAddressBook">
         <text class="book-entry-label">从收货地址簿选择</text>
@@ -369,8 +433,8 @@ function goBack(): void {
 .locate-sub { display: block; margin-top: 6rpx; color: #86909c; font-size: 23rpx; }
 .locate-arrow { color: #ff5500; font-size: 36rpx; line-height: 1; }
 
-/* 从地址簿带入：确认订单页入口专用 */
-.book-entry { display: flex; align-items: center; justify-content: space-between; margin-top: 20rpx; padding: 26rpx 23rpx; border-radius: 16rpx; background: #ffffff; }
+/* 从地址簿带入 / 授权微信地址：两者同为一行式入口，共用样式 */
+.book-entry, .wx-entry { display: flex; align-items: center; justify-content: space-between; margin-top: 20rpx; padding: 26rpx 23rpx; border-radius: 16rpx; background: #ffffff; }
 .book-entry-label { color: #1d2129; font-size: 28rpx; }
 .book-entry-arrow { color: #c9cdd4; font-size: 34rpx; line-height: 1; }
 

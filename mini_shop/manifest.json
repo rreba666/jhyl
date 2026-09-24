@@ -58,7 +58,10 @@
         "optimization" : {
             "subPackages" : true
         },
-        "requiredPrivateInfos" : [ "getLocation", "chooseLocation" ],
+        /* ⚠️ chooseAddress（授权微信地址）也是隐私接口，2022-07 起必须在 requiredPrivateInfos 里声明，
+           否则基础库直接让调用失败（表现为「未能获取微信地址，请手动填写」）—— 姊妹项目今华有肽已踩过。
+           另：https 域名下无法用 permission 声明 scope.address（微信不支持），授权框由微信自动弹。 */
+        "requiredPrivateInfos" : [ "getLocation", "chooseLocation", "chooseAddress" ],
         /* 微信要求：调用 getLocation 前必须声明用途，否则基础库直接弹「需要在 app.json 中声明 permission scope.userLocation 字段」 */
         "permission" : {
             "scope.userLocation" : {
