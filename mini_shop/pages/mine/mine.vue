@@ -140,12 +140,21 @@ const lastSeenBonus = ref(Number(uni.getStorageSync('bonus_last_seen') || 0))
  */
 const redPacketPreviewEnabled = import.meta.env.DEV
 /**
- * 是否有未查看的新红包。
- * 生产口径：待领取金额 > 上次已查看金额；**开发构建额外允许预览**（见上）。
- * ⚠️ ⇒ 在 **HBuilderX 运行 / 开发预览**里这个红点会**常亮**（这是预期），
- *    `体验版 / 正式版` 不会。排查时别误判成"没有红包也亮"的 bug。
+ * 是否有未查看的新红包 —— **红点专用**。
+ *
+ * ⚠️ 2026-09-24 事故：原来这里是 `redPacketPreviewEnabled || pendingBonus > lastSeenBonus`，
+ * 而 `redPacketPreviewEnabled` 是常量 ⇒ vite 把它**常量折叠**成 `true`，
+ * 真实条件被整段 tree-shaking 删掉（实测编译产物：`computed(() => redPacketPreviewEnabled)`）。
+ * 结果在**开发构建**里红点恒亮、**点了也不会灭**（体验版若用 `dist/dev` 上传就是这种产物）。
+ * ⇒ 现在红点**始终**按真实口径，不受开发预览影响。
  */
-const hasUnseenBonus = computed(() => redPacketPreviewEnabled || pendingBonus.value > lastSeenBonus.value)
+const hasUnseenBonus = computed(() => pendingBonus.value > lastSeenBonus.value)
+/**
+ * 点击「平台红包」格时是否**直接弹红包窗**（而不是进红包页）。
+ * 真实有新红包时弹窗；**开发构建**下额外允许预览弹窗样式（否则没红包就看不到弹窗效果）。
+ * ⚠️ 只影响"弹哪个"，**不影响红点**。
+ */
+const shouldOpenRedPacketDialog = computed(() => redPacketPreviewEnabled || hasUnseenBonus.value)
 /** 红包弹窗可见状态。 */
 const redPacketVisible = ref(false)
 /** 红包弹窗打开时锁定的未转余额红包总额，避免使用旧钱包快照。 */
@@ -462,8 +471,8 @@ function goIncome(index: number): void {
     return
   }
   if (label === '平台红包') {
-    // 有新红包（红点）时弹红包窗；无红点时直接进入红包页
-    if (hasUnseenBonus.value) {
+    // 有新红包（红点）时弹红包窗；无红点时直接进入红包页（开发构建下允许预览弹窗，见 shouldOpenRedPacketDialog）
+    if (shouldOpenRedPacketDialog.value) {
       openRedPacket()
     } else {
       openRedPacketPage()
