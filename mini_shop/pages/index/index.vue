@@ -51,6 +51,12 @@ const products = shallowRef<ProductCard[]>([])
 const currentPage = shallowRef(1)
 const hasMore = shallowRef(true)
 const loading = shallowRef(true)
+/**
+ * 开屏遮罩（2026-09-24 新增）：首页**框架**（模块开关 + 首屏数据）加载完成前一直显示，
+ * 避免用户先看到半个空页面再"长"出内容。`refreshPage()` 结束时关闭（成功/失败都关，
+ * 否则加载失败会永远卡在开屏页）。
+ */
+const splashVisible = shallowRef(true)
 const loadingMore = shallowRef(false)
 const loadError = shallowRef('')
 const statusBarHeight = shallowRef(24)
@@ -272,7 +278,8 @@ onMounted(() => {
   try {
     statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 24
   } catch { /* 非微信环境使用设计稿默认值 */ }
-  void refreshPage()
+  // 首页框架就绪后再收起开屏遮罩；失败也收起，避免一直卡在开屏页
+  void refreshPage().finally(() => { splashVisible.value = false })
 })
 
 onShow(() => {
@@ -282,6 +289,16 @@ onShow(() => {
 
 <template>
   <view class="home-page">
+    <!-- 开屏遮罩：首页框架未就绪时停留（品牌图 + 下方三个灰点表示加载中） -->
+    <view v-if="splashVisible" class="splash-mask">
+      <!-- ⚠️ 用压缩后的 JPEG：原 start_bg.png 有 569KB，会让主包超过微信 2MB 上限（编译上传会失败） -->
+      <image class="splash-image" src="/static/start_bg.jpg" mode="aspectFit" />
+      <view class="splash-dots">
+        <view class="splash-dot" />
+        <view class="splash-dot" />
+        <view class="splash-dot" />
+      </view>
+    </view>
     <view class="top-shell" :class="{ scrolled: navScrolled }" :style="navStyle">
       <view class="brand-row">
         <!-- 品牌块：logo 在上、slogan 在**下方**（2026-09-22 用户澄清位置）；文案不带句号，按用户原文 -->
@@ -383,6 +400,16 @@ onShow(() => {
 /* slogan 跟在 logo 下方、左对齐（不再居中/占满整行）；低饱和金棕、字号略小于正文 */
 .brand-slogan { overflow: hidden; color: #8a6a3b; font-size: 24rpx; font-weight: 500; letter-spacing: 1rpx; line-height: 32rpx; text-overflow: ellipsis; white-space: nowrap; }
 .search-row { display: flex; width: 100%; height: 104rpx; align-items: center; gap: 16rpx; padding: 8rpx 24rpx 0; box-sizing: border-box; }
+/* 开屏遮罩（2026-09-24 新增）：首页框架加载完成前停留在此，避免先看到半个空页面。
+   图片按设计稿实测：356x236（390 基准）→ 684x454rpx，位于屏幕约 30% 高度处（设计 y=256 → 492rpx）。
+   下方三个灰点为加载指示，做一个依次明暗的呼吸动画。 */
+.splash-mask { position: fixed; inset: 0; z-index: 99; display: flex; flex-direction: column; align-items: center; background: #fff; }
+.splash-image { width: 684rpx; height: 454rpx; margin-top: 492rpx; }
+.splash-dots { display: flex; gap: 16rpx; margin-top: 64rpx; }
+.splash-dot { width: 16rpx; height: 16rpx; border-radius: 50%; background: #d8d8d8; animation: splash-dot-blink 1.2s infinite ease-in-out; }
+.splash-dot:nth-child(2) { animation-delay: .2s; }
+.splash-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes splash-dot-blink { 0%, 80%, 100% { opacity: .35; } 40% { opacity: 1; } }
 .search-box, .share-pill { display: flex; height: 72rpx; align-items: center; box-sizing: border-box; color: #86909c; font-size: 30rpx; line-height: 48rpx; }
 /* 搜索框（设计稿 2026-09-24）：白底 + 橙色描边 + 圆角，右侧内嵌橙色实心「搜索」按钮。
    外层 overflow:hidden 让右侧按钮贴合圆角、不溢出描边。 */
@@ -392,7 +419,7 @@ onShow(() => {
 .search-placeholder { flex: 1; overflow: hidden; color: #86909c; font-size: 29rpx; text-overflow: ellipsis; white-space: nowrap; }
 /* 「搜索」是**独立按钮**（2026-09-24 设计稿修正）：不占满高度（框 36 而按钮 32）、不贴右边框，有独立圆角 */
 .search-button { display: flex; height: 62rpx; align-items: center; justify-content: center; padding: 0 23rpx; border-radius: 12rpx; background: #ff5500; color: #fff; font-size: 27rpx; }
-.share-pill { flex-shrink: 0; width: 128rpx; justify-content: center; gap: 8rpx; padding: 0; border: 0; border-radius: 999rpx; background: #f1f2f4; }
+.share-pill { flex-shrink: 0; width: 138rpx; justify-content: center; gap: 8rpx; padding: 0 23rpx; border: 0; border-radius: 15rpx; background: #f1f2f4; }
 .share-pill { width: 128rpx; flex-shrink: 0; justify-content: center; gap: 8rpx; padding: 0; }
 .share-pill::after { border: 0; }
 /* 2026-09-22: was a CSS-drawn circle faking a magnifier (no handle) -> now iconfont rider-icon-sousuo */

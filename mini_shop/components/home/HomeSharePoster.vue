@@ -233,10 +233,10 @@ function copyShareLink(): void {
 .home-share-poster-qr { position: absolute; top: 557rpx; left: 172.5rpx; width: 118.7rpx; height: 118.7rpx; }
 /* 关闭按钮：设计稿 32x32，与海报、与下方按钮区各间距 24px ≈ 46rpx */
 .home-share-close { display: block; width: 62rpx; height: 62rpx; margin-top: 46rpx; }
-/* 操作区（2026-09-24 按 Figma 实测重做）：**满宽白底条**、**不再固定贴屏幕底** ——
-   改为跟在关闭按钮下方、属于弹窗内容流；与关闭按钮间距 24px ≈ 46rpx。
+/* 操作区（2026-09-24 按用户确认）：**整个盒子没有背景色**（透明），按钮直接浮在遮罩上；
+   仍是跟在关闭按钮下方、属于弹窗内容流（不贴屏幕底）。
    实测：高 70px / 内边距 16px / 按钮间距 8px（×1.923 → 135rpx / 31rpx / 15rpx） */
-.home-share-actions { display: flex; width: 100%; height: 135rpx; align-items: center; justify-content: center; gap: 15rpx; margin-top: 46rpx; padding: 31rpx; box-sizing: border-box; background: #fff; }
+.home-share-actions { display: flex; width: 100%; height: 135rpx; align-items: center; justify-content: center; gap: 15rpx; margin-top: 46rpx; padding: 31rpx; box-sizing: border-box; background: transparent; }
 /* 按钮：高 38px ≈ 73rpx、全圆角、左右内边距 24px ≈ 46rpx；
    ⚠️ **按内容自适应宽度**（设计稿实测 104 / 104 / 132，**不是等宽**） */
 .home-share-action, .home-share-send { display: flex; flex: 0 0 auto; height: 73rpx; align-items: center; justify-content: center; padding: 0 46rpx; box-sizing: border-box; border-radius: 999rpx; color: #ff5500; font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
