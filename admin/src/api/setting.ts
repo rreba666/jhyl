@@ -129,6 +129,11 @@ function normalizeWithdrawRules(value: Partial<WithdrawRulesConfig> | null): Wit
     testSkipLock: row.testSkipLock === true,
     maxConcurrent: toFiniteNumber(row.maxConcurrent),
     frozenLimit: toFiniteNumber(row.frozenLimit),
+    // ⚠️ 2026-09-27 补：这两个是「微信零钱 / 银行卡提现」总开关。此前不读 ⇒ 表单没有它们 ⇒ 保存时
+    // 请求体缺字段。兜底用 `!== false`（缺字段时按「启用」保留）而不是 `=== true`，避免后端偶发不下发
+    // 该字段时被前端**静默关停**两种提现方式（保存会把当前值原样回传，语义无论哪种都不会误关闭）。
+    wechatBalanceEnabled: row.wechatBalanceEnabled !== false,
+    bankCardEnabled: row.bankCardEnabled !== false,
     remark: String(row.remark ?? ''),
   }
 }

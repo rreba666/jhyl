@@ -8,7 +8,9 @@ export const useSettingStore = defineStore('setting', () => {
   const customerService = ref<SysConfig | null>(null)
   const dividendCap = ref<DividendCap>({ multiplier: 1.5, remark: '' })
   const profitRates = ref<ProfitRatesConfig>({ promotionRate: 0.2, bonusPoolRate: 0.26, remark: '' })
-  const withdrawRules = ref<WithdrawRulesConfig>({ minAmount: 0, dailyAmountLimit: 0, dailyCountLimit: 0, feeRate: 0, testUserMinAmount: 0, testUserId: null, testSkipLock: false, maxConcurrent: 0, frozenLimit: 0, remark: '' })
+  // ⚠️ 两个提现方式开关默认 true（开放）：与 normalizeWithdrawRules 的 `!== false` 兜底口径保持一致。
+  // 取 false 会在「拉取规则失败、store 保持默认值」时把表单显示成"已关闭"，保存后反而误关停 C 端提现。
+  const withdrawRules = ref<WithdrawRulesConfig>({ minAmount: 0, dailyAmountLimit: 0, dailyCountLimit: 0, feeRate: 0, testUserMinAmount: 0, testUserId: null, testSkipLock: false, maxConcurrent: 0, frozenLimit: 0, wechatBalanceEnabled: true, bankCardEnabled: true, remark: '' })
   const customerServiceLoading = ref(false)
   const dividendCapLoading = ref(false)
   const profitRatesLoading = ref(false)

@@ -12,7 +12,7 @@ import { getWalletInfo } from '@/api/user'
 import { getProductDetail } from '@/api/product'
 import { DIVIDEND_PURCHASE_LIMIT, PURCHASE_LIMIT_MESSAGE, getDividendQuantity, isDividendEligible } from '@/utils/dividend-limit'
 import { cleanDigits, cleanText, normalizeEditableMobile, validateEmail, validateMobile, validateTaxNumber, validateText } from '@/utils/input-validation'
-import { isApiRequestError } from '@/utils/request'
+import { isApiRequestError, normalizeLegacyWording } from '@/utils/request'
 import { isLoggedIn } from '@/utils/auth'
 import { getModules, isModuleEnabled, type ModuleConfig } from '@/utils/config'
 import LoginGuide from '@/components/LoginGuide.vue'
@@ -1251,8 +1251,9 @@ function productDeliveryErrorMessage(code: number): string {
 /** 将红包商品购买机会错误转换为面向用户的业务提示。 */
 function getPaymentErrorMessage(error: unknown): string {
   // 后端历史文案仍可能下发旧词（业务已统一改称「红包」）：先归一化，再做关键词匹配与展示，确保用户看不到旧词。
-  // 说明：旧词用 \u 转义写成 /\u5206\u7EA2/，既保留兼容匹配，又不让源码出现该字样。
-  const message = (error instanceof Error ? error.message : '').replace(/\u5206\u7EA2/g, '红包')
+  // ⚠️ 2026-09-27：改用 utils/request 的统一实现，此前这里自己写了一份 `.replace(/旧词/g,'红包')` —— 那份会
+  // 把「「部分」+「红包」」毁成「部红包包」，也会把后端的「旧词+红包」变成「红包红包」（今华有肽已踩过同样两个坑）。
+  const message = normalizeLegacyWording(error instanceof Error ? error.message : '')
   // 商品级配送开关：后端文案已定，这里用本地常量兜一层，避免后端改词时前端提示含混
   if (isApiRequestError(error)) {
     const deliveryMessage = productDeliveryErrorMessage(error.code)

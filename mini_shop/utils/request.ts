@@ -3,12 +3,32 @@ import productionEnv from '../.env.production?raw'
 import { clearAuth } from './auth'
 
 /**
- * 展示层术语归一化：后端错误文案里若出现旧术语（Unicode 转义 5206 7EA2），
- * 统一按产品口径显示为「红包」。只处理提示文本，不改动业务码与任何接口字段；
- * 放在 `ApiRequestError` 构造函数里可覆盖 request / uploadFile 的全部报错出口，避免逐个调用点遗漏。
+ * 展示层术语归一化：后端文案里若残留历史旧术语（Unicode 转义 5206 7EA2），统一改写为「红包」。
+ * 只处理提示文本，不改动业务码与任何接口字段。
+ *
+ * ⚠️ 2026-09-27 修正两个 bug（与今华有肽同口径，此前实现会破坏文案）：
+ *  ① **复合词优先**：若先替换单个旧词，后端的「旧词+红包」会变成「红包红包」；
+ *  ② **保护合规词「「部分」+「红包」」**：它内部含旧词子串，误替换会毁成「部红包包」。
+ * ⇒ 用 `replace` **回调**判断上下文（前一字「部」且后一字「包」则跳过），
+ *   **不要用 lookbehind** —— 低版本 iOS 的 JavaScriptCore 不支持，正则字面量会在**解析期**报错、整个文件挂掉。
+ *
+ * 该实现幂等：正确归一化过的文案再过一次结果不变，因此各页面可安全重复调用。
  */
+export function normalizeLegacyWording(input: string): string {
+  // ① 复合词优先：「旧词 + 红包」整体收敛为一个「红包」
+  let text = String(input || '').replace(/\u5206\u7EA2\u7EA2\u5305/g, '\u7EA2\u5305')
+  // ② 单个旧词替换，但跳过合规词「「部分」+「红包」」里的那一个
+  text = text.replace(/\u5206\u7EA2/g, (match: string, offset: number, whole: string): string => {
+    const before = whole[offset - 1]
+    const after = whole[offset + 2]
+    return before === '\u90E8' && after === '\u5305' ? match : '\u7EA2\u5305'
+  })
+  return text
+}
+
+/** 兼容旧调用名：报错出口统一走 {@link normalizeLegacyWording}。 */
 function normalizeMessage(message: string): string {
-  return String(message || '').replace(/\u5206\u7EA2/g, '红包')
+  return normalizeLegacyWording(message)
 }
 
 /** 统一表示网络、HTTP 和后端业务失败，并保留后端业务码。 */

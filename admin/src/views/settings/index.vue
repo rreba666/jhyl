@@ -13,7 +13,7 @@ const withdrawRulesFormRef = ref<FormInstance>()
 const dividendCapForm = reactive<DividendCapSaveDTO>({ multiplier: 1.5, remark: '' })
 const profitRatesForm = reactive<ProfitRatesSaveDTO>({ promotionRate: 20, bonusPoolRate: 26, remark: '' })
 type WithdrawRulesForm = Omit<WithdrawRulesConfig, 'feeRate'> & { feeRate: number }
-const withdrawRulesForm = reactive<WithdrawRulesForm>({ minAmount: 0, dailyAmountLimit: 0, dailyCountLimit: 0, feeRate: 0, testUserMinAmount: 0, testUserId: null, testSkipLock: false, maxConcurrent: 0, frozenLimit: 0, remark: '' })
+const withdrawRulesForm = reactive<WithdrawRulesForm>({ minAmount: 0, dailyAmountLimit: 0, dailyCountLimit: 0, feeRate: 0, testUserMinAmount: 0, testUserId: null, testSkipLock: false, maxConcurrent: 0, frozenLimit: 0, wechatBalanceEnabled: true, bankCardEnabled: true, remark: '' })
 
 const dividendCapRules: FormRules = {
   multiplier: [
@@ -177,6 +177,11 @@ onMounted(reload)
           <el-form-item label="手续费率" prop="feeRate"><div class="rate-control"><el-input-number v-model="withdrawRulesForm.feeRate" :min="0" :max="100" :precision="2" :step="0.1" controls-position="right" class="rule-number" /><span class="rate-suffix">%</span></div></el-form-item>
           <el-form-item label="测试用户 ID"><el-input-number v-model="withdrawRulesForm.testUserId" :min="1" :precision="0" controls-position="right" class="rule-number" placeholder="可选" /></el-form-item>
           <el-form-item label="测试用户跳过提现锁"><el-switch v-model="withdrawRulesForm.testSkipLock" active-text="开启" inactive-text="关闭" /></el-form-item>
+          <!-- ⚠️ 2026-09-27 补：这两个是「C 端提现方式」总开关。此前表单没有它们，保存请求体也不带 ——
+               若后端是「全量覆盖」语义（该 DTO 的 required 为空、api_doc 无说明，无法判定），
+               运营点一次保存就会把两种提现方式一起关停、C 端提现彻底堵死。务必保留读写两端。 -->
+          <el-form-item label="微信零钱提现"><el-switch v-model="withdrawRulesForm.wechatBalanceEnabled" active-text="开放" inactive-text="关闭" /></el-form-item>
+          <el-form-item label="银行卡提现"><el-switch v-model="withdrawRulesForm.bankCardEnabled" active-text="开放" inactive-text="关闭" /></el-form-item>
           <el-form-item label="备注" class="rule-remark-item"><el-input v-model="withdrawRulesForm.remark" placeholder="可选" clearable maxlength="100" show-word-limit /></el-form-item>
           <el-form-item class="form-item-full"><el-button type="primary" :loading="store.withdrawRulesSaving" @click="saveWithdrawRules">保存提现规则</el-button></el-form-item>
         </el-form>
