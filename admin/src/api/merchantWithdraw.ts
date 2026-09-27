@@ -267,13 +267,18 @@ async function putReviewAction(
 }
 
 /**
- * 上传打款回单图片，返回 OSS 直链（复用既有 `POST /api/common/upload`，与商家端发票上传同一接口）。
- * ⚠️ 该接口是**通用上传**（非本批新增），只支持 jpg/jpeg/png/webp/gif 且 ≤10MB。
+ * 上传打款回单图片，返回可直接保存的 URL。
+ *
+ * ⚠️ 2026-09-24 修：原来调的是 `POST /api/common/upload`，那是 **C 端**接口
+ * （`api_doc.json` 明确写着「**鉴权：需要 C 端用户 Bearer Token**」）。
+ * 后台带的是 **admin token** ⇒ 后端返回 **401** ⇒ `request.ts` 拦截器按「登录失效」处理，
+ * 清掉 `admin_login_info` 并跳 `/login` —— 表现就是**上传图片后登录状态被踢出**。
+ * ⇒ 改走 **B 端**上传接口 `/api/admin/homepage/upload`（与商品图片上传同一条，已验证可用）。
  */
 export async function uploadMerchantWithdrawVoucher(file: File): Promise<string> {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await request.post<MerchantWithdrawResponse<unknown>>('/api/common/upload', formData)
+  const response = await request.post<MerchantWithdrawResponse<unknown>>('/api/admin/homepage/upload', formData)
   const url = extractMediaUrl(unwrap(response, '打款回单上传失败'))
   if (!url) throw new MerchantWithdrawApiError('打款回单上传未返回图片地址', null)
   return url

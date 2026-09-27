@@ -52,15 +52,19 @@ export async function getEnabledShops(includeDisabled = false): Promise<Shop[]> 
 
 /** 新增门店。 */
 /**
- * 上传门店图片，返回 OSS 直链。
+ * 上传门店图片，返回可直接保存的 URL。
  *
- * 复用**通用上传** `POST /api/common/upload`（与商家端发票、打款回单同一接口）；
+ * ⚠️ 2026-09-24 修：原来调的是 `POST /api/common/upload`，那是 **C 端**接口
+ * （`api_doc.json`：「**鉴权：需要 C 端用户 Bearer Token**」）。后台带 admin token 调它会拿到 **401**，
+ * `request.ts` 拦截器把 401 当「登录失效」⇒ 清 `admin_login_info` 并跳 `/login`
+ * ⇒ **上传门店图片会把人踢出登录**。改走 B 端 `/api/admin/homepage/upload`。
+ *
  * 该接口支持 jpg/jpeg/png/webp/gif 且 ≤10MB，门店图业务建议 690×345、<2MB。
  */
 export async function uploadShopImage(file: File): Promise<string> {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await request.post<ShopResponse<unknown>>('/api/common/upload', formData)
+  const response = await request.post<ShopResponse<unknown>>('/api/admin/homepage/upload', formData)
   const url = extractMediaUrl(unwrap(response, '门店图片上传失败'))
   if (!url) throw new Error('门店图片上传未返回图片地址')
   return url
