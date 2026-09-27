@@ -269,7 +269,7 @@ async function putReviewAction(
 /**
  * 上传打款回单图片，返回可直接保存的 URL。
  *
- * ⚠️ 2026-09-24 修：原来调的是 `POST /api/common/upload`，那是 **C 端**接口
+ * ⚠️ 2026-09-27 修：原来调的是 `POST /api/common/upload`，那是 **C 端**接口
  * （`api_doc.json` 明确写着「**鉴权：需要 C 端用户 Bearer Token**」）。
  * 后台带的是 **admin token** ⇒ 后端返回 **401** ⇒ `request.ts` 拦截器按「登录失效」处理，
  * 清掉 `admin_login_info` 并跳 `/login` —— 表现就是**上传图片后登录状态被踢出**。

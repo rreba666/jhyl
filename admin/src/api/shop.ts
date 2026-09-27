@@ -54,7 +54,7 @@ export async function getEnabledShops(includeDisabled = false): Promise<Shop[]> 
 /**
  * 上传门店图片，返回可直接保存的 URL。
  *
- * ⚠️ 2026-09-24 修：原来调的是 `POST /api/common/upload`，那是 **C 端**接口
+ * ⚠️ 2026-09-27 修：原来调的是 `POST /api/common/upload`，那是 **C 端**接口
  * （`api_doc.json`：「**鉴权：需要 C 端用户 Bearer Token**」）。后台带 admin token 调它会拿到 **401**，
  * `request.ts` 拦截器把 401 当「登录失效」⇒ 清 `admin_login_info` 并跳 `/login`
  * ⇒ **上传门店图片会把人踢出登录**。改走 B 端 `/api/admin/homepage/upload`。

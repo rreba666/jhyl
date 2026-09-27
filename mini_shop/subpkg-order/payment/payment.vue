@@ -672,7 +672,7 @@ function shopDistance(shop: EnabledShop): number {
 }
 
 /**
- * 门店距离文案（2026-09-24 新增）：`距我约 320 米` / `距我约 1.2 公里`。
+ * 门店距离文案（2026-09-27 新增）：`距我约 320 米` / `距我约 1.2 公里`。
  * ⚠️ 没有定位（用户拒绝授权 / 定位失败）或门店没录坐标时返回**空串** —— 宁可不显示，
  *    也不要显示一个错的"距离"（`shopDistance` 这时返回极大值，直接格式化会变成天文数字）。
  */
@@ -689,7 +689,7 @@ function canNavigateShop(shop: EnabledShop): boolean {
 }
 
 /**
- * 打开微信内置地图导航到该门店（2026-09-24 新增）。
+ * 打开微信内置地图导航到该门店（2026-09-27 新增）。
  * ⚠️ 与「点击整行选择门店」是**两个动作** ⇒ 模板里必须 `@click.stop`，否则点导航会顺带把门店选掉。
  * ⚠️ `uni.openLocation` 只负责打开地图展示/导航，不需要位置授权（和 `getLocation` 不同）。
  */
@@ -1858,7 +1858,7 @@ function backToCart(): void {
 .shop-name { color: #222; font-size: 27rpx; font-weight: 600; }
 .shop-address { margin-top: 10rpx; color: #999; font-size: 23rpx; }
 .shop-distance { color: #999; font-size: 22rpx; }
-/* 门店行（2026-09-24）：左侧信息区 + 右侧独立「导航」按钮 */
+/* 门店行（2026-09-27）：左侧信息区 + 右侧独立「导航」按钮 */
 .shop-main { flex: 1; min-width: 0; }
 .shop-meta { display: flex; align-items: center; gap: 12rpx; margin-top: 6rpx; }
 .shop-distance-text { color: #ff5500; font-size: 22rpx; }

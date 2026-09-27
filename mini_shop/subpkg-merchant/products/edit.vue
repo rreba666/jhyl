@@ -46,7 +46,7 @@ const detailImages = ref<string[]>([])
 /**
  * 编辑态是否从列表项回显到了「详情描述 / 详情图」。
  *
- * ✅ 2026-09-24：后端已在 `MerchantProductVO` 补上这两个字段，列表行会带值 ⇒ 正常情况下恒为 `true`。
+ * ✅ 2026-09-27：后端已在 `MerchantProductVO` 补上这两个字段，列表行会带值 ⇒ 正常情况下恒为 `true`。
  * **仍保留这两个标志作为安全网**：`PUT /api/merchant/products/{id}` 是**整页覆盖**语义，
  * 万一日后字段又没下发（或列表缓存缺失），「拿不到就不提交」能避免**静默清空线上描述 / 详情图**。
  * （与 `pickupEchoed` 同一思路。）
@@ -105,7 +105,7 @@ onShow(() => {
 /**
  * 编辑模式：从列表页缓存（`EDIT_STORAGE_KEY`；列表页写入的是**整个列表行对象**）回填。
  *
- * ✅ 2026-09-24：后端已在 `MerchantProductVO` 补上 `mainImages` / `description` / `detailImages`，
+ * ✅ 2026-09-27：后端已在 `MerchantProductVO` 补上 `mainImages` / `description` / `detailImages`，
  * 列表行直接带这些字段 ⇒ 这里能完整回填，**原先"借用 C 端商品详情"的临时兜底已删除**。
  */
 function fillFromEditCache(): void {
@@ -128,7 +128,7 @@ function fillFromEditCache(): void {
     price: Number(s.price) || 0,
     stock: Number(s.stock) || 0,
   }))
-  // 详情描述 / 详情图：后端 2026-09-24 起已在 MerchantProductVO 下发 ⇒ 这里正常能回显到；
+  // 详情描述 / 详情图：后端 2026-09-27 起已在 MerchantProductVO 下发 ⇒ 这里正常能回显到；
   // 两个标志仍保留作安全网（见 descEchoed 注释）：拿不到就不提交，避免清空线上内容。
   const cachedDesc = (cached as { description?: unknown }).description
   descEchoed.value = typeof cachedDesc === 'string'
