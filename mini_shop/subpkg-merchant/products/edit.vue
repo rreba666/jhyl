@@ -25,55 +25,6 @@ import {
   type MerchantSkuItem,
 } from '@/api/merchant'
 import { uploadFile } from '@/utils/request'
-import { getProductDetail } from '@/api/product'
-
-/**
- * 【⚠️ 临时兜底 —— 后端在 `MerchantProductVO` 补上 `mainImages` / `description` / `detailImages`
- *   之后，请删除本函数及其在 `onLoad` 里的调用】见
- *   `docs/后端接口需求-商品SKU与门店商品-2026-09-25.md` 第 6 条。
- *
- * **为什么必须要它**：`MerchantProductVO` 只回填得到 `mainImage`（单数），
- * 而 `MerchantProductSaveDTO` 的 `required = [mainImages, skus, title]` —— `mainImages` 是**必填**，
- * 前端**不能靠"不提交"来避险**。
- * ⇒ 在商家端编辑任何商品（**哪怕只改个 SKU 库存**）都会把线上第 2~5 张主图**覆盖掉**，
- *   界面上还看不出来（2026-09-25 用户实测复现：改完库存后 C 端轮播从 2 张变 1 张）。
- *
- * **做法**：编辑态借用 **C 端公开接口** `GET /api/v2/product/detail/{productId}`，
- * 它返回的 `images`（轮播图，= 全部主图）、`description`、`detailImages` 正好就是缺的三份数据。
- *
- * ⚠️ **已知边界**：商品**未上架 / 无权限 / 网络失败**时取不到 → 静默保持原样（不阻断编辑），
- *    但那种情况下保存**仍会掉主图**。所以这只是止损，不能替代后端补字段。
- */
-let merchantFieldHydrated = false
-async function hydrateProductFieldsFromC(): Promise<void> {
-  if (!productId.value || merchantFieldHydrated) return
-  merchantFieldHydrated = true
-  try {
-    const detail = await getProductDetail(String(productId.value))
-    if (!detail) return
-    // 主图：拿回全部轮播图（多于当前回填数才覆盖，避免把只有 1 张的商品又刷一遍）
-    const images = (detail.images || []).map((item) => String(item)).filter(Boolean)
-    if (images.length > mainImages.value.length) mainImages.value = images
-    // 描述 / 详情图：C 端有值即视为「回显拿到了」⇒ buildPayload 会正常提交（语义见各 echoed 注释）
-    const desc = String(detail.description || '').trim()
-    if (desc) {
-      description.value = desc
-      descEchoed.value = true
-    }
-    const details = (detail.detailImages || []).map((item) => String(item)).filter(Boolean)
-    if (details.length) {
-      detailImages.value = details
-      detailImagesEchoed.value = true
-    }
-    console.info(
-      `[merchant] 已从 C 端商品详情补全回显：主图 ${mainImages.value.length} 张 / 描述${desc ? '有' : '无'} / 详情图 ${detailImages.value.length} 张`
-      + '（临时兜底，后端补 MerchantProductVO 字段后可移除）',
-    )
-  } catch (error) {
-    // 未上架 / 无权限 / 网络失败：保持原样
-    console.warn('[merchant] 从 C 端补全商品字段失败（可能未上架），本次保存仍可能覆盖主图', error)
-  }
-}
 
 /** 编辑数据暂存 key（商品列表页写入，本页读取回填）。 */
 const EDIT_STORAGE_KEY = 'merchant_product_edit'
@@ -95,12 +46,10 @@ const detailImages = ref<string[]>([])
 /**
  * 编辑态是否从列表项回显到了「详情描述 / 详情图」。
  *
- * ⚠️ 后端目前（2026-09-25）**不在 `MerchantProductVO` 里下发**这两个字段 ⇒ 回显拿不到；
- * 而 `PUT /api/merchant/products/{id}` 是整页覆盖语义，把空值提交上去会静默清空线上内容，
- * 所以**拿不到就不提交**（与 `pickupEchoed` 同源）。
- * 这两个标志同时驱动 UI 提示：拿不到时在「详情描述」框下方说明「留空保存不会修改线上内容」，
- * 免得商家看到空框以为描述被清掉了（2026-09-25 用户反馈）。
- * ✅ 后端补上字段后：回显自动生效、提示自动消失、保存也会正常带上 —— **前端无需再改**。
+ * ✅ 2026-09-24：后端已在 `MerchantProductVO` 补上这两个字段，列表行会带值 ⇒ 正常情况下恒为 `true`。
+ * **仍保留这两个标志作为安全网**：`PUT /api/merchant/products/{id}` 是**整页覆盖**语义，
+ * 万一日后字段又没下发（或列表缓存缺失），「拿不到就不提交」能避免**静默清空线上描述 / 详情图**。
+ * （与 `pickupEchoed` 同一思路。）
  */
 const descEchoed = ref(false)
 const detailImagesEchoed = ref(false)
@@ -142,8 +91,6 @@ onLoad((options) => {
     productId.value = id
     uni.setNavigationBarTitle({ title: '编辑商品' })
     fillFromEditCache()
-    // 列表项缺 description / detailImages / mainImages（见 hydrateProductFieldsFromC 注释）
-    void hydrateProductFieldsFromC()
   }
 })
 
@@ -155,19 +102,34 @@ onShow(() => {
   }
 })
 
-/** 编辑模式：从列表项缓存回填能拿到的字段（描述/详情图无接口，留空）。 */
+/**
+ * 编辑模式：从列表页缓存（`EDIT_STORAGE_KEY`；列表页写入的是**整个列表行对象**）回填。
+ *
+ * ✅ 2026-09-24：后端已在 `MerchantProductVO` 补上 `mainImages` / `description` / `detailImages`，
+ * 列表行直接带这些字段 ⇒ 这里能完整回填，**原先"借用 C 端商品详情"的临时兜底已删除**。
+ */
 function fillFromEditCache(): void {
   const cached = uni.getStorageSync(EDIT_STORAGE_KEY) as MerchantProductVO | ''
   if (!cached || typeof cached !== 'object') return
   title.value = cached.name || ''
-  if (cached.mainImage) mainImages.value = [cached.mainImage]
+  // ⚠️ 主图必须回填**数组** `mainImages`：提交是**整页覆盖**语义，
+  //    只回填单张 `mainImage` 就等于保存后把线上第 2~5 张主图删掉
+  //    （2026-09-25 线上实测：商家只改了个库存，C 端轮播从 2 张变 1 张）。
+  const cachedMainImages = (cached as { mainImages?: unknown }).mainImages
+  if (Array.isArray(cachedMainImages) && cachedMainImages.length) {
+    mainImages.value = cachedMainImages.map((item) => String(item)).filter(Boolean)
+  } else if (cached.mainImage) {
+    // 兜底：万一后端未下发 mainImages（旧版本），至少保留单张，避免提交空数组
+    mainImages.value = [cached.mainImage]
+  }
   skus.value = (cached.skus || []).map((s) => ({
     // 列表返回的规格名字段是 `specName`（不是 skuName）：读错会让编辑时规格名回填为空，一提交就报「请填写规格名称」
     specName: s.specName || '',
     price: Number(s.price) || 0,
     stock: Number(s.stock) || 0,
   }))
-  // 详情描述 / 详情图：**后端补上这两个字段后才会走到这里**（当前恒为「拿不到」，见 descEchoed 注释）
+  // 详情描述 / 详情图：后端 2026-09-24 起已在 MerchantProductVO 下发 ⇒ 这里正常能回显到；
+  // 两个标志仍保留作安全网（见 descEchoed 注释）：拿不到就不提交，避免清空线上内容。
   const cachedDesc = (cached as { description?: unknown }).description
   descEchoed.value = typeof cachedDesc === 'string'
   if (descEchoed.value) description.value = cachedDesc as string
