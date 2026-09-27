@@ -177,7 +177,7 @@ export interface ProductQueryParams {
   originPlace?: string
   /**
    * 按门店过滤。
-   * ⚠️ 2026-09-25 核对 `api_doc.json`：`/api/admin/product/list` 的参数里**已有 `shopId`**
+   * ⚠️ 2026-09-23 核对 `api_doc.json`：`/api/admin/product/list` 的参数里**已有 `shopId`**
    * （与 `categoryId`/`merchantId`/`keyword`/`originPlace`/`sortBy` 并列）⇒ 此前"等后端支持"的阻塞已解除。
    */
   shopId?: string

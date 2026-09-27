@@ -3,7 +3,7 @@ import { request } from './request'
 /**
  * 入驻申请审核（中控后台）接口层。
  *
- * 依据：`api_doc.json` 的 `/api/admin/merchant-apply/**`（2026-09-25 核对）。
+ * 依据：`api_doc.json` 的 `/api/admin/merchant-apply/**`（2026-09-23 核对）。
  *
  * | 方法 | 路径 | 说明 |
  * |---|---|---|

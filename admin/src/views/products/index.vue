@@ -55,7 +55,7 @@ const categoryOptions = computed(() => flattenCategories(store.categories))
 
 /**
  * 门店下拉选项（「按门店查询」用）。
- * ⚠️ 2026-09-25 核对 `api_doc.json`：`/api/admin/product/list` **已支持 `shopId`**
+ * ⚠️ 2026-09-23 核对 `api_doc.json`：`/api/admin/product/list` **已支持 `shopId`**
  * （见 `types/product.ts` 的字段注释）⇒ 此前"等后端支持"的阻塞已解除。
  * 数据源用 `getEnabledShops(true)` —— 带上停用门店，否则历史商品会查不到。
  */

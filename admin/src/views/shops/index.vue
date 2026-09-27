@@ -29,7 +29,7 @@ const shopImageUploading = ref(false)
  * 门店图片上传：走 **B 端**上传 `POST /api/admin/homepage/upload`（经 `api/shop.ts#uploadShopImage`）。
  * ⚠️ 2026-09-27 修注释：原文写的是 `/api/common/upload`，那是 **C 端**接口 —— admin 带 B 端 token 调它会 401，
  * 并被拦截器清掉 `admin_login_info` 后跳登录（即「上传图片就被踢出登录」，与商家提现打款回单同一事故）。
- * ⚠️ 2026-09-25 修正：此前这里是个**贴 URL 的输入框**，运营根本拿不到 OSS 地址、等于没法传图。
+ * ⚠️ 2026-09-23 修正：此前这里是个**贴 URL 的输入框**，运营根本拿不到 OSS 地址、等于没法传图。
  */
 async function onShopImageUpload(options: UploadRequestOptions): Promise<void> {
   const file = options.file as File
@@ -80,7 +80,7 @@ const visiblePageSize = computed(() => (brandMode.value ? Math.max(brandShops.va
 
 /** 门店 → 品牌名（后端 ShopVO.merchantName；为空表示平台自营单店）。 */
 function brandNameOf(shop: Shop): string {
-  // ⚠️ 2026-09-25：优先用后端下发的 `platformOwned`（`ShopVO` 恒不为 null）判断平台自营，
+  // ⚠️ 2026-09-23：优先用后端下发的 `platformOwned`（`ShopVO` 恒不为 null）判断平台自营，
   // 不再靠"merchantId 是否为空"去推断 —— 后端已把该口径写进 api_doc（见 types/shop.ts 字段注释）。
   if (shop.platformOwned) return '平台自营'
   return shop.merchantName || (shop.merchantId ? `商户${shop.merchantId}` : '平台自营')
@@ -140,7 +140,7 @@ async function onBrandChange(): Promise<void> {
 /**
  * 高德地图 JS API 配置（Web端）。
  *
- * ⚠️⚠️ 2026-09-25 更新为「新 Key + 安全密钥」：
+ * ⚠️⚠️ 2026-09-23 更新为「新 Key + 安全密钥」：
  * - **2021-12-02 之后申请的 Key 必须配合「安全密钥」使用**，否则插件（逆地理 / 行政区划…）
  *   会报 `USERKEY_PLAT_NOMATCH`（Key 平台不匹配）或 `INVALID_USER_SCODE`；地图本身却可能是好的
  *   —— 所以"地图能显示、只有逆地理失败"正是这个症状；
@@ -418,7 +418,7 @@ function openForm(shop?: Shop): void {
     // 经纬度回显（后端 ShopVO 已返回）；没有就保持 undefined，保存时不提交
     latitude: typeof shop?.latitude === 'number' ? shop.latitude : undefined,
     longitude: typeof shop?.longitude === 'number' ? shop.longitude : undefined,
-    // 2026-09-25 补齐：省市区与门店档案字段（后端 ShopVO/ShopCreateDTO 均已支持）
+    // 2026-09-23 补齐：省市区与门店档案字段（后端 ShopVO/ShopCreateDTO 均已支持）
     province: shop?.province || '',
     city: shop?.city || '',
     district: shop?.district || '',

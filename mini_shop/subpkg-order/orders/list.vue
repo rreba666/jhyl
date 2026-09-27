@@ -22,7 +22,7 @@ const tabs: Array<{ key: string; label: string; statuses: OrderStatus[]; pickupT
   { key: 'received', label: '待收货', statuses: [2] },
   { key: 'pickup', label: '待自提', statuses: [1], pickupType: 1 },
   { key: 'completed', label: '已完成', statuses: [3, 4, 8] },
-  // 退款中(6) 与 已退款(7) 必须分成两个 tab（2026-09-25 按后端《秒退与退款口径》§2）：
+  // 退款中(6) 与 已退款(7) 必须分成两个 tab（2026-09-23 按后端《秒退与退款口径》§2）：
   // 6 = 钱还没到账（用户会追问、客服要跟进），7 = 钱已到账（可闭环）——
   // 混在一个列表里用户无法判断"我的退款到底好了没"。
   { key: 'refunding', label: '退款中', statuses: [6] },
@@ -122,7 +122,7 @@ async function loadProgressNodes(orders: OrderSummary[], reset: boolean, token: 
 /**
  * 订单列表的状态文案（**唯一出口**，模板里所有状态位都必须走这里）。
  *
- * ⚠️⚠️ 退款口径放**最前面**（2026-09-25《秒退与退款口径》§2）：
+ * ⚠️⚠️ 退款口径放**最前面**（2026-09-23《秒退与退款口径》§2）：
  * `status === 6`（退款中）是**物流/自提/同城三类通用**的，原来模板写成
  * `pickupType === 2 ? orderStatusText(order) : order.statusDesc` ⇒ 非同道单**绕过**本函数
  * 直接渲染后端 `statusDesc`，只能得到「退款中」（没有到账预期）；
@@ -343,7 +343,7 @@ async function submitFastRefund(reason: string): Promise<void> {
       await load(true)
       return
     }
-    // ===== 秒退闸门类业务错误（2026-09-25 接入）=====
+    // ===== 秒退闸门类业务错误（2026-09-23 接入）=====
     // 这些**不是**"理由写错"，不该让用户留在弹层里改理由 —— 都要引导走售后/取消申请。
     // 依据《前端变更说明·秒退与退款口径》：
     //   2013 = 履约进度闸门（商家已备货完成/已出餐）→ 引导提交取消申请（由商家确认）

@@ -836,7 +836,7 @@ onUnload(() => {
   align-items: center;
 }
 /* ===== 深色头部（设计稿 Frame 35：#0F0F11，门店行与 Tab 同处一块）===== */
-/* 标题靠左（2026-09-25 用户要求：不要居中）。⚠️ `.nav-back` 是 `position: absolute`（不占文档流），
+/* 标题靠左（2026-09-23 用户要求：不要居中）。⚠️ `.nav-back` 是 `position: absolute`（不占文档流），
    所以这里必须自己留出它的宽度，否则标题会贴到最左边、被返回箭头压住。 */
 .shop-row { display: flex; align-items: center; max-width: 62%; margin-left: 76rpx; }
 .shop-logo { box-sizing: border-box; width: 64rpx; height: 64rpx; margin-right: 12rpx; padding: 12rpx; border-radius: 50%; background: #f6f7f9; }

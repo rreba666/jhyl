@@ -36,7 +36,7 @@ const form = ref({
   shopImage: '',
   /**
    * 身份证号 + 正反面照。
-   * ⚠️ 2026-09-25 按 `api_doc.json` 补：`MerchantApplyDTO` 明确列了 `idCard` / `idCardFrontImage` /
+   * ⚠️ 2026-09-23 按 `api_doc.json` 补：`MerchantApplyDTO` 明确列了 `idCard` / `idCardFrontImage` /
    * `idCardBackImage`（描述："提交时需填写身份证号及身份证正反面照，与提现身份证验证一致"）。
    * ⚠️ 这三个是**申请层**字段，**不在 `shop` 里**；且提现用的是 `idCardFrontUrl`/`idCardBackUrl`，
    * **字段名不同，别混用**。
@@ -207,7 +207,7 @@ async function submit(): Promise<void> {
     uni.showToast({ title: '请上传门店图片', icon: 'none' })
     return
   }
-  // 身份证：号 + 正反面照（2026-09-25 按 api_doc 补）。
+  // 身份证：号 + 正反面照（2026-09-23 按 api_doc 补）。
   // ⚠️ 后端 `required` 只列了 `brandName`/`shop`，不传接口**不会**拒；但审核方要据此核验身份，
   // 且接口描述明确写了"提交时需填写身份证号及身份证正反面照"⇒ 前端按必填处理。
   const idCardResult = validateIdCard(form.value.idCard)
@@ -354,7 +354,7 @@ function goBack(): void {
           </view>
         </view>
 
-        <!-- 身份证（2026-09-25 按 api_doc 补）：号 + 正反面照。审核方据此核验身份，故前端标必填 -->
+        <!-- 身份证（2026-09-23 按 api_doc 补）：号 + 正反面照。审核方据此核验身份，故前端标必填 -->
         <label class="field">
           <text class="field-label">身份证号 *</text>
           <input v-model="form.idCard" class="field-input" maxlength="18" placeholder="请输入 18 位身份证号" />

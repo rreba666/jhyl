@@ -36,7 +36,7 @@ export interface Shop {
    * ⚠️ 因此「平台自营」标签**必须用它判断**，不要再拿 `merchantName` 做字符串匹配（后端改名标签就失效）。
    */
   platformOwned?: boolean
-  /* ---- 以下字段 2026-09-25 按 `api_doc.json` 的 `ShopVO` 补齐（此前前端类型里没有） ---- */
+  /* ---- 以下字段 2026-09-23 按 `api_doc.json` 的 `ShopVO` 补齐（此前前端类型里没有） ---- */
   /** 门店对外经营名称（与 `name` 可不同）。 */
   businessName?: string
   /** 门店图片 URL（门头图）。 */
@@ -74,7 +74,7 @@ export interface ShopCreateDTO {
    * 门店 `merchant_id` 为空时，商家端商品管理会报 `7310 该门店未归属品牌商家`。
    */
   merchantId?: number | string
-  /* ---- 以下字段 2026-09-25 按 `api_doc.json` 的 `ShopCreateDTO` 补齐 ---- */
+  /* ---- 以下字段 2026-09-23 按 `api_doc.json` 的 `ShopCreateDTO` 补齐 ---- */
   /**
    * 省 / 市 / 区（结构化地址，与 `address` 并存）。
    * ⚠️ 门店表单按「**不填就不传**」提交：老门店这三个字段为 NULL，编辑时不要用空值覆盖已有数据。

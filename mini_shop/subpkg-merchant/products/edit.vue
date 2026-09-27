@@ -114,7 +114,7 @@ function fillFromEditCache(): void {
   title.value = cached.name || ''
   // ⚠️ 主图必须回填**数组** `mainImages`：提交是**整页覆盖**语义，
   //    只回填单张 `mainImage` 就等于保存后把线上第 2~5 张主图删掉
-  //    （2026-09-25 线上实测：商家只改了个库存，C 端轮播从 2 张变 1 张）。
+  //    （2026-09-27 线上实测：商家只改了个库存，C 端轮播从 2 张变 1 张）。
   const cachedMainImages = (cached as { mainImages?: unknown }).mainImages
   if (Array.isArray(cachedMainImages) && cachedMainImages.length) {
     mainImages.value = cachedMainImages.map((item) => String(item)).filter(Boolean)
@@ -342,10 +342,10 @@ function goBack(): void {
     </view>
 
     <scroll-view class="content" scroll-y>
-      <!-- ⚠️ 这里原本有一条「编辑态诚实提示」（不许改描述/详情图…），2026-09-25 按用户要求**删除**：
+      <!-- ⚠️ 这里原本有一条「编辑态诚实提示」（不许改描述/详情图…），2026-09-24 按用户要求**删除**：
            不该把后端缺口变成给用户"立规则"的说明书 —— 用户只在乎好不好用，能做的只有把问题解决掉。
            功能层面的解法见 buildPayload 的 descTouched / descEchoed，以及
-           docs/后端接口需求-商品SKU与门店商品-2026-09-25.md 第 6 条（请后端补 VO 字段）。 -->
+           docs/后端接口需求-商品SKU与门店商品-2026-09-24.md 第 6 条（请后端补 VO 字段）。 -->
 
       <!-- 卡 1：主图 + 标题 + 描述 -->
       <view class="card">

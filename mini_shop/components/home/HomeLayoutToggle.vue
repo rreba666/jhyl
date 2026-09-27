@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 type LayoutMode = 'grid' | 'list'
 
 const props = defineProps<{
@@ -16,7 +16,7 @@ function selectMode(mode: LayoutMode): void {
 
 <template>
   <view class="layout-toggle" aria-label="商品布局切换">
-    <!-- 图标改用 iconfont（2026-09-25 用户要求用在线 iconfont 里的图标）：
+    <!-- 图标改用 iconfont（2026-09-23 用户要求用在线 iconfont 里的图标）：
          字体在 styles/rider-iconfont.wxss（iconfont 项目 5230143 完整字体），App.vue 已全局 import。
          双列 = buju_shangxia(\e89c 布局_上下)，单列 = buju_zuoyou(\e899 布局_左右)。 -->
     <view class="layout-option" :class="{ active: modelValue === 'grid' }" @click="selectMode('grid')">

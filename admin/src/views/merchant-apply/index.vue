@@ -2,7 +2,7 @@
 /**
  * 入驻申请审核（中控后台）。
  *
- * 依据：`api_doc.json` 的 `/api/admin/merchant-apply/**`（2026-09-25 核对）。
+ * 依据：`api_doc.json` 的 `/api/admin/merchant-apply/**`（2026-09-23 核对）。
  *
  * ## 为什么要有这一页
  * 中控此前只能在「商户管理」里对**品牌**做停用/启用（`/api/admin/merchants/{id}`，

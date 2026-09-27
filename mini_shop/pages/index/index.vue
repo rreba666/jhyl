@@ -53,10 +53,17 @@ const hasMore = shallowRef(true)
 const loading = shallowRef(true)
 /**
  * 开屏遮罩（2026-09-24 新增）：首页**框架**（模块开关 + 首屏数据）加载完成前一直显示，
- * 避免用户先看到半个空页面再"长"出内容。`refreshPage()` 结束时关闭（成功/失败都关，
- * 否则加载失败会永远卡在开屏页）。
+ * 避免用户先看到半个空页面再"长"出内容。
+ * ⚠️ 2026-09-27 用户调整：① **最少停留 3 秒**（框架即便瞬间就绪也不能一闪而过）；
+ * ② 增加**渐入渐出**（原来是直接消失，观感突兀）。渐出动画跑完才真正卸载遮罩。
  */
 const splashVisible = shallowRef(true)
+/** 渐出中标记：先淡出、动画结束再卸载，避免"啪"地一下消失。 */
+const splashLeaving = shallowRef(false)
+/** 开屏页最少停留时长（毫秒）—— 用户 2026-09-27 要求至少 3 秒。 */
+const SPLASH_MIN_DURATION = 3000
+/** 渐入/渐出时长（毫秒）：**必须与样式里 splash-fade-in / splash-fade-out 的时长一致**，否则会提前卸载或闪白。 */
+const SPLASH_FADE_DURATION = 450
 const loadingMore = shallowRef(false)
 const loadError = shallowRef('')
 const statusBarHeight = shallowRef(24)
@@ -278,8 +285,15 @@ onMounted(() => {
   try {
     statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 24
   } catch { /* 非微信环境使用设计稿默认值 */ }
-  // 首页框架就绪后再收起开屏遮罩；失败也收起，避免一直卡在开屏页
-  void refreshPage().finally(() => { splashVisible.value = false })
+  // 开屏页：① **最少停留 3 秒**；② 首页框架就绪后**渐出**。
+  // 用 Promise.all 保证「框架早就绪」也要等满 3 秒；框架慢则继续等（不设上限，否则内容还没出来就揭开）。
+  // refreshPage 的失败要 catch 掉：否则加载失败会永远卡在开屏页（原实现是 .finally 收起，语义保持不变）。
+  const minStay = new Promise<void>((resolve) => { setTimeout(() => resolve(), SPLASH_MIN_DURATION) })
+  void Promise.all([refreshPage().catch(() => undefined), minStay]).then(() => {
+    // 先触发淡出动画，等动画跑完再卸载遮罩
+    splashLeaving.value = true
+    setTimeout(() => { splashVisible.value = false }, SPLASH_FADE_DURATION)
+  })
 })
 
 onShow(() => {
@@ -289,8 +303,8 @@ onShow(() => {
 
 <template>
   <view class="home-page">
-    <!-- 开屏遮罩：首页框架未就绪时停留（品牌图 + 下方三个灰点表示加载中） -->
-    <view v-if="splashVisible" class="splash-mask">
+    <!-- 开屏遮罩：最少停留 3 秒（见 SPLASH_MIN_DURATION），加载中就绪后渐出（.splash-leaving） -->
+    <view v-if="splashVisible" class="splash-mask" :class="{ 'splash-leaving': splashLeaving }">
       <!-- ⚠️ 用压缩后的 JPEG：原 start_bg.png 有 569KB，会让主包超过微信 2MB 上限（编译上传会失败） -->
       <image class="splash-image" src="/static/start_bg.jpg" mode="aspectFit" />
       <view class="splash-dots">
@@ -403,7 +417,13 @@ onShow(() => {
 /* 开屏遮罩（2026-09-24 新增）：首页框架加载完成前停留在此，避免先看到半个空页面。
    图片按设计稿实测：356x236（390 基准）→ 684x454rpx，位于屏幕约 30% 高度处（设计 y=256 → 492rpx）。
    下方三个灰点为加载指示，做一个依次明暗的呼吸动画。 */
-.splash-mask { position: fixed; inset: 0; z-index: 99; display: flex; flex-direction: column; align-items: center; background: #fff; }
+/* 开屏遮罩：**渐入**（splash-fade-in）+ **渐出**（由 JS 加 .splash-leaving 触发 splash-fade-out）。
+   ⚠️ `both` 让动画结束后保持终态：渐入后停在 opacity:1，渐出后停在 opacity:0（不回弹）。
+   时长为 .45s，与 SPLASH_FADE_DURATION 保持一致。 */
+.splash-mask { position: fixed; inset: 0; z-index: 99; display: flex; flex-direction: column; align-items: center; background: #fff; opacity: 0; animation: splash-fade-in .45s ease both; }
+.splash-mask.splash-leaving { animation: splash-fade-out .45s ease both; }
+@keyframes splash-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes splash-fade-out { from { opacity: 1; } to { opacity: 0; } }
 .splash-image { width: 684rpx; height: 454rpx; margin-top: 492rpx; }
 .splash-dots { display: flex; gap: 16rpx; margin-top: 64rpx; }
 .splash-dot { width: 16rpx; height: 16rpx; border-radius: 50%; background: #d8d8d8; animation: splash-dot-blink 1.2s infinite ease-in-out; }

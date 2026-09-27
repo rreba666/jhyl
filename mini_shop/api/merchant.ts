@@ -12,7 +12,7 @@ export interface MerchantApplyShopDTO {
   mainBusiness?: string
   /**
    * 门店图片 URL（门头/店内照）。
-   * ✅ 2026-09-25 核对 `api_doc.json`：后端 `ShopPart` **已含 `shopImage`**（建议 690x345、<2MB），
+   * ✅ 2026-09-23 核对 `api_doc.json`：后端 `ShopPart` **已含 `shopImage`**（建议 690x345、<2MB），
    * 审核通过建店时会映射到门店门头图 —— 此前注释里"ShopPart 缺这个字段"已不成立。
    */
   shopImage?: string
@@ -30,7 +30,7 @@ export interface MerchantApplyDTO {
   licenseImage?: string
   /**
    * 身份证号。
-   * ⚠️ 2026-09-25 按 `api_doc.json` 补齐：后端 `POST /api/merchant/apply` 的 `MerchantApplyDTO`
+   * ⚠️ 2026-09-23 按 `api_doc.json` 补齐：后端 `POST /api/merchant/apply` 的 `MerchantApplyDTO`
    * 明确列了 `idCard` / `idCardFrontImage` / `idCardBackImage`（"提交时需填写身份证号及身份证正反面照"）。
    * ⚠️ 它的 `required` 只列了 `brandName` + `shop` ⇒ 不传**不会**被接口拒，
    * 但审核方要据此核验身份，所以前端按**必填**处理。
@@ -128,7 +128,7 @@ export interface MerchantProductVO {
    *
    * ✅ 2026-09-27 后端补齐。**编辑页必须回填这个数组、而不是单张 `mainImage`** ——
    * 商家端保存是**整页覆盖**语义，只带 1 张就等于把线上其余主图删掉
-   * （2026-09-25 线上实测：商家只改了个库存，C 端轮播从 2 张变 1 张）。
+   * （2026-09-27 线上实测：商家只改了个库存，C 端轮播从 2 张变 1 张）。
    */
   mainImages?: string[]
   /** 商品详情描述（✅ 2026-09-27 后端已下发；无则 null）。 */

@@ -2,7 +2,7 @@
 /**
  * 门店管理（商家端）。
  *
- * 依据：`api_doc.json` 的 `/api/merchant/shop*`（2026-09-25 核对）。
+ * 依据：`api_doc.json` 的 `/api/merchant/shop*`（2026-09-23 核对）。
  * - `GET  /api/merchant/shops`            门店列表（含每店店长/骑手/绑定微信人数）
  * - `POST /api/merchant/shop`             新建门店（品牌商家自建，自动归属当前品牌）
  * - `PUT  /api/merchant/shop/{id}/status` 启用 / 停用
