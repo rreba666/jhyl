@@ -672,6 +672,42 @@ function shopDistance(shop: EnabledShop): number {
 }
 
 /**
+ * 门店距离文案（2026-09-24 新增）：`距我约 320 米` / `距我约 1.2 公里`。
+ * ⚠️ 没有定位（用户拒绝授权 / 定位失败）或门店没录坐标时返回**空串** —— 宁可不显示，
+ *    也不要显示一个错的"距离"（`shopDistance` 这时返回极大值，直接格式化会变成天文数字）。
+ */
+function shopDistanceText(shop: EnabledShop): string {
+  const meters = shopDistance(shop)
+  if (!Number.isFinite(meters) || meters >= Number.MAX_SAFE_INTEGER) return ''
+  if (meters < 1000) return `距我约 ${Math.max(1, Math.round(meters))} 米`
+  return `距我约 ${(meters / 1000).toFixed(1)} 公里`
+}
+
+/** 门店是否录了可用于导航的坐标。 */
+function canNavigateShop(shop: EnabledShop): boolean {
+  return shop.latitude != null && shop.longitude != null
+}
+
+/**
+ * 打开微信内置地图导航到该门店（2026-09-24 新增）。
+ * ⚠️ 与「点击整行选择门店」是**两个动作** ⇒ 模板里必须 `@click.stop`，否则点导航会顺带把门店选掉。
+ * ⚠️ `uni.openLocation` 只负责打开地图展示/导航，不需要位置授权（和 `getLocation` 不同）。
+ */
+function navigateToShop(shop: EnabledShop): void {
+  if (!canNavigateShop(shop)) {
+    uni.showToast({ title: '该门店未设置位置，无法导航', icon: 'none' })
+    return
+  }
+  uni.openLocation({
+    latitude: Number(shop.latitude),
+    longitude: Number(shop.longitude),
+    name: shop.name,
+    address: shop.address || '',
+    fail: () => uni.showToast({ title: '打开地图失败，请重试', icon: 'none' }),
+  })
+}
+
+/**
  * 当前定位下「同城配送」是否可选。
  * - 定位拿不到（未授权/失败）→ 返回 true（**不置灰**，避免误拦；真正下单时仍会按收货地址试算拦截）；
  * - 定位成功但所有试算门店都送不到 → false（选项置灰，点击给提示）；
@@ -1687,8 +1723,17 @@ function backToCart(): void {
       <view class="sheet shop-sheet" @click.stop>
         <view class="sheet-head"><text class="sheet-title">{{ shopSheetTitle }}</text><text class="sheet-close" @click="shopSheetVisible = false">×</text></view>
         <view v-for="shop in pickerShops" :key="shop.id" class="shop-option" :class="{ selected: selectedShop?.id === shop.id }" @click="chooseShop(shop)">
-          <view><text class="shop-name">{{ shop.name }}</text><text class="shop-address">{{ shop.address }}</text></view>
-          <text class="shop-distance">{{ shop.phone || (pickupType === 2 ? '支持同城配送' : '支持到店自提') }}</text>
+          <view class="shop-main">
+            <text class="shop-name">{{ shop.name }}</text>
+            <text class="shop-address">{{ shop.address }}</text>
+            <!-- 距离与电话同一行：距离是新增的（算出来的直线距离），电话沿用原有字段 -->
+            <view class="shop-meta">
+              <text v-if="shopDistanceText(shop)" class="shop-distance-text">{{ shopDistanceText(shop) }}</text>
+              <text class="shop-distance">{{ shop.phone || (pickupType === 2 ? '支持同城配送' : '支持到店自提') }}</text>
+            </view>
+          </view>
+          <!-- ⚠️ @click.stop：导航是独立动作，不能顺带触发整行的「选择该门店」 -->
+          <view v-if="canNavigateShop(shop)" class="shop-nav" @click.stop="navigateToShop(shop)">导航</view>
         </view>
         <text v-if="!pickerShops.length" class="shop-empty">{{ shopEmptyText }}</text>
       </view>
@@ -1813,6 +1858,11 @@ function backToCart(): void {
 .shop-name { color: #222; font-size: 27rpx; font-weight: 600; }
 .shop-address { margin-top: 10rpx; color: #999; font-size: 23rpx; }
 .shop-distance { color: #999; font-size: 22rpx; }
+/* 门店行（2026-09-24）：左侧信息区 + 右侧独立「导航」按钮 */
+.shop-main { flex: 1; min-width: 0; }
+.shop-meta { display: flex; align-items: center; gap: 12rpx; margin-top: 6rpx; }
+.shop-distance-text { color: #ff5500; font-size: 22rpx; }
+.shop-nav { flex-shrink: 0; margin-left: 16rpx; padding: 8rpx 20rpx; border: 1rpx solid #ff5500; border-radius: 999rpx; color: #ff5500; font-size: 22rpx; line-height: 1.4; }
 .invoice-mask { align-items: flex-end; }
 .invoice-sheet { max-height: 88vh; }
 .invoice-type-row { display: flex; gap: 84rpx; margin: 34rpx 0 18rpx; }
