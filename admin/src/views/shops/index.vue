@@ -26,7 +26,9 @@ const form = reactive<ShopCreateDTO & { latitude?: number; longitude?: number }>
 const shopImageUploading = ref(false)
 
 /**
- * 门店图片上传：复用**通用上传** `POST /api/common/upload`（与商家端发票、打款回单同一接口）。
+ * 门店图片上传：走 **B 端**上传 `POST /api/admin/homepage/upload`（经 `api/shop.ts#uploadShopImage`）。
+ * ⚠️ 2026-09-27 修注释：原文写的是 `/api/common/upload`，那是 **C 端**接口 —— admin 带 B 端 token 调它会 401，
+ * 并被拦截器清掉 `admin_login_info` 后跳登录（即「上传图片就被踢出登录」，与商家提现打款回单同一事故）。
  * ⚠️ 2026-09-25 修正：此前这里是个**贴 URL 的输入框**，运营根本拿不到 OSS 地址、等于没法传图。
  */
 async function onShopImageUpload(options: UploadRequestOptions): Promise<void> {

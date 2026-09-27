@@ -422,7 +422,11 @@ async function submitConfirmPaid(): Promise<void> {
   paidVisible.value = false
 }
 
-/** 上传打款回单（`POST /api/common/upload` → OSS 直链，回填到 `payVoucherUrl`）。 */
+/**
+ * 上传打款回单（走 **B 端** `POST /api/admin/homepage/upload` → OSS 直链，回填到 `payVoucherUrl`）。
+ * ⚠️ 2026-09-27 修注释：原文写的是 `/api/common/upload`（C 端接口）—— admin 带 B 端 token 调它 → 401
+ * → 拦截器清 `admin_login_info` 并跳登录，正是「确认打款表单上传图片导致登录退出」那起事故的成因。
+ */
 async function uploadVoucher(options: UploadRequestOptions): Promise<void> {
   voucherUploading.value = true
   try {
