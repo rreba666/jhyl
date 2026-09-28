@@ -114,11 +114,26 @@ function getCanvasNode(): Promise<PosterCanvasNode> {
   })
 }
 
-function loadCanvasImage(canvas: PosterCanvasNode, src: string): Promise<CanvasImageNode> {
+/**
+ * 用 2D canvas 加载图片。
+ *
+ * ⚠️ `label` 是为了**区分是背景图还是二维码失败** —— 两者的来源完全不同（包内静态图 vs 后端二维码），
+ * 混在一起报「海报图片加载失败」无法定位（2026-09-28 卡在这里）。
+ * ⚠️ `createImage().src` 只接受特定形态：真机上 `getImageInfo('/static/...')` 会给出 `wxfile://` 临时路径（可用），
+ * 但**开发者工具里可能给的是 `http://127.0.0.1:<port>/static/...`**，而该地址若返回非 200 就会 onerror。
+ */
+function loadCanvasImage(canvas: PosterCanvasNode, src: string, label: string): Promise<CanvasImageNode> {
   return new Promise((resolve, reject) => {
     const image = canvas.createImage()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('海报图片加载失败'))
+    image.onerror = (err?: unknown) => {
+      console.warn('[HomeSharePoster] canvas image failed:', JSON.stringify({
+        label,
+        src: String(src ?? '').slice(0, 140),
+        err: err ?? null,
+      }))
+      reject(new Error('海报图片加载失败'))
+    }
     image.src = src
   })
 }
@@ -134,13 +149,19 @@ function waitForCanvasPaint(canvas: PosterCanvasNode): Promise<void> {
 async function createPosterFile(): Promise<string> {
   const background = await getImageInfo(POSTER_BACKGROUND)
   const qr = await getImageInfo(previewQrUrl.value)
+  // ⚠️ 诊断留痕：这里能看出 `getImageInfo` 究竟把静态图解析成了什么形态
+  // （真机通常 `wxfile://`；开发者工具可能是 `http://127.0.0.1:<port>/static/...`，后者若 500 就会让 createImage 失败）。
+  console.warn('[HomeSharePoster] image info:', JSON.stringify({
+    background: String(background?.path ?? '').slice(0, 140),
+    qr: String(qr?.path ?? '').slice(0, 140),
+  }))
   const canvas = await getCanvasNode()
   canvas.width = POSTER_WIDTH
   canvas.height = POSTER_HEIGHT
 
   const [backgroundImage, qrImage] = await Promise.all([
-    loadCanvasImage(canvas, background.path),
-    loadCanvasImage(canvas, qr.path),
+    loadCanvasImage(canvas, background.path, 'background'),
+    loadCanvasImage(canvas, qr.path, 'qr'),
   ])
   const context = canvas.getContext('2d')
   context.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT)
