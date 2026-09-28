@@ -1050,8 +1050,6 @@ onUnload(() => {
 .flow-entry { display: flex; align-items: center; justify-content: space-between; margin-top: 20rpx; padding: 24rpx 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 10rpx 24rpx rgba(15, 23, 42, .06); }
 .flow-entry-label { color: #172033; font-size: 28rpx; font-weight: 600; }
 .flow-entry-arrow { color: #98a2b3; font-size: 34rpx; line-height: 1; }
-.tab-row { display: flex; gap: 18rpx; margin-top: 22rpx; }
-.tab-item { flex: 1; height: 76rpx; display: flex; align-items: center; justify-content: center; border-radius: 22rpx; background: #fff; color: #667085; font-size: 26rpx; font-weight: 600; box-shadow: 0 6rpx 16rpx rgba(15, 23, 42, .06); }
 .tab-item.active { background: linear-gradient(135deg, #ff6a2b, #ff5a1f); color: #fff; }
 .panel-card { margin-top: 20rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 10rpx 24rpx rgba(15, 23, 42, .06); }
 .panel-title { display: block; color: #111827; font-size: 28rpx; font-weight: 600; }
