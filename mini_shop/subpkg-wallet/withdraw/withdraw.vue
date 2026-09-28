@@ -27,10 +27,13 @@ const menuHeight = ref(32)
 const user = ref<UserProfile | null>(null)
 const wallet = ref<WalletInfo | null>(null)
 const loading = ref(false)
-const currentTab = ref<'withdraw' | 'transfer'>('transfer')
 /** 提现方式入口，默认保留原有零钱提现流程，银行卡作为新增选项。 */
 const withdrawOption = ref<'BALANCE' | 'BANK_CARD'>('BALANCE')
 const withdrawAmount = ref('')
+// ===== ⚠️ 以下「余额转赠」相关状态与函数**已从界面移除**（2026-09-28 用户要求）=====
+// 原因：本产品**没有余额转赠功能**，不应在提现页暴露入口（原 tab 里「转赠他人」还是**默认选中**的，危害更大）。
+// 实现与 API（`searchUser` / `transferWallet`）**保留但不再被任何模板引用**，便于将来若真要上线可快速恢复；
+// 若确认永久不做，可连同 `api/user.ts` 的这两个函数一并删除。
 const transferUserId = ref('')
 const transferAmount = ref('')
 const recipient = ref<UserSearchVO | null>(null)
@@ -894,12 +897,9 @@ onUnload(() => {
           <text class="flow-entry-arrow">›</text>
         </view>
 
-        <view class="tab-row">
-          <view class="tab-item" :class="{ active: currentTab === 'withdraw' }" @click="currentTab = 'withdraw'">提现</view>
-          <view class="tab-item" :class="{ active: currentTab === 'transfer' }" @click="currentTab = 'transfer'">转赠他人</view>
-        </view>
-
-        <view v-show="currentTab === 'withdraw'" class="panel-card">
+        <!-- 2026-09-28 用户要求：**去掉「转赠他人」**（余额转赠功能本产品没有，不应暴露入口）⇒
+             原 tab 行整块移除，提现面板不再需要 v-show 切换。 -->
+        <view class="panel-card">
           <text class="panel-title">提现方式</text>
           <view class="type-row">
             <view class="type-chip" :class="{ active: withdrawOption === 'BALANCE' }" @click="selectWithdrawOption('BALANCE')">零钱提现</view>
@@ -981,29 +981,6 @@ onUnload(() => {
               {{ withdrawSubmitting ? '提交中...' : '确认提现' }}
             </button>
           </template>
-        </view>
-
-        <view v-show="currentTab === 'transfer'" class="panel-card">
-          <text class="panel-title">转账账号</text>
-          <view class="search-row">
-            <input v-model="transferUserId" class="panel-input search-input" maxlength="19" type="number" placeholder="请输入接收人账号或ID" />
-            <button class="search-button" :disabled="searching" @click="handleSearchRecipient">
-              {{ searching ? '查找中...' : '查找' }}
-            </button>
-          </view>
-          <view v-if="recipient" class="recipient-card">
-            <image v-if="recipient.avatarUrl" class="recipient-avatar" :src="recipient.avatarUrl" mode="aspectFill" />
-            <view v-else class="recipient-avatar placeholder" />
-            <view class="recipient-info">
-              <text class="recipient-name">{{ recipient.nickname }}</text>
-              <text class="recipient-id">ID: {{ recipient.id }}</text>
-            </view>
-          </view>
-          <text class="panel-title panel-section-title">转出金额</text>
-          <input v-model="transferAmount" class="panel-input" maxlength="11" type="digit" placeholder="请输入转出余额" />
-          <button class="panel-button" :disabled="transferSubmitting" @click="handleTransfer">
-            {{ transferSubmitting ? '提交中...' : '确认转账' }}
-          </button>
         </view>
 
         <view class="records-card">
