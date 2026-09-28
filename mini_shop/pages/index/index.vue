@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
-import { onLoad, onPageScroll, onPullDownRefresh, onReachBottom, onShareAppMessage, onShow } from '@dcloudio/uni-app'
+import { onHide, onLoad, onPageScroll, onPullDownRefresh, onReachBottom, onShareAppMessage, onShow } from '@dcloudio/uni-app'
 import { getHomepageData, type KingkongItem, type MediaLinkV2, type WelfareConfigV2 } from '@/api/homepage'
 import type { HomepageMediaItem } from '@/api/homepage'
 import { getProductList, type ProductCard } from '@/api/product'
@@ -60,10 +60,48 @@ const loading = shallowRef(true)
 const splashVisible = shallowRef(true)
 /** 渐出中标记：先淡出、动画结束再卸载，避免"啪"地一下消失。 */
 const splashLeaving = shallowRef(false)
+/**
+ * 开屏**是否已开始揭开**（= 已进入渐出或已卸载）。
+ * ⚠️ 与 `splashVisible` 不同：渐出那 450ms 内 `splashVisible` 仍为 `true`，
+ * 但此时 tabBar 已经恢复过了 ⇒ 判断"要不要重新隐藏 tabBar"必须用本标记，不能用 `splashVisible`，
+ * 否则渐出途中切走再切回来会把 tabBar 又藏住、且再也没人恢复它。
+ */
+const splashRevealed = shallowRef(false)
 /** 开屏页最少停留时长（毫秒）—— 用户 2026-09-27 要求至少 3 秒。 */
 const SPLASH_MIN_DURATION = 3000
 /** 渐入/渐出时长（毫秒）：**必须与样式里 splash-fade-in / splash-fade-out 的时长一致**，否则会提前卸载或闪白。 */
 const SPLASH_FADE_DURATION = 450
+/**
+ * 开屏**最大**停留时长（毫秒）：兜底用。
+ * ⚠️ 必须有它 —— 若 `refreshPage()` 永远不返回，开屏不会结束，**tabBar 就永远被藏住**，
+ * 用户看不到底部导航。到点无论框架好没好都强制揭开。
+ */
+const SPLASH_MAX_DURATION = 10000
+
+/**
+ * 开屏期间**隐藏原生 tabBar**。
+ *
+ * ⚠️⚠️ 原生 tabBar 是小程序里**层级最高的原生组件**，CSS 的 `z-index`（哪怕是 9999）**盖不住它**
+ * ⇒ 只把遮罩写成 `position: fixed; z-index: 99` 的话，tabBar 依然会**显示且可以点击**
+ * （用户 2026-09-27 反馈的正是这个）。**只能调 API 隐藏。**
+ * `animation: false` 避免隐藏动画期间仍能点到；失败静默（非 tabBar 页面调用会报错，属预期）。
+ */
+function hideTabBarForSplash(): void {
+  uni.hideTabBar({ animation: false, fail: () => undefined })
+}
+
+/** 开屏结束后恢复原生 tabBar。⚠️ 必须保证一定被调用到，否则用户永远看不到底部导航。 */
+function restoreTabBarAfterSplash(): void {
+  uni.showTabBar({ animation: false, fail: () => undefined })
+}
+
+// 尽早隐藏：本页是启动页，setup 顶层早于首帧渲染，是能拿到的最早时机。
+// ⚠️ 只在**首页**隐藏，不要在 `App.vue` 的 onLaunch 里隐藏 —— `hideTabBar` 是**全局状态**，
+// 若在 App 层隐藏，用户从分享/扫码**直达其它 tabBar 页**（分类/购物车/个人页）时会看不到底部导航，
+// 而那些页面并不会恢复它。
+hideTabBarForSplash()
+// 离开首页（含开屏途中被切走）**立即恢复** tabBar，避免把隐藏状态留给其它 tabBar 页
+onHide(restoreTabBarAfterSplash)
 const loadingMore = shallowRef(false)
 const loadError = shallowRef('')
 const statusBarHeight = shallowRef(24)
@@ -285,19 +323,36 @@ onMounted(() => {
   try {
     statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 24
   } catch { /* 非微信环境使用设计稿默认值 */ }
+  // 再隐藏一次兜底：个别机型首帧会先把 tabBar 渲染出来
+  hideTabBarForSplash()
   // 开屏页：① **最少停留 3 秒**；② 首页框架就绪后**渐出**。
-  // 用 Promise.all 保证「框架早就绪」也要等满 3 秒；框架慢则继续等（不设上限，否则内容还没出来就揭开）。
-  // refreshPage 的失败要 catch 掉：否则加载失败会永远卡在开屏页（原实现是 .finally 收起，语义保持不变）。
-  const minStay = new Promise<void>((resolve) => { setTimeout(() => resolve(), SPLASH_MIN_DURATION) })
-  void Promise.all([refreshPage().catch(() => undefined), minStay]).then(() => {
-    // 先触发淡出动画，等动画跑完再卸载遮罩
+  // 用 Promise.all 保证「框架早就绪」也要等满 3 秒；框架慢则继续等。
+  // refreshPage 的失败要 catch 掉（否则加载失败会永远卡在开屏页），并且另有 SPLASH_MAX_DURATION 上限兜底。
+  let revealed = false
+  /** 揭开开屏：幂等，三条路径（正常/超时/页面被顶掉）谁先到谁生效，避免重复触发动画。 */
+  const reveal = (): void => {
+    if (revealed) return
+    revealed = true
+    splashRevealed.value = true
     splashLeaving.value = true
+    // ⚠️ **立即**恢复 tabBar（不等淡出动画结束）：万一 showTabBar 失败，越早暴露问题越好，
+    // 且「tabBar 消失」比「淡出期间露出 tabBar」严重得多 —— 安全优先。
+    restoreTabBarAfterSplash()
+    // 等淡出动画跑完再卸载遮罩
     setTimeout(() => { splashVisible.value = false }, SPLASH_FADE_DURATION)
-  })
+  }
+  const minStay = new Promise<void>((resolve) => { setTimeout(() => resolve(), SPLASH_MIN_DURATION) })
+  const maxStay = new Promise<void>((resolve) => { setTimeout(() => resolve(), SPLASH_MAX_DURATION) })
+  void Promise.all([refreshPage().catch(() => undefined), minStay]).then(reveal)
+  void maxStay.then(reveal)
 })
 
 onShow(() => {
   void bindStoredPromotionIfLoggedIn()
+  // ⚠️ 从其它页返回首页时，若开屏**还没揭开**，需要重新隐藏 tabBar ——
+  // 因为离开首页时 `onHide` 已经把它恢复了（那是为了不把隐藏状态泄漏给其它 tabBar 页）。
+  // 用 `splashRevealed` 而非 `splashVisible`：渐出中的 450ms 里 tabBar 已恢复，不应再藏。
+  if (!splashRevealed.value) hideTabBarForSplash()
 })
 </script>
 

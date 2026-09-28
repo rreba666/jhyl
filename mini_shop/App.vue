@@ -22,6 +22,9 @@ function ensureHomeEntry(): void {
 onLaunch((options) => {
   capturePromotionContext(options as Record<string, unknown>)
   void bindStoredPromotionIfLoggedIn()
+  // ⚠️ 这里**故意不**调用 hideTabBar：`hideTabBar` 是**全局状态**，一旦在此隐藏，
+  // 用户从分享/扫码**直达其它 tabBar 页**（购物车/分类/个人页）时会看不到底部导航，
+  // 而那些页面并不会恢复它。开屏只在首页出现 ⇒ 由首页自己负责隐藏与恢复。
   // onLaunch 早于页面创建，延迟一次让页面栈完成初始化后再兜底。
   setTimeout(ensureHomeEntry, 0)
 })
