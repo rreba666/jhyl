@@ -159,7 +159,7 @@ export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'cate
   categoryId?: number
   goodsBrandId?: number
   /** 所属商户 id（long；undefined = 不提交/不修改）。 */
-  merchantId?: number
+  merchantId?: number | null
   /** 关联门店 id 列表（多门店；undefined = 不提交，空数组 = 清空关联）。 */
   shopIds?: number[]
   skuList: AdminSkuSaveItem[]

@@ -12,7 +12,7 @@ import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, Produc
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
 import { DETAIL_IMAGE_MAX_COUNT, planDetailSliceForFile, sliceDetailImageToFiles } from '@/utils/detailImageSlice'
 import { getAdminGoodsBrands } from '@/api/brand'
-import { getEnabledShops } from '@/api/shop'
+import { getShops, getEnabledShops } from '@/api/shop'
 import type { Shop } from '@/types/shop'
 import { getAdminProductDetail } from '@/api/product'
 import { Delete, Edit, View } from '@element-plus/icons-vue'
@@ -69,6 +69,47 @@ async function loadShopOptions(): Promise<void> {
     shopOptions.value = []
   }
 }
+
+/**
+ * **商品编辑专用的门店选项**（2026-09-28 新增）。
+ *
+ * ⚠️ 与上面「按门店查询」的 `shopOptions` **刻意分开**：那份是全量（筛选用），
+ * 而编辑时门店必须**属于所选商户**（后端 `/api/admin/shop/list` 支持 `merchantId` 过滤，
+ * 且商户管理员会被强制限制在自己绑定的品牌）—— 否则会把别家门店列出来让人误选，保存时才被后端拒。
+ */
+const formShopOptions = ref<Shop[]>([])
+/** 编辑用门店下拉是否加载中。 */
+const formShopLoading = ref(false)
+/**
+ * 按商户加载编辑用门店选项。
+ * ⚠️ 必须在**编辑回填之后**调用 —— 否则回显的 `shopIds` 在选项里找不到，多选会显示成空。
+ * ⚠️ 未选商户时不加载（后端也要求「先选品牌，再选门店」）。
+ */
+async function loadFormShopOptions(merchantId?: number | null): Promise<void> {
+  if (merchantId == null || !Number.isFinite(Number(merchantId))) {
+    formShopOptions.value = []
+    return
+  }
+  formShopLoading.value = true
+  try {
+    const result = await getShops(1, 200, '', Number(merchantId))
+    formShopOptions.value = (result?.list || []) as Shop[]
+  } catch {
+    // 失败不阻塞：只是门店选不出来，保存时后端会兜底校验
+    formShopOptions.value = []
+  } finally {
+    formShopLoading.value = false
+  }
+}
+/**
+ * 切换「所属商户」时重载门店选项，并**清空已选门店**。
+ * ⚠️ 必须清空：旧商户的门店对新商户无效，留着会被后端拒（门店不属于该品牌）。
+ */
+function onMerchantChange(value: unknown): void {
+  form.shopIds = []
+  void loadFormShopOptions(value == null || value === '' ? null : Number(value))
+}
+
 const mediaUploading = computed(() => store.uploading || detailUploadCount.value > 0)
 /** 商品品牌选项（goods_brand，仅启用项；用于「品牌」下拉）。 */
 const brandOptions = ref<Array<{ id: number; name: string }>>([])
@@ -151,6 +192,8 @@ function fillForm(detail?: ProductDetail): void {
   const deliveryEcho = detail ? normalizeSwitchOrNull(detail.deliveryEnabled) : 1
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
   Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  // 回填后按该商户加载门店选项（否则 shopIds 在选项里找不到，多选显示为空）
+  void loadFormShopOptions(form.merchantId as number | null)
   // 新增商品默认使用比例；编辑商品根据已保存金额恢复模式（后端暂无独立模式字段）。
   promotionUseDefault.value = detail ? isDefaultFundAmount(detail.promotionFund, detail.minPrice, getDefaultPromotionFund) : true
   dividendUseDefault.value = detail ? isDefaultFundAmount(detail.dividendFund, detail.minPrice, getDefaultDividendFund) : true
@@ -284,19 +327,22 @@ async function submitForm(): Promise<void> {
     return
   }
   try {
-    // 商户 / 门店归一化（2026-09-28）：商户单选（number|null）、门店多选（number[]）
-    const merchantIdParsed = rawMerchantId == null || String(rawMerchantId) === ''
-      ? undefined
+    // 商户 / 门店归一化（2026-09-28）
+    // ⚠️ 商户：后端语义是「**不传 = 不修改**」，而**清空**要显式传 `null`（该字段可空）。
+    //    绝不能把"清空"变成 `Number(null) = 0` —— 那会被后端判为「品牌不存在」报 1000。
+    const merchantIdPayload = rawMerchantId == null || String(rawMerchantId) === ''
+      ? null
       : Number(rawMerchantId)
+    // 门店：long[]；空数组 = **清空关联**（后端语义），不传 = 不修改。
     const normalizedShopIds = (rawShopIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
     const payload: AdminProductSavePayload = {
       ...rest,
       ...(categoryId === undefined ? {} : { categoryId }),
       ...(goodsBrandId === undefined ? {} : { goodsBrandId }),
-    // 商户 / 门店归属（2026-09-28 接入）：后端 AdminProductSaveDTO 已有 merchantId + shopIds（多门店）。
-    // ⚠️ 两者都是 long/long[]：必须传**数字**，传字符串会被 Jackson 判为「请求体格式错误」（与 categoryId 同坑）。
-    ...(merchantIdParsed === undefined ? {} : { merchantId: merchantIdParsed }),
-    shopIds: normalizedShopIds,
+      // 商户 / 门店归属（2026-09-28 接入）：V2 的 save 已支持这两个字段（此前 V2 缺失 ⇒ 保存被静默忽略）。
+      // ⚠️ 两者都是 long / long[]：必须传**数字**，传字符串会被 Jackson 判为「请求体格式错误」。
+      merchantId: merchantIdPayload,
+      shopIds: normalizedShopIds,
       status: normalizeBinary(form.status),
       promotionEnabled: normalizeBinary(form.promotionEnabled),
       dividendEnabled: normalizeBinary(form.dividendEnabled),
@@ -564,13 +610,13 @@ onMounted(() => {
         <!-- 商户 / 门店归属（2026-09-28 接入）：后端 AdminProductSaveDTO 早已有 merchantId + shopIds（多门店），
              此前只是前端没接 ⇒ 超管编辑商品时看不到也选不了。⚠️ 两者都是 long/long[]，提交时必须传数字。 -->
         <el-form-item label="所属商户">
-          <el-select v-model="form.merchantId" clearable filterable placeholder="选择所属商户（品牌商家）" style="width: 100%">
+          <el-select v-model="form.merchantId" clearable filterable placeholder="选择所属商户（品牌商家）" style="width: 100%" @change="onMerchantChange">
             <el-option v-for="m in merchantOptions" :key="m.id" :label="m.brandName || m.contactName || ('商户 ' + m.id)" :value="Number(m.id)" />
           </el-select>
         </el-form-item>
         <el-form-item label="关联门店">
-          <el-select v-model="form.shopIds" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="可多选；不选 = 不关联任何门店" style="width: 100%">
-            <el-option v-for="s in shopOptions" :key="s.id" :label="s.name" :value="Number(s.id)" />
+          <el-select v-model="form.shopIds" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="可多选；不选 = 不关联任何门店" style="width: 100%" :loading="formShopLoading">
+            <el-option v-for="s in formShopOptions" :key="s.id" :label="s.name" :value="Number(s.id)" />
           </el-select>
         </el-form-item>
         <el-form-item label="排序权重"><el-input-number v-model="form.sortOrder" :min="0" /></el-form-item>
