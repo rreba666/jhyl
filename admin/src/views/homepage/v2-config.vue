@@ -65,6 +65,8 @@ function syncCategoryNames(key: string): void {
 }
 const uploading = ref(false)
 const homeConfig = ref<HomeConfigV2>({ heroImages: [], kingkong: [], welfare: null, heroBackgroundColor: null })
+/** 轮播区背景色默认值（与 C 端 `HERO_BACKGROUND_FALLBACK` 同值；后端未配置时用它）。 */
+const HERO_DEFAULT_COLOR = '#148c48'
 /** 福利与资讯配置。 */
 const welfareForm = reactive<WelfareConfigV2>({ title: '', backgroundUrl: '', tabs: [] })
 /** 落地页配置：按 key 映射。 */
@@ -291,7 +293,11 @@ function linkTypeLabel(type: LinkType): string {
           <div class="phone-frame">
             <div class="phone-screen">
               <div class="phone-home-search">老字号精选好物</div>
-              <el-image v-if="homeConfig.heroImages[0]?.url" class="phone-home-hero" :src="homeConfig.heroImages[0].url" fit="cover"><template #error><div class="phone-img-error">图未加载</div></template></el-image>
+              <!-- 轮播区底色预览（2026-09-28）：外包一层带底色的容器 —— 小程序 .hero-module 有 padding-bottom，
+                   底部会露出一条底色，这里同口径还原，运营选色后立刻能看出与轮播图搭不搭。 -->
+              <div class="phone-home-hero-wrap" :style="{ background: homeConfig.heroBackgroundColor || HERO_DEFAULT_COLOR }">
+                <el-image v-if="homeConfig.heroImages[0]?.url" class="phone-home-hero" :src="homeConfig.heroImages[0].url" fit="cover"><template #error><div class="phone-img-error">图未加载</div></template></el-image>
+              </div>
               <div class="phone-home-kingkong">
                 <div v-for="item in homeConfig.kingkong" :key="item.label" class="phone-home-kk">
                   <div class="phone-home-kk-icon-wrap"><img class="phone-home-kk-icon" :src="item.icon" /></div>
@@ -460,6 +466,8 @@ function linkTypeLabel(type: LinkType): string {
 .phone-location { margin-top: 4px; color: #98a2b3; font-size: 10px; }
 .phone-preview-tip { margin-top: 8px; text-align: center; }
 .phone-home-search { margin: 8px 10px; padding: 6px 10px; border-radius: 12px; background: #f2f3f5; color: #98a2b3; font-size: 10px; }
+/* 轮播区底色预览容器：底部留一条，还原小程序 .hero-module 的 padding-bottom ⇒ 能看出底色与图是否搭 */
+.phone-home-hero-wrap { padding-bottom: 4px; border-radius: 6px; overflow: hidden; }
 .phone-home-hero { display: block; width: 100%; height: 88px; background: #f2f3f5; }
 .phone-home-kingkong { display: flex; flex-wrap: wrap; padding: 10px; }
 .phone-home-kk { display: flex; flex-direction: column; align-items: center; flex: 0 0 20%; min-width: 0; }
