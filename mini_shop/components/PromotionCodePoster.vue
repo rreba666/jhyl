@@ -306,6 +306,13 @@ async function saveToPhone(): Promise<void> {
   }
 }
 
+/**
+ * ⚠️ 2026-09-28 用户决定：**本入口已从界面移除**（见模板注释），此函数保留但不再被调用。
+ *
+ * 移除原因：它走 `wx.showShareImageMenu`（分享**图片**），微信会在图片下方自动附一个**小程序链接**，
+ * 而该链接取的是**当前页面的 path + query**、我们无法自定义 ⇒ 点链接进来**不带 `promoterId`、绑定不了推广关系**。
+ * 与其留一个"看着能分享、实际绑不上"的入口，不如让用户保存图片后在微信里自行发送。
+ */
 async function shareToFriend(): Promise<void> {
   if (actionLoading.value || props.loading) return
   actionLoading.value = true
@@ -347,8 +354,11 @@ async function shareToFriend(): Promise<void> {
       </view>
       <view v-show="!loading && codeUrl" class="poster-actions">
         <button class="poster-action poster-save" :disabled="actionLoading" @click="saveToPhone">保存到手机</button>
-        <button class="poster-action poster-share" :disabled="actionLoading" @click="shareToFriend">发送给好友</button>
       </view>
+      <!-- 2026-09-28 用户决定：**去掉「发送给好友」**。原因：它走 `showShareImageMenu`（分享图片），
+           微信自动附带的小程序链接取「当前页 path+query」，点链接进来不带 promoterId ⇒ 绑定不了关系。
+           ⇒ 改为「保存到本地，让用户自己在微信里发送」，故此处只留保存按钮 + 一行引导。 -->
+      <text v-show="!loading && codeUrl" style="margin-top: 12rpx; color: #86909c; font-size: 24rpx">保存后可在微信里直接发送给好友</text>
       <canvas type="2d" id="promotion-code-poster-canvas" class="poster-canvas" />
     </view>
   </view>
