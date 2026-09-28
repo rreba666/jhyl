@@ -64,7 +64,7 @@ function syncCategoryNames(key: string): void {
   landingMap[key].categoryNames = categoryOptions.value.filter((item) => ids.includes(item.id)).map((item) => item.name)
 }
 const uploading = ref(false)
-const homeConfig = ref<HomeConfigV2>({ heroImages: [], kingkong: [], welfare: null })
+const homeConfig = ref<HomeConfigV2>({ heroImages: [], kingkong: [], welfare: null, heroBackgroundColor: null })
 /** 福利与资讯配置。 */
 const welfareForm = reactive<WelfareConfigV2>({ title: '', backgroundUrl: '', tabs: [] })
 /** 落地页配置：按 key 映射。 */
@@ -201,6 +201,8 @@ async function save(): Promise<void> {
     await saveHomeConfigV2({
       heroImages: homeConfig.value.heroImages.map((item) => ({ ...item })),
       kingkong: homeConfig.value.kingkong.map((item) => ({ ...item })),
+      // ⚠️ 后端 PUT 是**全量覆盖**：这个字段漏传会被当成清除，把运营配好的轮播底色重置成默认绿
+      heroBackgroundColor: homeConfig.value.heroBackgroundColor ?? null,
       welfare: { title: welfareForm.title, subtitle: welfareForm.subtitle, backgroundUrl: welfareForm.backgroundUrl, tabs: [...(welfareForm.tabs || [])] },
     })
     // 统一口径：提交给后端的 landingKey 一律用中文；品牌由「商品品牌」模块按大类维护，落地页不再提交品牌。
@@ -249,6 +251,13 @@ function linkTypeLabel(type: LinkType): string {
       <div class="landing-layout">
         <div class="landing-pane">
           <div class="card-title">hero 大图轮播</div>
+          <!-- 轮播区背景色（2026-09-27 用户需求）：轮播图由后台更换，底色写死会出现「图与底色不搭」。
+               ⚠️ 留空 = 用 C 端默认绿 #148c48（后端服务端也有同值兜底）。 -->
+          <div class="array-row" style="margin-bottom: 8px">
+            <span>轮播区背景色</span>
+            <el-color-picker v-model="homeConfig.heroBackgroundColor" show-alpha />
+            <span style="color: #909399; font-size: 12px">留空 = 默认绿 #148c48；支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA</span>
+          </div>
           <el-table :data="homeConfig.heroImages" border size="small">
             <el-table-column label="图片（含点击跳转）" min-width="360">
               <template #default="{ row, $index }">

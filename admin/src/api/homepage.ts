@@ -84,7 +84,7 @@ export async function getHomeConfigV2(): Promise<HomeConfigV2> {
   const response = await request.get<HomepageResponse<HomeConfigV2 | null>>('/api/v2/admin/home/config')
   const result = response.data
   ensureSuccess(result, '首页配置查询失败')
-  return result.data ?? { heroImages: [], kingkong: [], welfare: null }
+  return result.data ?? { heroImages: [], kingkong: [], welfare: null, heroBackgroundColor: null }
 }
 
 /** 保存首页 V2 配置（全量覆盖）。 */

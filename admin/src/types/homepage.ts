@@ -83,6 +83,14 @@ export interface HomeConfigV2 {
   heroImages: MediaLinkV2[]
   kingkong: KingkongV2[]
   welfare?: WelfareConfigV2 | null
+  /**
+   * 首页**轮播区背景色**（hex；支持 `#RGB` / `#RGBA` / `#RRGGBB` / `#RRGGBBAA`）。
+   *
+   * 2026-09-27 新增（后端已完成）：轮播图由后台更换，底色写死会出现「图与底色不搭」。
+   * `null` / 空串 = 清除设置，C 端回落默认色 `#148c48`（后端服务端也有同值兜底）。
+   * ⚠️ `PUT /api/v2/admin/home/config` 是**全量覆盖** ⇒ 本字段必须一并提交，漏传等于清除。
+   */
+  heroBackgroundColor?: string | null
 }
 
 /** 福利页签（WelfareTabV2）。 */
