@@ -21,6 +21,7 @@ import {
   type MerchantOrderDetailVO,
 } from '@/api/merchant'
 import { resolveImageUrl } from '@/utils/request'
+import { requestMerchantSubscribe } from '@/utils/subscribe'
 import { formatDateTime, formatClock } from '@/utils/datetime'
 
 const statusBarHeight = ref(0)
@@ -122,6 +123,8 @@ function finishPreparing(): void {
 
 /** 打开安排配送弹层。 */
 function openAssign(): void {
+  // 引导订阅「配送异常」提醒（真实点击手势；模板未配置时静默跳过）
+  requestMerchantSubscribe(['EXCEPTION'])
   assignVisible.value = true
   assignMode.value = 'PUBLISH_CLAIM'
   selectedStaffId.value = null

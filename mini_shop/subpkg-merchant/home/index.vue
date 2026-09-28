@@ -20,6 +20,7 @@ import {
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
 import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
 import { uploadFile } from '@/utils/request'
+import { requestMerchantSubscribe } from '@/utils/subscribe'
 
 const statusBarHeight = ref(0)
 const shopName = ref('')
@@ -154,6 +155,8 @@ function goShops(): void {
 }
 
 function goOrders(): void {
+  // 引导订阅「新订单」通知（⚠️ 必须在点击手势的同步链路里；模板未配置时会静默跳过）
+  requestMerchantSubscribe(['NEW_ORDER'])
   uni.navigateTo({ url: '/subpkg-merchant/orders/list' })
 }
 function goAddProduct(): void {

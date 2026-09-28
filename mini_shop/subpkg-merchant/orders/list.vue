@@ -18,6 +18,7 @@ import {
 import OrderCard from '@/components/merchant/OrderCard.vue'
 // 空状态（设计稿 2026-09-22）：普通空态与「搜索无结果」是**两张不同插画**；插画放本分包 static
 import EmptyState from '@/components/EmptyState.vue'
+import { requestMerchantSubscribe } from '@/utils/subscribe'
 
 const TABS = [
   { key: 'all', api: 'ALL', label: '全部' },
@@ -249,6 +250,8 @@ function toggleSelectAll(): void {
 
 /** 卡片点击：批量模式勾选，普通模式进详情。 */
 function onCardTap(order: MerchantOrderCardVO): void {
+  // 引导订阅「接单超时」提醒（真实点击手势；模板未配置时静默跳过）
+  requestMerchantSubscribe(['ACCEPT_TIMEOUT'])
   if (!batchMode.value) {
     goDetail(order)
     return
