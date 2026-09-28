@@ -25,6 +25,25 @@ interface PosterCanvasNode {
 }
 
 const POSTER_BACKGROUND = '/static/design-cuts/figma-share/poster-portrait-background.jpg'
+/**
+ * 背景图**候选路径**（顺序敏感：相对路径优先，绝对路径兜底）。
+ *
+ * ⚠️ 2026-09-28 踩到：只用 `/static/...` 时，`canvas.createImage()` 在某些环境下会 onerror
+ * （表现是「保存失败，请重试」+ 控制台 `海报图片加载失败`）。
+ * 同项目的 `PromotionCodePoster.vue` **早就踩过同一个坑**并加了多路径兜底
+ * （它的「保存到手机」一直正常，就是靠这份兜底）⇒ 这里对齐同一套候选顺序。
+ */
+const POSTER_BACKGROUND_SOURCES = [
+  '../static/design-cuts/figma-share/poster-portrait-background.jpg',
+  '../../static/design-cuts/figma-share/poster-portrait-background.jpg',
+  '/static/design-cuts/figma-share/poster-portrait-background.jpg',
+] as const
+/** 二维码兜底素材（当前 tab 二维码加载不出来时用）。 */
+const POSTER_QR_SOURCES = [
+  '../static/design-cuts/figma-share/poster-qr-placeholder.jpg',
+  '../../static/design-cuts/figma-share/poster-qr-placeholder.jpg',
+  '/static/design-cuts/figma-share/poster-qr-placeholder.jpg',
+] as const
 const POSTER_QR_FALLBACK = '/static/design-cuts/figma-share/poster-qr-placeholder.jpg'
 const POSTER_CLOSE_ICON = '/static/design-cuts/figma-share/poster-close.svg'
 const POSTER_WIDTH = 1000
@@ -122,6 +141,32 @@ function getCanvasNode(): Promise<PosterCanvasNode> {
  * ⚠️ `createImage().src` 只接受特定形态：真机上 `getImageInfo('/static/...')` 会给出 `wxfile://` 临时路径（可用），
  * 但**开发者工具里可能给的是 `http://127.0.0.1:<port>/static/...`**，而该地址若返回非 200 就会 onerror。
  */
+/**
+ * 逐个候选路径尝试加载，**任一成功即返回**；全失败才抛错。
+ *
+ * ⚠️ 与 `components/PromotionCodePoster.vue` 的 `loadCanvasImageWithFallback` 同构 ——
+ * 2D canvas 的 `createImage().src` 对路径形态很挑，单一路径在部分环境会失败，
+ * 多给几个候选能显著提高成功率（那边的「保存到手机」正因如此一直可用）。
+ */
+async function loadCanvasImageWithFallback(
+  canvas: PosterCanvasNode,
+  sources: readonly string[],
+  label: string,
+): Promise<CanvasImageNode> {
+  let lastError: unknown = null
+  const tried = new Set<string>()
+  for (const src of sources) {
+    if (!src || tried.has(src)) continue
+    tried.add(src)
+    try {
+      return await loadCanvasImage(canvas, src, label)
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('海报图片加载失败')
+}
+
 function loadCanvasImage(canvas: PosterCanvasNode, src: string, label: string): Promise<CanvasImageNode> {
   return new Promise((resolve, reject) => {
     const image = canvas.createImage()
@@ -147,21 +192,25 @@ function waitForCanvasPaint(canvas: PosterCanvasNode): Promise<void> {
 }
 
 async function createPosterFile(): Promise<string> {
-  const background = await getImageInfo(POSTER_BACKGROUND)
-  const qr = await getImageInfo(previewQrUrl.value)
-  // ⚠️ 诊断留痕：这里能看出 `getImageInfo` 究竟把静态图解析成了什么形态
+  // ⚠️ `getImageInfo` **自身**也可能失败（例如开发者工具静态服务对某张图返回 500）——
+  // 不能让这里抛错就断掉整条链路：失败时让 path 为空，交给下面的多路径兜底继续试。
+  const background = await getImageInfo(POSTER_BACKGROUND).catch(() => null)
+  const qr = await getImageInfo(previewQrUrl.value).catch(() => null)
+  // 诊断留痕：这里能看出 `getImageInfo` 究竟把静态图解析成了什么形态
   // （真机通常 `wxfile://`；开发者工具可能是 `http://127.0.0.1:<port>/static/...`，后者若 500 就会让 createImage 失败）。
   console.warn('[HomeSharePoster] image info:', JSON.stringify({
-    background: String(background?.path ?? '').slice(0, 140),
-    qr: String(qr?.path ?? '').slice(0, 140),
+    background: String(background?.path ?? '(getImageInfo 失败)').slice(0, 140),
+    qr: String(qr?.path ?? '(getImageInfo 失败)').slice(0, 140),
   }))
   const canvas = await getCanvasNode()
   canvas.width = POSTER_WIDTH
   canvas.height = POSTER_HEIGHT
 
   const [backgroundImage, qrImage] = await Promise.all([
-    loadCanvasImage(canvas, background.path, 'background'),
-    loadCanvasImage(canvas, qr.path, 'qr'),
+    // ⚠️ 先试 getImageInfo 解析出的 path（真机通常是 wxfile:// 临时路径，最可靠），
+    //    失败再逐个试 POSTER_BACKGROUND_SOURCES 里的相对/绝对路径兜底。
+    loadCanvasImageWithFallback(canvas, [background?.path || '', ...POSTER_BACKGROUND_SOURCES], 'background'),
+    loadCanvasImageWithFallback(canvas, [qr?.path || '', ...POSTER_QR_SOURCES], 'qr'),
   ])
   const context = canvas.getContext('2d')
   context.clearRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT)
