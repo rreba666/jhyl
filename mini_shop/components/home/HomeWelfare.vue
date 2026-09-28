@@ -21,8 +21,32 @@ function selectTab(index: number): void {
   emit('update:activeTab', index)
 }
 
+/**
+ * 全屏预览当前福利图（2026-09-28 用户要求：「福利与资讯的图片应该可以点击也可以长按识别」）。
+ *
+ * ⚠️ 走微信**原生图片预览**：只有进了全屏预览，长按菜单里才有「识别图中二维码」——
+ * 这是小程序里识别**普通二维码**（公众号/企微/URL 码）唯一可靠的入口。
+ * ⚠️ 图上**不要**再渲染「长按识别二维码」之类的提示条（用户明确要求不显示）。
+ */
+function previewPoster(): void {
+  const url = posterUrl.value
+  if (!url) return
+  uni.previewImage({ urls: [url], current: url })
+}
+
+/**
+ * 点击福利图：
+ * - tab **配了跳转**（appId / path / jumpType=miniprogram）⇒ 沿用原有跳转逻辑（交给父组件）；
+ * - **没配跳转** ⇒ 直接进全屏预览（原来点了没任何反应，用户反馈"图片应该可以点击"）。
+ */
 function handlePosterTap(): void {
-  if (currentTab.value) emit('imageTap', tabs.value.indexOf(currentTab.value))
+  const tab = currentTab.value
+  if (!tab) return
+  if (tab.jumpType === 'miniprogram' || tab.appId || tab.path) {
+    emit('imageTap', tabs.value.indexOf(tab))
+    return
+  }
+  previewPoster()
 }
 </script>
 
@@ -39,7 +63,8 @@ function handlePosterTap(): void {
         </view>
       </view>
       <view class="welfare-panel">
-        <image v-if="posterUrl" class="welfare-poster" :src="posterUrl" mode="aspectFill" lazy-load @click="handlePosterTap" />
+        <!-- 点击：有配置跳转则跳、否则进全屏预览；长按：始终进全屏预览（长按后才有「识别图中二维码」） -->
+        <image v-if="posterUrl" class="welfare-poster" :src="posterUrl" mode="aspectFill" lazy-load @click="handlePosterTap" @longpress="previewPoster" />
         <view v-else class="welfare-empty"><text>暂无福利内容</text></view>
       </view>
     </view>

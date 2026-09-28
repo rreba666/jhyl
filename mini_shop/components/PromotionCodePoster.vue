@@ -290,8 +290,17 @@ async function saveToPhone(): Promise<void> {
     })
     uni.showToast({ title: '已保存到手机', icon: 'success' })
   } catch (error) {
+    // ⚠️ 不要把失败原因一律吞成「保存失败」（2026-09-28 用户反馈"我的页保存到手机和发送给好友都失败"，
+    // 但界面只给一句"保存失败，请重试"，无从定位）。导出链路是「取画布 → 加载图片 → 写相册」，
+    // 真实原因各不相同；这里区分展示，并打 console 便于真机排查。
     const message = error instanceof Error ? error.message : ''
-    uni.showToast({ title: message.includes('auth deny') ? '请允许访问相册后重试' : '保存失败，请重试', icon: 'none' })
+    console.warn('[PromotionCodePoster] saveToPhone failed:', message)
+    let title = '保存失败，请重试'
+    if (message.includes('auth deny') || message.includes('auth denied')) title = '请允许访问相册后重试'
+    else if (message.includes('图片加载失败') || message.includes('canvas image')) title = '海报素材加载失败，请检查网络后重试'
+    else if (message.includes('海报画布')) title = '海报生成失败，请重试'
+    else if (message.includes('不支持')) title = message
+    uni.showToast({ title, icon: 'none' })
   } finally {
     actionLoading.value = false
   }
@@ -310,11 +319,17 @@ async function shareToFriend(): Promise<void> {
     }
     wxApi.showShareImageMenu({
       path: filePath,
-      fail: () => uni.showToast({ title: '发送失败，请重试', icon: 'none' }),
+      // ⚠️ 必须透出 errMsg：微信侧失败原因（版本不支持 / 路径无效 / 图片不可分享）是定位问题的唯一线索
+      fail: (err: { errMsg?: string }) => {
+        console.warn('[PromotionCodePoster] showShareImageMenu fail:', err?.errMsg)
+        uni.showToast({ title: '发送失败，请重试', icon: 'none' })
+      },
     })
   } catch (error) {
-    console.error('[PromotionCodePoster] share poster export failed:', error)
-    uni.showToast({ title: '图片生成失败，请重试', icon: 'none' })
+    // 这里能到，说明是**导出图片**失败（还没走到微信分享），而非"发送"失败 —— 提示要区分开
+    const message = error instanceof Error ? error.message : ''
+    console.warn('[PromotionCodePoster] share poster export failed:', message)
+    uni.showToast({ title: message.includes('图片加载失败') ? '海报素材加载失败，请检查网络后重试' : '图片生成失败，请重试', icon: 'none' })
   } finally {
     actionLoading.value = false
   }

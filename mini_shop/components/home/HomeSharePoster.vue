@@ -161,8 +161,8 @@ async function createPosterFile(): Promise<string> {
       y: 0,
       width: POSTER_WIDTH,
       height: POSTER_HEIGHT,
-      destWidth: POSTER_WIDTH * 2,
-      destHeight: POSTER_HEIGHT * 2,
+      destWidth: POSTER_WIDTH,
+      destHeight: POSTER_HEIGHT,
       success: (result: { tempFilePath: string }) => resolve(result.tempFilePath),
       fail: reject,
     }, componentInstance)
@@ -187,14 +187,25 @@ async function downloadPoster(): Promise<void> {
     })
     uni.showToast({ title: '海报已保存', icon: 'success' })
   } catch (error) {
+    // ⚠️ 不要把失败原因一律吞成「保存失败」：导出链路有三段（取画布 → 加载图片 → 写相册），
+    // 真实原因分别是「海报画布初始化失败 / 海报图片加载失败 / auth deny」，
+    // 统一提示会让排查无从下手（2026-09-28 就吃过这个亏）。
     const message = error instanceof Error ? error.message : ''
-    uni.showToast({ title: message.includes('auth deny') ? '请允许访问相册后重试' : '保存失败，请重试', icon: 'none' })
+    let title = '保存失败，请重试'
+    if (message.includes('auth deny') || message.includes('auth denied')) title = '请允许访问相册后重试'
+    else if (message.includes('海报图片加载失败')) title = '海报素材加载失败，请检查网络后重试'
+    else if (message.includes('海报画布初始化失败')) title = '海报生成失败，请重试'
+    else if (message.includes('不支持')) title = message
+    console.warn('[HomeSharePoster] 导出失败:', message)
+    uni.showToast({ title, icon: 'none' })
   } finally {
     actionLoading.value = false
   }
 }
 
 function copyShareLink(): void {
+  // 2026-09-28 用户要求：分享海报里**去掉「复制链接」选项**，故本函数不再被模板引用。
+  // 保留实现仅为兼容（若将来要加回，直接恢复模板里那一行即可）；不参与分享链路。
   if (!props.shareLink) return
   uni.setClipboardData({
     data: props.shareLink,
@@ -214,7 +225,6 @@ function copyShareLink(): void {
       <image class="home-share-close" :src="POSTER_CLOSE_ICON" mode="aspectFit" @click="close" />
       <view class="home-share-actions">
         <view class="home-share-action" @click="downloadPoster"><text>下载海报</text></view>
-        <view class="home-share-action" @click="copyShareLink"><text>复制链接</text></view>
         <button class="home-share-send" open-type="share" :disabled="actionLoading" @click="close"><text>发送群或好友</text></button>
       </view>
       <canvas type="2d" id="home-share-poster-canvas" class="home-share-canvas" />
@@ -243,5 +253,8 @@ function copyShareLink(): void {
 .home-share-action { background: #fff4e8; }
 .home-share-send { flex: 0 0 auto; margin: 0; border: 0; background: linear-gradient(135deg, #ffb341 0%, #ff5500 100%); color: #fff; }
 .home-share-send::after { border: 0; }
-.home-share-canvas { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.home-share-canvas { position: fixed; top: 0; left: -9999px; width: 310px; height: 496px; }
+/* ⚠️ 离屏画布也不要写成 1px×1px：微信 2D canvas 需要有真实布局盒，
+   1px 的节点在部分机型上会导致 canvasToTempFilePath 失败（表现为"保存失败，请重试"）。
+   这里与 PromotionCodePoster.vue 保持同一尺寸口径；真正的绘制/导出尺寸由 canvas.width/height（1000×1600）决定。 */
 </style>
