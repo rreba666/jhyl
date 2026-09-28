@@ -703,3 +703,15 @@ export function createMerchantShop(payload: MerchantShopCreateDTO): Promise<numb
 export function updateMerchantShopStatus(id: number | string, status: 0 | 1): Promise<void> {
   return request<void>({ url: `/api/merchant/shop/${id}/status`, method: 'PUT', data: { status } })
 }
+
+/**
+ * 商家端**未读通知数**（`GET /api/merchant/delivery/unread`）。
+ *
+ * ⚠️ **拉取即清零**（后端 `pullReddot`）：调用一次就归零，下次计数从新事件重新累加。
+ * ⇒ 前端**不要**用它做"历史总数"、也**不要**本地累加；拿到值直接覆盖本地角标即可。
+ * 这是商家侧通知的**主通道**（不依赖任何微信授权，一定能看到）；微信/短信只是增强。
+ * 另：商家端 Token 已含身份，**不需要前端传 merchantId**。
+ */
+export function getMerchantUnread(): Promise<number> {
+  return request<number>({ url: '/api/merchant/delivery/unread', method: 'GET' })
+}

@@ -11,10 +11,10 @@
  * 展示时标注口径，不写成「可提现余额」。
  */
 import { computed, ref } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   countMerchantProducts,
-  getMerchantOverview,
+  getMerchantOverview, getMerchantUnread,
   type MerchantOverviewVO,
 } from '@/api/merchant'
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
@@ -43,13 +43,40 @@ onLoad(() => {
   uni.setNavigationBarTitle({ title: '商家工作台' })
 })
 
+/** 商家端未读通知数（**拉取即清零**，主通道；不依赖微信授权）。 */
+const unread = ref(0)
+/** 未读轮询定时器（30s；每次拉取都会清零，故不要高频调用）。 */
+let unreadTimer: ReturnType<typeof setInterval> | null = null
+/** 拉取未读并直接覆盖本地角标（**不做本地累加** —— 与后端清零语义冲突）。 */
+async function refreshUnread(): Promise<void> {
+  try {
+    unread.value = Number(await getMerchantUnread()) || 0
+  } catch {
+    // 未读只是提示，失败保持原值，不打断工作台
+  }
+}
+/** 停止轮询（页面离开时必须清理）。 */
+function stopUnreadTimer(): void {
+  if (unreadTimer) {
+    clearInterval(unreadTimer)
+    unreadTimer = null
+  }
+}
 onShow(() => {
   // 店铺名与可选身份从后端拉取（身份卡列表同源）；用户头像单独取资料
   void loadIdentity()
   void loadUser()
   void loadOverview()
   void loadProductCounts()
+  // 未读通知：进入即拉一次（后续 30s 轮询；每次拉取后端都会清零）
+  void refreshUnread()
+  stopUnreadTimer()
+  unreadTimer = setInterval(() => { void refreshUnread() }, 30000)
 })
+
+// 离开页面停止轮询（否则切后台后定时器仍在跑）
+onHide(stopUnreadTimer)
+onUnload(stopUnreadTimer)
 
 /** 问候语按时间段。 */
 const greeting = computed(() => {
@@ -339,6 +366,12 @@ function goBack(): void {
     </view>
 
     <scroll-view class="content" scroll-y>
+        <!-- 未读通知条（2026-09-28）：商家侧通知的**主通道**，不依赖微信授权，一定能看到。
+             ⚠️ 后端「拉取即清零」⇒ 这里只做展示，不做本地累加。 -->
+        <view v-if="unread > 0" class="unread-bar">
+          <view class="unread-dot" />
+          <text class="unread-text">有 {{ unread }} 条新通知待处理</text>
+        </view>
       <!-- 经营数据大卡 -->
       <view class="data-card">
         <view class="data-head">
@@ -521,6 +554,10 @@ function goBack(): void {
 </template>
 
 <style scoped>
+/* 未读通知条（商家工作台）：黄色细条，不弹窗 */
+.unread-bar { display: flex; align-items: center; margin: 12rpx 24rpx 0; padding: 18rpx 22rpx; border: 1rpx solid #ffe1a6; border-radius: 16rpx; background: #fff8e6; }
+.unread-dot { flex-shrink: 0; width: 14rpx; height: 14rpx; margin-right: 14rpx; border-radius: 50%; background: #ff9f0a; }
+.unread-text { flex: 1; min-width: 0; color: #a15c00; font-size: 26rpx; line-height: 36rpx; }
 .page {
   position: relative;
   /* ⚠️ 2026-09-22 修（用户反馈"顶部应该固定、不该跟着滚"）：
