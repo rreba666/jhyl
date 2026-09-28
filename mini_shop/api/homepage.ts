@@ -77,6 +77,15 @@ export interface HomepageData {
   kingkong?: KingkongItem[]
   /** V2：福利区。 */
   welfare?: WelfareConfigV2 | null
+  /**
+   * **首页轮播区背景色**（hex，如 `#148c48`；可空 = 用前端默认绿）。
+   *
+   * 2026-09-27 用户需求：轮播图是后台换的，背景色写死会出现"图与底色不搭"，
+   * 因此要求由后台动态配置。⚠️ **后端字段尚未提供**（已提需求），
+   * 前端先按本字段名接好并保留兜底 ⇒ 后端一加字段即生效，**无需再改前端**。
+   * 同项目已有先例：金刚区落地页的 `LandingConfigV2.backgroundColor`（hex、默认 `#F6E7C8`）。
+   */
+  heroBackgroundColor?: string | null
 }
 
 /** 保留底部推荐两个固定位置，避免缺失图片后下标发生位移。 */

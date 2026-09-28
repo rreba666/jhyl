@@ -44,6 +44,15 @@ const categories = computed(() => kingkongItems.value.length
 const layoutMode = shallowRef<LayoutMode>('grid')
 const brandName = shallowRef('今华有礼')
 const heroImages = shallowRef<MediaLinkV2[]>([])
+/**
+ * 首页轮播区**背景色兜底**（后台未配置/配置非法时使用）。
+ * 2026-09-27 用户需求：轮播图由后台更换，写死底色会出现「图与底色不搭」⇒ 改为后台可配。
+ */
+const HERO_BACKGROUND_FALLBACK = '#148c48'
+/** 首页轮播区背景色：来自后台 `heroBackgroundColor`，为空或非法时用兜底色。 */
+const heroBackgroundColor = shallowRef(HERO_BACKGROUND_FALLBACK)
+/** 轮播区动态样式：只挂背景色，其余表现仍交给 CSS 类。 */
+const heroModuleStyle = computed(() => ({ background: heroBackgroundColor.value }))
 const footerImages = shallowRef<string[]>([])
 const footerLinks = shallowRef<string[]>([])
 const welfareConfig = shallowRef<WelfareConfigV2 | null>(null)
@@ -151,6 +160,10 @@ async function loadHomepage(): Promise<void> {
   heroImages.value = hero.length ? hero : [{ url: '/static/figma-home/hero-banner.jpg', linkType: 'page', linkValue: '' }]
   // 金刚区（V2 kingkong）；为空时用默认（categories 兜底）
   kingkongItems.value = data.kingkong || []
+  // 轮播区背景色（2026-09-27）：后台可配，避免轮播图与写死底色不搭。
+  // ⚠️ 必须做格式校验再上屏 —— 它会被绑到内联 style，脏值可能破坏布局（只放行 hex）。
+  const heroBg = String(data.heroBackgroundColor ?? '').trim()
+  heroBackgroundColor.value = /^#[0-9a-fA-F]{3,8}$/.test(heroBg) ? heroBg : HERO_BACKGROUND_FALLBACK
   // 福利区（V2 welfare）
   welfareConfig.value = data.welfare || null
   // 兼容旧字段：底部图/链接
@@ -391,7 +404,8 @@ onShow(() => {
       </view>
     </view>
 
-    <view class="hero-module">
+    <!-- 轮播区背景色由后台配置（heroBackgroundColor），为空则用兜底绿；见 HERO_BACKGROUND_FALLBACK -->
+    <view class="hero-module" :style="heroModuleStyle">
       <view v-if="loading" class="hero-placeholder" />
       <swiper v-else class="hero-swiper" circular autoplay interval="4500" duration="450">
         <swiper-item v-for="(image, index) in heroImages" :key="image.url" class="hero-slide">
@@ -502,7 +516,9 @@ onShow(() => {
 /* 2026-09-22: 原先这里用 CSS 画「镜柄」伪元素（right: -8rpx 会往右溢出到屏外），
    搜索图标已改为 iconfont 的完整放大镜，故删除 —— 它也是 iOS 能左右滑动的主要嫌疑。 */
 .share-icon { color: #4e5969; font-size: 34rpx; line-height: 1; }
-.hero-module { width: calc(100% - 16px); margin-bottom: 12px; padding-bottom: 16rpx; box-sizing: border-box; overflow: hidden; border-radius: 16rpx; background: #148c48; }
+/* ⚠️ 背景色**不要写在这里**：由后台 `heroBackgroundColor` 动态下发（绑在 :style），
+   这里写死会导致轮播图换图后底色不搭。兜底色见脚本里的 HERO_BACKGROUND_FALLBACK。 */
+.hero-module { width: calc(100% - 16px); margin-bottom: 12px; padding-bottom: 16rpx; box-sizing: border-box; overflow: hidden; border-radius: 16rpx; }
 .hero-swiper, .hero-placeholder { width: 100%; height: 280rpx; overflow: hidden; border-radius: 16rpx; }
 .hero-placeholder { background: #f1f2f4; }
 /* 占位底色必须用浅灰（与 .hero-placeholder 一致）。
