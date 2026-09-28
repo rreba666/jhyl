@@ -67,6 +67,8 @@ export interface ProductDetail extends ProductListItem {
   categoryId: string
   /** 商品品牌 id（goods_brand.id）。 */
   goodsBrandId?: number | null
+  /** 关联门店 id 列表（多门店）。 */
+  shopIds?: number[] | null
   images: string[]
   videoUrl: string
   description: string
@@ -92,6 +94,10 @@ export interface AdminProductSaveDTO {
   categoryId: string
   /** 商品品牌 id（goods_brand.id，如「海天」；与平台租户 brandId 无关）。 */
   goodsBrandId?: number | null
+  /** 所属商户 id（long）。 */
+  merchantId?: number | null
+  /** 关联门店 id 列表（多门店；空数组 = 不关联任何门店）。 */
+  shopIds?: number[] | null
   mainImage: string
   images: string[]
   videoUrl: string
@@ -149,9 +155,13 @@ export interface AdminSkuSaveItem {
  * ⚠️ `pickupEnabled` / `deliveryEnabled` 语义是「**不传 = 不修改**」：详情接口没回显到这两个字段时
  * 整个字段都不提交（传默认值 1 会把商家已关掉的开关重新打开）。
  */
-export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList' | 'pickupEnabled' | 'deliveryEnabled'> {
+export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled'> {
   categoryId?: number
   goodsBrandId?: number
+  /** 所属商户 id（long；undefined = 不提交/不修改）。 */
+  merchantId?: number
+  /** 关联门店 id 列表（多门店；undefined = 不提交，空数组 = 清空关联）。 */
+  shopIds?: number[]
   skuList: AdminSkuSaveItem[]
   /** 支持线下自提：1/0；undefined = 不提交（不修改）。 */
   pickupEnabled?: ProductStatus

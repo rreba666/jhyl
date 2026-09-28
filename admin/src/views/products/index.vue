@@ -6,6 +6,7 @@ import ImageGridUpload from '@/components/ImageGridUpload.vue'
 import { useProductStore } from '@/stores/product'
 import { useAuthStore } from '@/stores/auth'
 import { getStockDimensions } from '@/api/ledger'
+import { getMerchants } from '@/api/merchant'
 import type { StockDimension } from '@/types/ledger'
 import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus, ProductSwitchStatusValue } from '@/types/product'
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
@@ -73,6 +74,21 @@ const mediaUploading = computed(() => store.uploading || detailUploadCount.value
 const brandOptions = ref<Array<{ id: number; name: string }>>([])
 
 /** 加载启用中的商品品牌（供商品挂品牌用）。 */
+/**
+ * 商户下拉选项（2026-09-28 接入）。
+ * ⚠️ 后端 `AdminProductSaveDTO.merchantId` 是 **long** ⇒ 这里的 value 统一转 `Number`，
+ * 传字符串会被 Jackson 判为「请求体格式错误」（与 categoryId / goodsBrandId 同坑）。
+ * 失败不阻塞页面：只是少一个可选项，商品表单照常可用。
+ */
+const merchantOptions = ref<Array<{ id: string; brandName: string; contactName: string }>>([])
+async function loadMerchantOptions(): Promise<void> {
+  try {
+    const result = await getMerchants(1, 200)
+    merchantOptions.value = (result?.list || []).map((item) => ({ id: String(item.id), brandName: item.brandName || '', contactName: item.contactName || '' }))
+  } catch {
+    merchantOptions.value = []
+  }
+}
 async function loadBrandOptions(): Promise<void> {
   try {
     const result = await getAdminGoodsBrands({ enabled: 1, page: 1, pageSize: 100 })
@@ -85,7 +101,7 @@ async function loadBrandOptions(): Promise<void> {
 /** 创建新增商品的默认表单。 */
 function createEmptyForm(): AdminProductSaveDTO {
   // pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增）后端默认 1：新增商品默认两种配送方式都支持
-  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1 }
+  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1 }
 }
 
 function getMinSkuPrice(skuList: AdminProductSaveDTO['skuList'] = form.skuList): number {
@@ -134,7 +150,7 @@ function fillForm(detail?: ProductDetail): void {
   const pickupEcho = detail ? normalizeSwitchOrNull(detail.pickupEnabled) : 1
   const deliveryEcho = detail ? normalizeSwitchOrNull(detail.deliveryEnabled) : 1
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
-  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 新增商品默认使用比例；编辑商品根据已保存金额恢复模式（后端暂无独立模式字段）。
   promotionUseDefault.value = detail ? isDefaultFundAmount(detail.promotionFund, detail.minPrice, getDefaultPromotionFund) : true
   dividendUseDefault.value = detail ? isDefaultFundAmount(detail.dividendFund, detail.minPrice, getDefaultDividendFund) : true
@@ -256,7 +272,7 @@ async function submitForm(): Promise<void> {
   // 后端 categoryId / goodsBrandId 是 integer：传非数字字符串会被 Jackson 判为「请求体格式错误」
   // （2026-09-19 实测复现：categoryId="分类A" → code=1000 请求体格式错误）。
   // 这里提前拦下来给出可读提示，空值则整个字段都不提交。
-  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, ...rest } = form
+  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, ...rest } = form
   const categoryId = toOptionalInteger(rawCategoryId)
   if (String(rawCategoryId ?? '') !== '' && categoryId === undefined) {
     ElMessage.error('商品分类参数不合法，请重新选择分类')
@@ -268,10 +284,19 @@ async function submitForm(): Promise<void> {
     return
   }
   try {
+    // 商户 / 门店归一化（2026-09-28）：商户单选（number|null）、门店多选（number[]）
+    const merchantIdParsed = rawMerchantId == null || String(rawMerchantId) === ''
+      ? undefined
+      : Number(rawMerchantId)
+    const normalizedShopIds = (rawShopIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
     const payload: AdminProductSavePayload = {
       ...rest,
       ...(categoryId === undefined ? {} : { categoryId }),
       ...(goodsBrandId === undefined ? {} : { goodsBrandId }),
+    // 商户 / 门店归属（2026-09-28 接入）：后端 AdminProductSaveDTO 已有 merchantId + shopIds（多门店）。
+    // ⚠️ 两者都是 long/long[]：必须传**数字**，传字符串会被 Jackson 判为「请求体格式错误」（与 categoryId 同坑）。
+    ...(merchantIdParsed === undefined ? {} : { merchantId: merchantIdParsed }),
+    shopIds: normalizedShopIds,
       status: normalizeBinary(form.status),
       promotionEnabled: normalizeBinary(form.promotionEnabled),
       dividendEnabled: normalizeBinary(form.dividendEnabled),
@@ -496,6 +521,7 @@ function onDetailImagesUpload(options: UploadRequestOptions): void { onUpload(op
 onMounted(() => {
   void loadList()
   void loadBrandOptions()
+  void loadMerchantOptions()
   void loadShopOptions()
   store.fetchCategories().catch((error: unknown) => ElMessage.error(error instanceof Error ? error.message : '分类查询失败'))
 })
@@ -533,6 +559,18 @@ onMounted(() => {
         <el-form-item label="品牌">
           <el-select v-model="form.goodsBrandId" clearable filterable placeholder="选择商品品牌（如海天，用于非遗老号品牌条）" style="width: 100%">
             <el-option v-for="brand in brandOptions" :key="brand.id" :label="brand.name" :value="brand.id" />
+          </el-select>
+        </el-form-item>
+        <!-- 商户 / 门店归属（2026-09-28 接入）：后端 AdminProductSaveDTO 早已有 merchantId + shopIds（多门店），
+             此前只是前端没接 ⇒ 超管编辑商品时看不到也选不了。⚠️ 两者都是 long/long[]，提交时必须传数字。 -->
+        <el-form-item label="所属商户">
+          <el-select v-model="form.merchantId" clearable filterable placeholder="选择所属商户（品牌商家）" style="width: 100%">
+            <el-option v-for="m in merchantOptions" :key="m.id" :label="m.brandName || m.contactName || ('商户 ' + m.id)" :value="Number(m.id)" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关联门店">
+          <el-select v-model="form.shopIds" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="可多选；不选 = 不关联任何门店" style="width: 100%">
+            <el-option v-for="s in shopOptions" :key="s.id" :label="s.name" :value="Number(s.id)" />
           </el-select>
         </el-form-item>
         <el-form-item label="排序权重"><el-input-number v-model="form.sortOrder" :min="0" /></el-form-item>
