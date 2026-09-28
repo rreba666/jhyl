@@ -141,11 +141,23 @@ const overSingleLimit = computed(() => !withdrawSingleLimitUnlimited.value && wi
 const withdrawLimitHint = computed(() => {
   const parts: string[] = []
   if (withdrawDailyAmountLimit.value > 0) parts.push(`每日累计提现上限 ¥${formatMoney(withdrawDailyAmountLimit.value)}`)
-  // ⚠️ 单笔限额（2026-09-28）：只在后台真的配了（>0）时才提 —— `0` = **不限**，
-  // 绝不能显示「单笔上限 0 元」这种把人吓退的文案。按当前收款方式区分通道。
-  if (withdrawSingleLimit.value > 0) parts.push(`${withdrawOption.value === 'BANK_CARD' ? '银行卡' : '微信零钱'}单笔上限 ¥${formatMoney(withdrawSingleLimit.value)}`)
+  // 单笔限额（2026-09-28）：**总是展示** —— `0` = 不限（按后端对接说明 §1.3 口径显示「单笔不限」而非隐藏，
+  // 让用户明确知道该通道没有单笔上限；⚠️ 绝不能显示「单笔上限 0 元」）。按当前收款方式区分通道。
+  parts.push(`${withdrawOption.value === 'BANK_CARD' ? '银行卡' : '微信零钱'}单笔${withdrawSingleLimitUnlimited.value ? '不限' : '上限 ¥' + formatMoney(withdrawSingleLimit.value)}`)
   if (withdrawDailyCountLimit.value > 0) parts.push(`每日最多提现 ${withdrawDailyCountLimit.value} 次`)
   return parts.join('，')
+})
+
+/**
+ * 规则区「单笔限额」整句文案。
+ * ⚠️ 抽成 computed 而不是写在模板里：本项目规范要求模板不写复杂表达式（小程序端对复杂表达式支持有限）。
+ * ⚠️ 限额为 0（不限）时**仍然展示**「单笔不限」——这是后端对接说明 §1.3 的明确口径，不隐藏。
+ */
+const withdrawSingleLimitRuleText = computed(() => {
+  const channel = withdrawOption.value === 'BANK_CARD' ? '银行卡' : '微信零钱'
+  if (withdrawSingleLimitUnlimited.value) return `${channel}单笔不限，可一次提完全部可提现额度`
+  const tail = withdrawOption.value === 'BANK_CARD' ? '' : '；超出可分多笔，或改用银行卡收款'
+  return `${channel}单笔最多可提现 ¥${formatMoney(withdrawSingleLimit.value)}${tail}`
 })
 
 /**
@@ -924,7 +936,7 @@ onUnload(() => {
               <!-- 并行笔数与冻结上限：仅后端下发（maxConcurrent / frozenLimit）时才展示 -->
               <!-- ⚠️ 单笔限额（2026-09-28 后端新增）：只在真配了（>0）时展示 —— `0` = 不限，
                  绝不能显示「单笔上限 0 元」。按当前收款方式切换文案（切方式会自动重算）。 -->
-            <view v-if="withdrawSingleLimit > 0" class="rule-item"><text class="rule-label">单笔限额</text><text class="rule-text">{{ withdrawOption === 'BANK_CARD' ? '银行卡' : '微信零钱' }}单笔最多可提现 ¥{{ formatMoney(withdrawSingleLimit) }}{{ withdrawOption === 'BANK_CARD' ? '' : '；超出可分多笔，或改用银行卡收款' }}</text></view>
+            <view class="rule-item"><text class="rule-label">单笔限额</text><text class="rule-text">{{ withdrawSingleLimitRuleText }}</text></view>
             <view v-if="withdrawMaxConcurrent > 0" class="rule-item"><text class="rule-label">在途笔数</text><text class="rule-text">同时处理中的提现最多 {{ withdrawMaxConcurrent }} 笔</text></view>
               <view v-if="withdrawFrozenLimit > 0" class="rule-item"><text class="rule-label">冻结上限</text><text class="rule-text">提现冻结总额上限 {{ formatMoney(withdrawFrozenLimit) }} 元</text></view>
               <view class="rule-item"><text class="rule-label">提现时间</text><text class="rule-text">提现申请全天可提交（00:00–24:00），提交后进入平台审核</text></view>
