@@ -197,6 +197,25 @@ function addWelfareTab(): void {
 }
 function removeWelfareTab(i: number): void { welfareForm.tabs?.splice(i, 1) }
 
+/**
+ * 把颜色归一化成 **hex**（后端只接受 `#RGB`/`#RGBA`/`#RRGGBB`/`#RRGGBBAA`）。
+ *
+ * ⚠️ 为什么需要：`el-color-picker` 在 `show-alpha` 下会输出 `rgba(...)` 串，
+ * 即使已经指定了 `color-format="hex"`，也怕历史数据或组件行为变化再带进 rgb 串 ⇒ 保存会被后端打回。
+ * 无法识别的值返回 `null`（= 清除设置，C 端回落默认绿），不会把脏值提交上去。
+ */
+function toHexColor(value: unknown): string | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  if (/^#[0-9a-fA-F]{3,8}$/.test(raw)) return raw
+  const matched = raw.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
+  if (!matched) return null
+  const toPair = (n: number): string => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
+  const base = `#${toPair(Number(matched[1]))}${toPair(Number(matched[2]))}${toPair(Number(matched[3]))}`
+  const alpha = matched[4] === undefined ? 1 : Number(matched[4])
+  return alpha >= 1 ? base : `${base}${toPair(Math.round(alpha * 255))}`
+}
+
 async function save(): Promise<void> {
   saving.value = true
   try {
@@ -204,7 +223,7 @@ async function save(): Promise<void> {
       heroImages: homeConfig.value.heroImages.map((item) => ({ ...item })),
       kingkong: homeConfig.value.kingkong.map((item) => ({ ...item })),
       // ⚠️ 后端 PUT 是**全量覆盖**：这个字段漏传会被当成清除，把运营配好的轮播底色重置成默认绿
-      heroBackgroundColor: homeConfig.value.heroBackgroundColor ?? null,
+      heroBackgroundColor: toHexColor(homeConfig.value.heroBackgroundColor),
       welfare: { title: welfareForm.title, subtitle: welfareForm.subtitle, backgroundUrl: welfareForm.backgroundUrl, tabs: [...(welfareForm.tabs || [])] },
     })
     // 统一口径：提交给后端的 landingKey 一律用中文；品牌由「商品品牌」模块按大类维护，落地页不再提交品牌。
@@ -257,7 +276,9 @@ function linkTypeLabel(type: LinkType): string {
                ⚠️ 留空 = 用 C 端默认绿 #148c48（后端服务端也有同值兜底）。 -->
           <div class="array-row" style="margin-bottom: 8px">
             <span>轮播区背景色</span>
-            <el-color-picker v-model="homeConfig.heroBackgroundColor" show-alpha />
+            <!-- ⚠️ 必须显式写 `color-format="hex"`：`show-alpha` 会让 Element Plus 把默认输出格式切成 `rgb`，
+                 那样 v-model 里会变成 `rgba(...)`，而后端只接受 hex（#RGB/#RGBA/#RRGGBB/#RRGGBBAA）⇒ 保存必失败 -->
+            <el-color-picker v-model="homeConfig.heroBackgroundColor" show-alpha color-format="hex" />
             <span style="color: #909399; font-size: 12px">留空 = 默认绿 #148c48；支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA</span>
           </div>
           <el-table :data="homeConfig.heroImages" border size="small">
