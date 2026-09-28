@@ -109,12 +109,41 @@ const withdrawFeeRate = computed(() => {
 /** 手续费率百分比文案（0.05 → 5%）。 */
 const withdrawFeePercentLabel = computed(() => formatFeeRateLabel(withdrawFeeRate.value))
 /**
+ * 当前收款方式的**单笔提现上限**（元，2026-09-28 后端新增）。
+ *
+ * - 微信零钱取 `wechatSingleLimit`（默认 **200** —— 微信「商家转账」的**微信侧额度**）；
+ * - 银行卡取 `bankCardSingleLimit`（默认 **0 = 不限** —— 线下人工打款，不适用微信额度）。
+ *
+ * ⚠️ 三条必须守住：
+ *  1. **`0` / 缺失 = 该通道「不限」** —— 绝不能当成"最多只能提 0 元"而禁用提交；
+ *  2. 判据用 `>`（后端是 `≤` 放行 ⇒ **正好等于限额要放行**）；
+ *  3. 切换收款方式时本 computed 自动重算（两通道限额**相互独立**）。
+ */
+const withdrawSingleLimit = computed(() => {
+  const raw = withdrawOption.value === 'BANK_CARD'
+    ? withdrawRules.value?.bankCardSingleLimit
+    : withdrawRules.value?.wechatSingleLimit
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+/** 当前收款方式是否**不限单笔**（限额 ≤ 0）。 */
+const withdrawSingleLimitUnlimited = computed(() => withdrawSingleLimit.value <= 0)
+/** 单笔限额展示文案：不限时显示「不限」，否则整数不补小数。 */
+const withdrawSingleLimitLabel = computed(() => (withdrawSingleLimitUnlimited.value ? '不限' : (Number.isInteger(withdrawSingleLimit.value) ? String(withdrawSingleLimit.value) : formatMoney(withdrawSingleLimit.value))))
+/** 金额可填的**上限**：取「可提现余额」与「当前通道单笔限额」的较小者；限额为 0 时只受余额约束。 */
+const withdrawAmountMax = computed(() => (withdrawSingleLimitUnlimited.value ? availableBalance.value : Math.min(availableBalance.value, withdrawSingleLimit.value)))
+/** 是否超过单笔限额（前端仅作提示，最终以后端 `7009` 为准）。 */
+const overSingleLimit = computed(() => !withdrawSingleLimitUnlimited.value && withdrawAmountNumber.value > withdrawSingleLimit.value)
+/**
  * 提现规则提示文案：只在后台真的配置了每日金额/次数上限时才拼出来；
  * 未配置（0/缺失）时返回空串，避免页面上出现「每日上限 0 元」这类错误数字。
  */
 const withdrawLimitHint = computed(() => {
   const parts: string[] = []
   if (withdrawDailyAmountLimit.value > 0) parts.push(`每日累计提现上限 ¥${formatMoney(withdrawDailyAmountLimit.value)}`)
+  // ⚠️ 单笔限额（2026-09-28）：只在后台真的配了（>0）时才提 —— `0` = **不限**，
+  // 绝不能显示「单笔上限 0 元」这种把人吓退的文案。按当前收款方式区分通道。
+  if (withdrawSingleLimit.value > 0) parts.push(`${withdrawOption.value === 'BANK_CARD' ? '银行卡' : '微信零钱'}单笔上限 ¥${formatMoney(withdrawSingleLimit.value)}`)
   if (withdrawDailyCountLimit.value > 0) parts.push(`每日最多提现 ${withdrawDailyCountLimit.value} 次`)
   return parts.join('，')
 })
@@ -635,6 +664,21 @@ async function executeWithdraw(amount: number): Promise<void> {
       transferAuthState.value = ''
       pendingWithdrawAmount.value = amount
       uni.showToast({ title: '请先完成免确认收款授权', icon: 'none' })
+    } else if (isApiRequestError(error) && error.code === 7009) {
+      // ⚠️ 超出**当前收款方式的单笔限额**（2026-09-28 后端新增，7009；注意 7008 是"新账号提现受限"，别混）。
+      // 后端 message 已分通道、可直接展示，但它较长且含额度与本次金额
+      // ⇒ 用 showModal 而非 toast（toast 会截断长文案），并顺手给出「改用银行卡」的快捷操作。
+      uni.showModal({
+        title: '超出单笔限额',
+        content: error.message || '超出该收款方式的单笔限额，请分多笔提现或改用其它收款方式',
+        showCancel: withdrawOption.value !== 'BANK_CARD',
+        cancelText: '改用银行卡',
+        confirmText: '我知道了',
+        success: (res) => {
+          // 点「改用银行卡」且当前不是银行卡 ⇒ 直接切过去（限额随方式重算）
+          if (res.cancel && withdrawOption.value !== 'BANK_CARD') selectWithdrawOption('BANK_CARD')
+        },
+      })
     } else {
       showWalletActionError(error, '提现申请失败')
     }
@@ -645,11 +689,24 @@ async function executeWithdraw(amount: number): Promise<void> {
 
 async function handleWithdraw(): Promise<void> {
   if (withdrawSubmitting.value) return
+  // ⚠️ 先单独判「单笔限额」（2026-09-28 新增）：这里能给出**按收款方式区分且可操作**的提示
+  // （"请分多笔提现 / 或改用银行卡"），比通用的"不能超过 X 元"有用得多。
+  // 用 `>` 判断 ⇒ **正好等于限额放行**；限额为 0 时 overSingleLimit 恒 false（= 不限）。
+  if (overSingleLimit.value) {
+    uni.showToast({
+      title: withdrawOption.value === 'BANK_CARD'
+        ? `银行卡单笔最高 ${withdrawSingleLimitLabel.value} 元，请分多笔提现`
+        : `微信零钱单笔最高 ${withdrawSingleLimitLabel.value} 元，请分多笔提现，或改用银行卡收款`,
+      icon: 'none',
+    })
+    return
+  }
   const amountResult = validateAmount(withdrawAmount.value, {
     label: '提现金额',
     // 下限用后台配置（缺失时回退本地默认），与页面上展示的最低提现金额保持一致
     min: withdrawMinAmount.value,
-    max: availableBalance.value,
+    // ⚠️ 上限取「可提现余额 ∩ 当前通道单笔限额」；通道限额为 0（不限）时只受余额约束
+    max: withdrawAmountMax.value,
   })
   if (!amountResult.ok) {
     uni.showToast({ title: amountResult.message, icon: 'none' })
@@ -865,7 +922,10 @@ onUnload(() => {
               <view class="rule-item"><text class="rule-label">可提现额度</text><text class="rule-text">最低提现 {{ withdrawMinimumLabel }} 元{{ withdrawDailyAmountLimit > 0 ? '，单日累计上限 ' + formatMoney(withdrawDailyAmountLimit) + ' 元' : '' }}</text></view>
               <view class="rule-item"><text class="rule-label">每日提现次数</text><text class="rule-text">{{ withdrawDailyCountLimit > 0 ? '每日最多可提现 ' + withdrawDailyCountLimit + ' 次' : '每日提现次数不限' }}</text></view>
               <!-- 并行笔数与冻结上限：仅后端下发（maxConcurrent / frozenLimit）时才展示 -->
-              <view v-if="withdrawMaxConcurrent > 0" class="rule-item"><text class="rule-label">在途笔数</text><text class="rule-text">同时处理中的提现最多 {{ withdrawMaxConcurrent }} 笔</text></view>
+              <!-- ⚠️ 单笔限额（2026-09-28 后端新增）：只在真配了（>0）时展示 —— `0` = 不限，
+                 绝不能显示「单笔上限 0 元」。按当前收款方式切换文案（切方式会自动重算）。 -->
+            <view v-if="withdrawSingleLimit > 0" class="rule-item"><text class="rule-label">单笔限额</text><text class="rule-text">{{ withdrawOption === 'BANK_CARD' ? '银行卡' : '微信零钱' }}单笔最多可提现 ¥{{ formatMoney(withdrawSingleLimit) }}{{ withdrawOption === 'BANK_CARD' ? '' : '；超出可分多笔，或改用银行卡收款' }}</text></view>
+            <view v-if="withdrawMaxConcurrent > 0" class="rule-item"><text class="rule-label">在途笔数</text><text class="rule-text">同时处理中的提现最多 {{ withdrawMaxConcurrent }} 笔</text></view>
               <view v-if="withdrawFrozenLimit > 0" class="rule-item"><text class="rule-label">冻结上限</text><text class="rule-text">提现冻结总额上限 {{ formatMoney(withdrawFrozenLimit) }} 元</text></view>
               <view class="rule-item"><text class="rule-label">提现时间</text><text class="rule-text">提现申请全天可提交（00:00–24:00），提交后进入平台审核</text></view>
               <!-- 可提现时间：天数取后端 payLockDays，具体时刻取 nextWithdrawableAt，两者都不写死 -->

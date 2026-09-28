@@ -54,6 +54,18 @@ export interface WithdrawRules {
    * **null / 缺失 = 当前不在锁定期，可立即提现**；有值时取锁定中订单最晚支付时间 + `payLockDays × 24 小时`。
    */
   nextWithdrawableAt?: string | null
+  /**
+   * **微信零菜单笔提现上限**（元，2026-09-28 后端新增）。
+   *
+   * ⚠️ **`0` 或缺失 = 该通道「不限」** —— 绝不能当成"最多只能提 0 元"而禁用提交。
+   * 判据是 `>`（后端 `≤` 放行 ⇒ **正好等于限额放行**）。默认 200（微信「商家转账」的微信侧额度）。
+   */
+  wechatSingleLimit?: number
+  /**
+   * **银行卡单笔提现上限**（元，2026-09-28 后端新增）。
+   * ⚠️ 同样 **`0` = 不限**（银行卡为线下人工打款，不适用微信额度，默认就是 0）。
+   */
+  bankCardSingleLimit?: number
 }
 
 export type WithdrawType = 'PROMOTION' | 'BONUS' | 'BALANCE'
