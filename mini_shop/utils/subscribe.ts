@@ -145,8 +145,15 @@ export function requestMerchantSubscribe(scenes: string[]): void {
       }
     },
     fail: (err: { errMsg?: string }) => {
-      // 常见原因：不在点击手势中调用、基础库过低 —— 留痕便于排查（不打扰用户）
-      console.warn('[subscribe] 订阅授权失败：', err?.errMsg || err)
+      // ⚠️ 必须把**实际发出去的 tmplIds** 一起打出来：
+      // 微信 `requestSubscribeMessage:fail Request list fail` 的含义是「模板 ID 列表不被接受」——
+      // 常见于：模板不存在 / 未审核通过 / **不属于本小程序** / 服务类目不匹配。
+      // 只打 errMsg 无法判断是哪一个，也没法拿它和后台配置逐项核对（2026-09-29 踩到）。
+      console.warn('[subscribe] 订阅授权失败：', err?.errMsg || err, JSON.stringify({
+        scenes,
+        tmplIds: ids,
+        detail: picked.map((item) => ({ scene: item.scene, key: item.key, label: item.label, templateId: item.templateId })),
+      }))
     },
   })
 }
