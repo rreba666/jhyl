@@ -141,6 +141,16 @@ export function requestMerchantSubscribe(scenes: string[]): void {
   if (!wxApi || typeof wxApi.requestSubscribeMessage !== 'function') return
 
   // ③ 同步调用（务必保持在本函数的同步流程里，不要包 Promise/await）
+  // ⚠️ 2026-09-29 关键诊断（此前缺这条，导致"没弹窗"被误读成"前端跳过"）：
+  // 走到这里说明**前面所有检查都通过**（配置已取到、场景已配、接收人已绑微信），
+  // 已经**真的把 tmplIds 交给微信**了。此后：
+  //   · 微信校验通过 ⇒ 弹授权框（用户操作）
+  //   · 微信校验不通过 ⇒ 直接回调 fail（如 Request list fail），**压根不会弹窗**
+  // ⇒ 所以「没弹窗」+「fail」= 微信在**校验阶段**就拒了这个模板列表，不是前端跳过。
+  console.warn('[subscribe] 已调用 requestSubscribeMessage，等待微信弹授权框：', JSON.stringify({
+    tmplIds: ids,
+    fromServerTmplIds: (cachedConfig?.tmplIds || []).length > 0,
+  }))
   wxApi.requestSubscribeMessage({
     tmplIds: ids,
     success: (res: Record<string, string>) => {
