@@ -13,6 +13,8 @@ import HomeLayoutToggle from '@/components/home/HomeLayoutToggle.vue'
 import HomeProductCard from '@/components/home/HomeProductCard.vue'
 import HomeSharePoster from '@/components/home/HomeSharePoster.vue'
 import HomeWelfare from '@/components/home/HomeWelfare.vue'
+// ⚠️ 2026-09-29：未登录点「分享」时弹登录引导（而不是展示不带推广关系的占位二维码）
+import LoginGuide from '@/components/LoginGuide.vue'
 import { getPromotionCode } from '@/api/promotion'
 import { isLoggedIn } from '@/utils/auth'
 import SubscribeGuide from '@/components/SubscribeGuide.vue'
@@ -128,6 +130,12 @@ const statusBarHeight = shallowRef(24)
 const navScrolled = shallowRef(false)
 const welfareTab = shallowRef(0)
 const sharePosterVisible = shallowRef(false)
+/**
+ * 未登录点「分享」时的登录引导弹层是否可见（2026-09-29 新增）。
+ * ⚠️ 为什么必须有：未登录时拿不到带**用户身份**的小程序码，海报只能退化成设计稿里的**公共占位二维码**，
+ *    分享出去**不带任何推广关系** ⇒ 用户白分享、平台丢推广。所以未登录时**不打开海报**，改弹登录。
+ */
+const loginGuideVisible = shallowRef(false)
 const sharePosterCodeUrl = shallowRef('')
 const navigationThrottle = createThrottle(500)
 let productRequest: Promise<void> | null = null
@@ -232,16 +240,33 @@ function goSearch(): void {
   uni.navigateTo({ url: '/subpkg-goods/search/index' })
 }
 
+/**
+ * 打开分享海报。
+ *
+ * ⚠️ **2026-09-29 修**：此前是「**先打开弹窗**，再判断登录」——
+ *    未登录时弹窗照样弹出，而海报上的小程序码需要登录态（`getPromotionCode` 依赖用户身份）
+ *    ⇒ 组件会退化成展示**设计稿里的公共占位二维码**（`HomeSharePoster` 的 `POSTER_QR_FALLBACK`）
+ *    ⇒ **分享出去不带任何推广关系**：用户白分享，平台也丢推广。
+ *    ⇒ 改为**先判登录**：未登录直接弹登录引导、**不打开海报**
+ *      （与商品详情 `subpkg-goods/detail/detail.vue`、个人页 `pages/mine/mine.vue` 的同款入口保持一致）。
+ */
 function openSharePoster(): void {
+  if (!isLoggedIn()) {
+    loginGuideVisible.value = true
+    return
+  }
   sharePosterVisible.value = true
-  if (!isLoggedIn() || sharePosterCodeUrl.value || shareCodeRequest) return
+  if (sharePosterCodeUrl.value || shareCodeRequest) return
 
   const pending = getPromotionCode()
     .then((codeUrl) => {
       if (codeUrl) sharePosterCodeUrl.value = codeUrl
+      // ⚠️ 已登录却仍拿不到码 ⇒ 这是真的失败，必须明确提示；
+      //    不能再像以前那样静默退化成占位二维码（会让人误以为"分享出去是有效的"）。
+      else uni.showToast({ title: '推广码获取失败，请稍后重试', icon: 'none' })
     })
     .catch(() => {
-      // 未生成用户推广码时，海报组件会使用设计稿内的公共二维码兜底。
+      uni.showToast({ title: '推广码获取失败，请稍后重试', icon: 'none' })
     })
     .finally(() => {
       if (shareCodeRequest === pending) shareCodeRequest = null
@@ -476,6 +501,8 @@ onShow(() => {
 
     <HomeWelfare v-model:active-tab="welfareTab" :welfare="welfareConfig" @image-tap="goWelfareImage" />
     <HomeSharePoster v-model="sharePosterVisible" :code-url="sharePosterCodeUrl" :share-link="shareLink" />
+  <!-- ⚠️ 未登录点「分享」时弹这个，而不是打开一个不带推广关系的占位二维码海报 -->
+  <LoginGuide v-model="loginGuideVisible" />
     <!-- ⚠️ 首次进首页引导「开启配送通知」（2026-09-29 新增）：
          开屏揭开后才弹；点「开启通知」时在按钮的 tap 回调里**同步**发起微信订阅授权
          （微信强制要求点击手势，详见 utils/user-subscribe.ts 顶部说明）。 -->
