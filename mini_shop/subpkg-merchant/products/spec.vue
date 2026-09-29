@@ -76,7 +76,7 @@ function goBack(): void {
       <text class="nav-title">规格</text>
     </view>
 
-    <scroll-view class="content" scroll-y>
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <view class="card">
         <view class="field-label">
           <text class="label-text">规格名称</text>

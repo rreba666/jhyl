@@ -146,7 +146,7 @@ function goBack(): void {
     </view>
 
     <!-- 状态筛选 -->
-    <scroll-view v-if="!notMerchantOwner" class="filter-bar" scroll-x :style="{ top: contentTop + 'px' }">
+    <scroll-view v-if="!notMerchantOwner" class="filter-bar" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ top: contentTop + 'px' }">
       <view class="filter-row">
         <view
           v-for="option in STATUS_FILTERS"
@@ -160,7 +160,7 @@ function goBack(): void {
       </view>
     </scroll-view>
 
-    <scroll-view class="content" scroll-y @scrolltolower="loadMore">
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <!-- 13016：仅品牌主体 -->
       <view v-if="notMerchantOwner" class="state">
         <text class="state-title">仅商户品牌主体可查看结算账户与提现</text>

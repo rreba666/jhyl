@@ -271,7 +271,7 @@ function goRealname(): void {
       </view>
     </view>
 
-    <scroll-view class="content" scroll-y :style="{ paddingTop: statusBarHeight + 44 + 12 + 'px' }">
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ paddingTop: statusBarHeight + 44 + 12 + 'px' }">
       <!-- 未实名提示：绑卡后端校验持卡人与实名一致，提前说明避免提交后才报错 -->
       <view v-if="!realnameVerified" class="notice" @click="goRealname">
         <text class="notice-text">绑卡要求持卡人与实名认证一致，请先完成实名认证</text>

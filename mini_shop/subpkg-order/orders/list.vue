@@ -419,7 +419,7 @@ onShow(() => {
     <view class="tabs" :style="{ marginTop: bodyTop + 'px' }">
       <view v-for="(tab, index) in tabs" :key="tab.label" class="tab" :class="{ active: activeIndex === index }" @click="selectTab(index)">{{ tab.label }}</view>
     </view>
-    <scroll-view class="list" scroll-y @scrolltolower="load(false)">
+    <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="load(false)">
       <view v-show="loading && !(isAfterSaleTab ? afterSales.length : list.length)" class="state">加载中...</view>
 
       <!-- 售后单列表（退款售后分类） -->

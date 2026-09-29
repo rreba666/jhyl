@@ -362,7 +362,7 @@ function goBack(): void {
       </view>
     </view>
 
-    <scroll-view class="content" scroll-y>
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <!-- 定位 / 地图选点：做成一张显眼的操作卡，而不是藏在表单下面的说明文字 -->
       <view class="locate-card" @click="pickOnMap">
         <view class="locate-icon">📍</view>

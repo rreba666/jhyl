@@ -1591,7 +1591,7 @@ function backToCart(): void {
       v-else
       v-show="canRenderCheckout"
       class="content"
-      scroll-y
+      scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false"
       :style="{ paddingTop: `${bodyTop}px` }"
     >
       <view class="section delivery-section">

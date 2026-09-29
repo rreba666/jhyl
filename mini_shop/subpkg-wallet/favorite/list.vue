@@ -95,7 +95,7 @@ onShow(() => { if (loaded.value) void load(true) })
   <view class="page">
     <view class="nav" :style="navStyle"><view class="nav-back" @click="goBack"><text class="back-icon">‹</text></view><text class="title">我的收藏</text></view>
 
-    <scroll-view class="list" scroll-y :style="{ marginTop: bodyTop + 'px' }" @scrolltolower="load(false)">
+    <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ marginTop: bodyTop + 'px' }" @scrolltolower="load(false)">
       <view v-show="loading && !list.length" class="state">加载中...</view>
       <view v-for="item in list" :key="item.id" class="fav-card" @click="openDetail(item)">
         <image v-if="item.mainImage" class="fav-image" :src="item.mainImage" mode="aspectFill" />

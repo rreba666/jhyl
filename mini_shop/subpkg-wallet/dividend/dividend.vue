@@ -412,7 +412,7 @@ onShow(() => {
       <text class="module-blocked-desc">当前商户未开通分销推广模块，推广与红包暂不可用。</text>
     </view>
 
-    <scroll-view v-if="registeredUser && promotionEnabled" class="page-scroll" scroll-y :style="bodyStyle" @scrolltolower="loadMorePromotionRecords">
+    <scroll-view v-if="registeredUser && promotionEnabled" class="page-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="bodyStyle" @scrolltolower="loadMorePromotionRecords">
       <view class="page-content">
         <view class="share-heading">
           <text class="share-title">分享赚钱</text>

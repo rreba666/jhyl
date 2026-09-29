@@ -293,7 +293,7 @@ function goBack(): void {
       <text class="nav-title">订单详情</text>
     </view>
 
-    <scroll-view v-if="order" class="content" scroll-y>
+    <scroll-view v-if="order" class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <!-- 订单主卡 -->
       <view class="card">
         <!-- 状态头 -->

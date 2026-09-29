@@ -185,7 +185,7 @@ onShow(() => { void refreshData() })
       <text class="module-blocked-desc">当前商户未开通分销推广模块，平台红包暂不可用。</text>
     </view>
 
-    <scroll-view v-if="registeredUser && promotionEnabled" class="page-scroll" scroll-y :style="{ paddingTop: bodyTop + 'px' }" @scrolltolower="loadMoreRecords">
+    <scroll-view v-if="registeredUser && promotionEnabled" class="page-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ paddingTop: bodyTop + 'px' }" @scrolltolower="loadMoreRecords">
       <view class="page-content">
         <view class="heading">
           <text class="heading-title">平台红包</text>

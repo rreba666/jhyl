@@ -662,7 +662,7 @@ onUnload(() => {
       </view>
     </view>
 
-    <scroll-view class="list" scroll-y @scrolltolower="loadMore">
+    <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
       <EmptyState v-else-if="!tasks.length" :image="EMPTY_IMAGE" :text="EMPTY_TEXT" />
       <template v-else>

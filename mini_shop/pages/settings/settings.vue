@@ -103,7 +103,7 @@ function goBankCards(): void {
       <text class="nav-title">设置</text>
     </view>
 
-    <scroll-view class="scroll" scroll-y :style="{ paddingTop: (menuTop + menuHeight + 12) + 'px' }">
+    <scroll-view class="scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ paddingTop: (menuTop + menuHeight + 12) + 'px' }">
       <!-- 个人信息卡 -->
       <view class="card">
         <button class="avatar-row" open-type="chooseAvatar" :disabled="avatarUploading" @chooseavatar="onChooseAvatar">

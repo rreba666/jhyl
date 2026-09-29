@@ -141,7 +141,7 @@ function goBack(): void {
     </view>
 
     <!-- 类型筛选（横向滚动 chips） -->
-    <scroll-view v-if="!notMerchantOwner" class="filter-bar" scroll-x :style="{ top: contentTop + 'px' }">
+    <scroll-view v-if="!notMerchantOwner" class="filter-bar" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ top: contentTop + 'px' }">
       <view class="filter-row">
         <view
           v-for="option in SETTLEMENT_FLOW_TYPE_OPTIONS"
@@ -155,7 +155,7 @@ function goBack(): void {
       </view>
     </scroll-view>
 
-    <scroll-view class="content" scroll-y @scrolltolower="loadMore">
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <!-- 13016：仅品牌主体可看结算账户 -->
       <view v-if="notMerchantOwner" class="state">
         <text class="state-title">仅商户品牌主体可查看结算账户与提现</text>

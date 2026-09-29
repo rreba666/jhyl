@@ -39,6 +39,9 @@ onShow((options) => {
 <style>
 /* 骑手端图标字体（iconfont 项目 5230143，ttf 已转 base64 内联；小程序 wxss 不能引远程字体） */
 @import "./styles/rider-iconfont.wxss";
+/* 通用交互动效（点击反馈 / 进场淡入上移 / 骨架呼吸；尊重系统"减弱动态效果"）
+   ⚠️ 弹性滚动**不在这里** —— 那是 `scroll-view` 的 `enhanced` + `bounces` 属性，不是 CSS。 */
+@import "./styles/motion.wxss";
 
 /* 全局页面基础样式。 */
 page {

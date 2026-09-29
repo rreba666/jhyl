@@ -187,7 +187,7 @@ function goBack(): void {
       </view>
     </view>
 
-    <scroll-view class="content" scroll-y :style="{ paddingTop: statusBarHeight + 44 + 12 + 'px' }">
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ paddingTop: statusBarHeight + 44 + 12 + 'px' }">
       <view v-if="loadError" class="state">
         <text class="state-text">{{ loadError }}</text>
         <view class="state-btn" @click="loadAddresses()">重新加载</view>

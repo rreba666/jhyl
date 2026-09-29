@@ -147,7 +147,7 @@ function goBack(): void {
       <text class="nav-title">提现详情</text>
     </view>
 
-    <scroll-view class="content" scroll-y>
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <view v-if="loading" class="state">加载中…</view>
 
       <!-- 非本商户 / 不存在（1002） -->

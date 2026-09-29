@@ -260,7 +260,7 @@ onMounted(() => {
       <text class="agreement-nav-title">用户协议</text>
     </view>
 
-    <scroll-view class="agreement-scroll" scroll-y :style="bodyStyle">
+    <scroll-view class="agreement-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="bodyStyle">
       <view class="agreement-content">
         <text class="agreement-title">江西今华有品牌管理有限公司小程序商城用户协议</text>
         <text class="agreement-subtitle">今华有优肽甄选商城用户服务协议</text>

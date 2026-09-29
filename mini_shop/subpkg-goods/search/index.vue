@@ -131,7 +131,7 @@ onMounted(() => {
       >{{ option.label }}</text>
     </view>
 
-    <scroll-view class="content" scroll-y @scrolltolower="load(false)">
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="load(false)">
       <view v-show="loading && !products.length" class="state">加载中...</view>
       <RequestState v-if="!loading && !products.length && loadError" :error="loadError" @retry="retrySearch" />
       <view v-show="!loading && loaded && !loadError && !products.length" class="state">暂无相关商品</view>

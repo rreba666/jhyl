@@ -883,7 +883,7 @@ onUnload(() => {
       <text class="module-blocked-desc">当前商户未开通钱包模块，提现与转账暂不可用。</text>
     </view>
 
-    <scroll-view v-if="registeredUser && walletEnabled" class="page-scroll" scroll-y :style="bodyStyle">
+    <scroll-view v-if="registeredUser && walletEnabled" class="page-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="bodyStyle">
       <view class="page-content">
         <view class="hero-card">
           <image class="hero-card-bg" src="/static/bg/钱包页背景.png" mode="aspectFill" />

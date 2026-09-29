@@ -748,7 +748,7 @@ onUnload(() => {
     </view>
 
     <view v-show="loading" class="state">加载中...</view><view v-show="!loading && errorMessage" class="state error">{{ errorMessage }}</view>
-    <scroll-view v-show="!loading && !errorMessage && order" class="content" scroll-y>
+    <scroll-view v-show="!loading && !errorMessage && order" class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <!-- 状态横幅（居中标签） -->
       <view class="status-banner"><text class="status-banner-text">{{ bannerText }}</text></view>
 

@@ -288,7 +288,7 @@ onShow(() => {
       <image class="back-button" src="/static/left_arrow.png" mode="aspectFit" @click="goBack" />
     </view>
 
-    <scroll-view class="detail-scroll" scroll-y :style="{ paddingTop: `${bodyTop}px` }">
+    <scroll-view class="detail-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ paddingTop: `${bodyTop}px` }">
       <view v-show="loading" class="state">加载中...</view>
       <view v-show="!loading && errorMessage" class="state error">{{ errorMessage }}</view>
 

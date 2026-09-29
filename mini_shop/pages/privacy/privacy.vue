@@ -285,7 +285,7 @@ onMounted(() => {
       <text class="privacy-nav-title">隐私保护指引</text>
     </view>
 
-    <scroll-view class="privacy-scroll" scroll-y :style="bodyStyle">
+    <scroll-view class="privacy-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="bodyStyle">
       <view class="privacy-content">
         <text class="privacy-title">江西今华有品牌管理有限公司小程序商城隐私政策</text>
         <text class="privacy-subtitle">今华有商城隐私政策</text>

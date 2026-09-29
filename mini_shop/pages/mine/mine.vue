@@ -727,7 +727,7 @@ onShow(() => { void refreshData() })
 
 <template>
   <view class="pg">
-    <scroll-view class="bd" scroll-y>
+    <scroll-view class="bd" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <view class="hero" :style="{ paddingTop: bodyTop + 'px' }">
         <image class="hero-bg" src="/static/bg/个人bg.jpg" mode="aspectFill" />
         <view class="profile-row">
@@ -788,13 +788,27 @@ onShow(() => { void refreshData() })
           <text class="order-title">我的订单</text>
           <view class="order-all" @click="goAllOrders"><text>全部</text><image class="all-arrow" src="/static/my/右_slices/右.png" mode="aspectFit" /></view>
         </view>
-        <view class="order-grid">
-          <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
-            <image v-if="entry.icon" class="order-icon order-icon-image" :src="entry.icon" mode="aspectFit" />
-            <view v-else class="order-icon" />
-            <text class="order-label">{{ entry.label }}</text>
+        <!-- ⚠️ 2026-09-29 改为横向滚动（用户反馈「退款/售后」这项会折成两排）：
+             原来是 `justify-content: space-between` 等分 + 固定 80.15rpx 宽的 item，
+             3 个字的「待付款」「待发货」放得下，但 5 个字的「退款/售后」宽度不够 ⇒ label 折行。
+             ⇒ 改成 scroll-view：item 宽度**自适应内容**，装得下就均分、装不下就能左右滑。
+             ⚠️ `enhanced` + `bounces` 打开惯性回弹，滑动手感更好（配合问题三的滚动优化）。 -->
+        <scroll-view
+          class="order-grid"
+          scroll-x
+          :enhanced="true"
+          :bounces="true"
+          :show-scrollbar="false"
+          :enable-flex="true"
+        >
+          <view class="order-grid-inner">
+            <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
+              <image v-if="entry.icon" class="order-icon order-icon-image" :src="entry.icon" mode="aspectFit" />
+              <view v-else class="order-icon" />
+              <text class="order-label">{{ entry.label }}</text>
+            </view>
           </view>
-        </view>
+        </scroll-view>
       </view>
 
       <!-- 公告栏：订单模块下方、功能选项上方，横向滚动展示 -->
@@ -837,7 +851,7 @@ onShow(() => { void refreshData() })
           <text class="announcement-dialog-title">公告详情</text>
           <text class="announcement-dialog-close" @click="closeAnnouncement">×</text>
         </view>
-        <scroll-view class="announcement-detail-scroll" scroll-y>
+        <scroll-view class="announcement-detail-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
           <text class="announcement-detail-content">{{ activeAnnouncement?.content || '' }}</text>
         </scroll-view>
       </view>
@@ -925,8 +939,15 @@ onShow(() => { void refreshData() })
 .order-title { color: #1E1E1E; font-size: 26.72rpx; font-weight: 500; }
 .order-all { display: flex; align-items: center; gap: 15.27rpx; color: #1E1E1E; font-size: 26.72rpx; }
 .all-arrow { width: 14rpx; height: 16rpx; }
-.order-grid { display: flex; padding: 24rpx 59.16rpx 0 38.17rpx; box-sizing: border-box; justify-content: space-between; }
-.order-item { display: flex; width: 80.15rpx; flex: 0 0 80.15rpx; flex-direction: column; align-items: center; }
+/* ⚠️ 2026-09-29 订单入口改为横向滚动容器（原来这里是 flex + space-between 的等分栅格）。
+   原因：「退款/售后」有 5 个字、宽度超过固定 80.15rpx ⇒ label 折行，看起来像"两排"。
+   现在 item 宽度自适应内容：内容总宽 < 屏宽时仍靠 space-between 均分铺满，超出时即可左右滑动。
+   ⚠️ scroll-view 必须有确定高度否则会塌陷，这里按「图标 80.15 + 间距 16 + 文字行高」留足。 */
+.order-grid { width: 100%; height: 152rpx; box-sizing: border-box; padding: 24rpx 38.17rpx 0; white-space: nowrap; }
+.order-grid-inner { display: inline-flex; min-width: 100%; box-sizing: border-box; justify-content: space-between; gap: 20rpx; }
+.order-item { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; }
+/* 点击反馈：轻微缩放 + 变淡，让"点到了"更可感知（配合问题三的交互动效） */
+.order-item:active { opacity: .6; transform: scale(.94); }
 .order-icon { width: 80.15rpx; height: 80.15rpx; background: #d8d8d8; }
 .order-icon-image { background: transparent; }
 .order-label { margin-top: 16rpx; color: #1E1E1E; font-size: 26.72rpx; font-weight: 500; white-space: nowrap; }

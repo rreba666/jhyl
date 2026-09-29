@@ -395,7 +395,7 @@ function goBack(): void {
       <text class="nav-title">结算与提现</text>
     </view>
 
-    <scroll-view class="content" scroll-y>
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <!-- 13016：仅品牌主体可看结算账户与提现（店长/店员误入） -->
       <view v-if="notMerchantOwner" class="blocked-card">
         <text class="blocked-title">仅商户品牌主体可查看结算账户与提现</text>

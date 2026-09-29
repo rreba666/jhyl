@@ -236,7 +236,7 @@ watch(() => props.modelValue, (nextVisible) => {
         <text class="sheet-title">实名认证</text>
         <text class="sheet-close" @click="close">×</text>
       </view>
-      <scroll-view class="realname-form" scroll-y>
+      <scroll-view class="realname-form" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
         <view class="photo-grid">
           <view class="photo-group">
             <text class="field-label">身份证正面 <text class="field-optional">（选填）</text></text>

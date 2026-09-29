@@ -370,7 +370,7 @@ function goBack(): void {
       </view>
     </view>
 
-    <scroll-view class="content" scroll-y>
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
         <!-- 未读通知条（2026-09-28）：商家侧通知的**主通道**，不依赖微信授权，一定能看到。
              ⚠️ 后端「拉取即清零」⇒ 这里只做展示，不做本地累加。
              ⚠️ 2026-09-29 用户反馈"点击不了" ⇒ 补上跳转：点它进订单列表

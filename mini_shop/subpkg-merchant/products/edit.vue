@@ -341,7 +341,7 @@ function goBack(): void {
       <text class="nav-title">{{ pageTitle }}</text>
     </view>
 
-    <scroll-view class="content" scroll-y>
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <!-- ⚠️ 这里原本有一条「编辑态诚实提示」（不许改描述/详情图…），2026-09-24 按用户要求**删除**：
            不该把后端缺口变成给用户"立规则"的说明书 —— 用户只在乎好不好用，能做的只有把问题解决掉。
            功能层面的解法见 buildPayload 的 descTouched / descEchoed，以及

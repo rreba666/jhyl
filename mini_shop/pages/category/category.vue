@@ -178,7 +178,7 @@ onShow(() => { void refreshCategories() })
     <view class="bd" :style="{ paddingTop: bodyTop + 'px' }">
       <view class="bd-row">
         <!-- 左侧分类 113px=226rpx, bg #f9f9f9 -->
-        <scroll-view class="side" scroll-y :style="scrollHeightStyle">
+        <scroll-view class="side" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="scrollHeightStyle">
           <view v-for="(c, i) in cats" :key="c.id" class="side-it" :class="{ sel: i === active }" @click="switchCat(i)">
             <text>{{ c.name }}</text>
           </view>
@@ -186,7 +186,7 @@ onShow(() => { void refreshCategories() })
         </scroll-view>
 
         <!-- 右侧商品 -->
-        <scroll-view class="prod" scroll-y :style="scrollHeightStyle">
+        <scroll-view class="prod" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="scrollHeightStyle">
           <view v-show="!busy" class="prod-grid">
             <view v-for="it in goods" :key="it.id" class="card" @click="goDetail(it.id)">
               <view class="card-img">

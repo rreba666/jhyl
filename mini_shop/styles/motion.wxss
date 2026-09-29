@@ -1,0 +1,133 @@
+/**
+ * 通用交互动效（2026-09-29 新增，用户要求「优化滚动效果、加弹性惯性、增强用户感知」）。
+ *
+ * 在 `App.vue` 里通过 `@import` 引入，全局生效（小程序里 App.vue 的 <style> 即全局样式）。
+ *
+ * ## 两条设计原则
+ * 1. **只做"增强感知"，不做"装饰"** —— 动效必须服务于反馈：让用户确认"点到了""内容来了"，
+ *    而不是为了好看而晃。所以时长都很短（160~300ms），且**绝不阻塞交互**。
+ * 2. **必须尊重系统的"减弱动态效果"** —— 无障碍与晕动症用户会因此不适，
+ *    统一用 `@media (prefers-reduced-motion: reduce)` 关掉（项目里其他动效也是这个口径）。
+ *
+ * ## ⚠️ 关于"滚动弹性"的重要说明
+ * 小程序的**页面级滚动**（`onPageScroll`）**无法加弹性/惯性** —— 这是平台限制。
+ * 想要弹性回弹只能靠 `<scroll-view>` 组件的 `enhanced` + `bounces` 属性
+ * （见各页面 `scroll-view` 上的写法），**不是** CSS 能解决的问题。
+ */
+
+/* ===================== 点击反馈 ===================== */
+
+/**
+ * 可点击元素的按下态：轻微缩放 + 变淡。
+ *
+ * 用法：给可点击的容器/按钮加 `class="motion-tap"`（可与业务类名并存）。
+ * ⚠️ 用 `transform: scale()` 而不是改宽高 —— 前者只触发合成层、不引起重排，
+ *    在低端机上也不会掉帧。
+ */
+.motion-tap {
+  transition: transform .16s ease-out, opacity .16s ease-out;
+}
+.motion-tap:active {
+  transform: scale(.96);
+  opacity: .72;
+}
+
+/**
+ * 卡片类按压：只变淡不缩放。
+ * 用于本身已占据较大面积的卡片（缩放会显得"整块在抖"，反而廉价）。
+ */
+.motion-press {
+  transition: opacity .16s ease-out, background-color .16s ease-out;
+}
+.motion-press:active {
+  opacity: .7;
+}
+
+/* ===================== 进场动效 ===================== */
+
+/** 淡入 + 轻微上移：用于"内容加载完成"的容器（列表、卡片组、区块）。 */
+@keyframes motion-fade-up {
+  from { opacity: 0; transform: translateY(18rpx); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/**
+ * 进场：`class="motion-enter"`。
+ * ⚠️ `both` 保证动画开始前就应用 `from` 状态 —— 否则首帧会先闪一下原样再动。
+ */
+.motion-enter {
+  animation: motion-fade-up .28s cubic-bezier(.22, .8, .3, 1) both;
+}
+
+/**
+ * 列表逐项进场：`class="motion-enter-stagger"` + 内联 `style="animation-delay: ..."`。
+ *
+ * ⚠️ 为什么不在这里写 `:nth-child` 延迟：小程序对 `:nth-child` 的支持有限，
+ *    且列表项数量动态，写死延迟会在长列表上出现"越往下越慢"的怪效果。
+ *    ⇒ 由业务按 index 计算、只给前若干项加延迟（见用法说明）。
+ */
+.motion-enter-stagger {
+  animation: motion-fade-up .3s cubic-bezier(.22, .8, .3, 1) both;
+}
+
+/** 数字/金额变化时的强调：短促放大回弹，用于"金额到账"这类需要被看见的变化。 */
+@keyframes motion-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.motion-pop {
+  animation: motion-pop .34s cubic-bezier(.22, .8, .3, 1);
+}
+
+/** 轻推：用于"刚刚刷新完成"的提示条（向左滑入）。 */
+@keyframes motion-slide-in-left {
+  from { opacity: 0; transform: translateX(-24rpx); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.motion-slide-in {
+  animation: motion-slide-in-left .26s cubic-bezier(.22, .8, .3, 1) both;
+}
+
+/* ===================== 骨架屏 / 加载 ===================== */
+
+/**
+ * 骨架呼吸：`class="motion-skeleton"`。
+ * ⚠️ 项目里各页面已有一份 `skeleton-pulse`，这里提供全局版本便于新页面直接用；
+ *    已存在的局部定义不受影响（局部样式优先级更高）。
+ */
+@keyframes motion-skeleton-pulse {
+  0%, 100% { opacity: .5; }
+  50%      { opacity: 1; }
+}
+.motion-skeleton {
+  animation: motion-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/* ===================== 无障碍：尊重"减弱动态效果" ===================== */
+
+/**
+ * ⚠️ 系统开启「减弱动态效果」时，把所有装饰性动画关掉，只保留瞬时状态变化。
+ * 注意这里**没有**禁用 `transition` 的 `opacity` —— 淡入对理解"内容出现了"仍有帮助，
+ * 真正会造成不适的是位移与缩放。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .motion-enter,
+  .motion-enter-stagger,
+  .motion-pop,
+  .motion-slide-in,
+  .motion-skeleton {
+    animation: none;
+  }
+  .motion-tap,
+  .motion-press {
+    transition: opacity .01ms;
+  }
+  .motion-tap:active,
+  .motion-press:active {
+    transform: none;
+  }
+  .motion-tap:active {
+    opacity: .72;
+  }
+}

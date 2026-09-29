@@ -322,7 +322,7 @@ async function runBatchPrepare(): Promise<void> {
         <text class="batch-entry" @click="toggleBatchMode">{{ batchMode ? '取消' : '批量' }}</text>
       </view>
       <view class="tab-bar">
-        <scroll-view class="tabs-scroll" scroll-x :show-scrollbar="false">
+        <scroll-view class="tabs-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :show-scrollbar="false">
           <view class="tabs">
             <view
               v-for="tab in TABS"
@@ -341,7 +341,7 @@ async function runBatchPrepare(): Promise<void> {
     </view>
 
     <!-- 列表 -->
-    <scroll-view class="list" scroll-y @scrolltolower="loadMore">
+    <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
       <EmptyState v-else-if="!orders.length" :image="emptyImage" :text="emptyText" />
       <template v-else>

@@ -79,7 +79,7 @@ onMounted(() => {
       <text class="module-blocked-title">发票功能未开通</text>
       <text class="module-blocked-desc">当前商户未开通发票模块，发票申请暂不可用。</text>
     </view>
-    <scroll-view v-if="invoiceEnabled" class="list" :style="listStyle" scroll-y @scrolltolower="load(false)">
+    <scroll-view v-if="invoiceEnabled" class="list" :style="listStyle" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="load(false)">
       <view v-show="loading && !list.length" class="state">加载中...</view>
       <view v-for="item in list" :key="String(item.id)" class="invoice-card" @click="showDetail(item)">
         <view class="card-head"><text>{{ invoiceTitle(item) }}</text><text :class="['status', statusClass(item.status)]">{{ item.statusDesc }}</text></view>

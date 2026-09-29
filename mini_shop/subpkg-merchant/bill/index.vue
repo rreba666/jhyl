@@ -182,7 +182,7 @@ function goBack(): void {
       <text class="nav-title">账单</text>
     </view>
 
-    <scroll-view class="content" scroll-y @scrolltolower="loadMore">
+    <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <!-- 头部：月份 + 收入合计 -->
       <view class="summary">
         <view class="month" @click="openFilter">

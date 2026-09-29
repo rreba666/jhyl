@@ -381,7 +381,7 @@ function goBack(): void {
     </view>
 
     <!-- 列表 -->
-    <scroll-view class="list" scroll-y @scrolltolower="loadMore">
+    <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
       <EmptyState v-else-if="!renderList.length" :image="emptyImage" :text="emptyText" />
       <template v-else>

@@ -137,7 +137,7 @@ onShow(() => { loading.value = true; void refreshList() })
         <text class="limit-warning-t">补贴商品当前共{{ dividendQuantity }}件，最多同时存在3件，请减少后再结算</text>
       </view>
       <!-- scroll-view 用 padding，和 category.vue 一致 -->
-      <scroll-view v-if="!loading && items.length" class="lst" scroll-y>
+      <scroll-view v-if="!loading && items.length" class="lst" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
         <view v-for="it in items" :key="it.cartId" class="row">
           <!-- 勾选框 -->
           <view class="chk" @click="onToggle(it)">

@@ -178,7 +178,7 @@ onShow(() => {
       <view class="nav-spacer" />
     </view>
 
-    <scroll-view v-if="loggedIn" class="page-scroll" scroll-y :style="bodyStyle" @scrolltolower="loadMore">
+    <scroll-view v-if="loggedIn" class="page-scroll" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="bodyStyle" @scrolltolower="loadMore">
       <!-- 筛选区：方向 tab + 类型 chips -->
       <view class="filter-bar">
         <view class="dir-tabs">
@@ -189,7 +189,7 @@ onShow(() => {
             @click="changeDirection(dir.value)"
           >{{ dir.label }}</view>
         </view>
-        <scroll-view class="type-scroll" scroll-x :show-scrollbar="false">
+        <scroll-view class="type-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :show-scrollbar="false">
           <view class="type-tags">
             <view
               v-for="type in typeTabs"

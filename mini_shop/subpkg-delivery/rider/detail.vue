@@ -447,7 +447,7 @@ onUnload(() => {
       </view>
     </view>
 
-    <scroll-view class="body" scroll-y>
+    <scroll-view class="body" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <view v-if="loading" class="state">加载中…</view>
       <view v-else-if="!task" class="state">任务不存在或无权查看</view>
       <template v-else>
