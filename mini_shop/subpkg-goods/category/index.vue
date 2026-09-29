@@ -95,7 +95,7 @@ const themeConfig = computed(() => {
     // 品牌栏是 .heritage-header 的 #fff 底 + 头图 heritage-header.jpg 以 opacity .78 叠加，
     // 取头图占比最高的主色 #f8e0d8 与白色按 78% 混合 ⇒ 约 #f9e7e1（即品牌栏实际显示的颜色）。
     // 这样下方装商品卡片的米黄容器（#fae7c9）扣在这个底色上，**顶部圆角才看得出来**。
-    backgroundColor: '#f9e7e1', categoryNames: ['非遗老号', '非遗老字号'] }
+    backgroundColor: '#eaf7ef', categoryNames: ['非遗老号', '非遗老字号'] }
     : theme.value === 'landmark'
       ? { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/landmark-hero.jpg', className: 'theme-landmark', fallbackImage: '/static/figma-category/product-main-2.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
       : { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/nutrition-hero.jpg', className: 'theme-nutrition', fallbackImage: '/static/figma-category/product-main-1.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
@@ -125,8 +125,8 @@ const themeConfig = computed(() => {
     boxBackgroundColor: theme.value === 'heritage' ? '#fff' : undefined,
     // ⚠️ 2026-09-29 同上：给**页面底色**也加一个固定值，避免被后端 `l.backgroundColor`
     // 覆盖成与盒子相同的颜色（那会让米黄容器的圆角彻底看不出来）。
-    // heritage 取 #f9e7e1 —— 即「品牌栏实际显示色」（#fff 底 + 头图 78% 叠加后的近似色）。
-    pageBackgroundColor: theme.value === 'heritage' ? '#f9e7e1' : undefined,
+    // heritage 取 #eaf7ef —— 即「品牌栏实际显示色」（#fff 底 + 头图 78% 叠加后的近似色）。
+    pageBackgroundColor: theme.value === 'heritage' ? '#eaf7ef' : undefined,
     // 商品分类：优先用落地页配置的分类（后台「分类」字段），未配置才用主题默认。
     categoryNames: (l.categoryNames?.filter(Boolean).length ? l.categoryNames.filter(Boolean) : base.categoryNames),
   }
@@ -504,7 +504,7 @@ onMounted(() => {
 .category-product-slot { width: 100%; }
 .category-products-loading { padding: 160rpx 0; color: #86909c; font-size: 28rpx; line-height: 44rpx; text-align: center; }
 /* 非遗页头部整块固定：标题栏 + 品牌条不随商品滚动（与首页一致） */
-.heritage-header { position: fixed; top: 0; right: 0; left: 0; z-index: 10; height: 358rpx; overflow: hidden; background: #fff; }
+.heritage-header { position: fixed; top: 0; right: 0; left: 0; z-index: 10; height: 358rpx; overflow: hidden; background: #eaf7ef; }
 .heritage-header-glow { position: absolute; top: -204rpx; left: -216rpx; width: 1212rpx; height: 608rpx; opacity: .78; }
 .heritage-header-glow.expanded { top: 0; left: 0; width: 100%; height: 100%; }
 /* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
