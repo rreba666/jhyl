@@ -560,6 +560,10 @@ onMounted(() => {
 /* 展开按钮圆形底（Figma Frame 97 / Rectangle 3）：60×60px ⇒ 60 × 1.923 ≈ 115rpx。
    色值 #567F65 透明度 15%；设计稿带 LAYER_BLUR，这里用径向渐变近似那层柔光。 */
 .brand-expand-glow { position: absolute; top: 15rpx; left: 50%; width: 115rpx; height: 115rpx; margin-left: -57rpx; border-radius: 50%; background: radial-gradient(circle, rgba(86, 127, 101, .15) 0%, rgba(86, 127, 101, .15) 62%, rgba(86, 127, 101, 0) 100%); }
+/* Frame 98 —— 真正承载「展开」文字与图标的内容层（设计稿 36×76，位于父容器 Frame 97 内）。
+   ⚠️ 分层要点：背景圆 .brand-expand-glow 属于父层 Frame 97（只负责背景），
+   本层是内容层，z-index 高于背景圆，保证文字与图标永远压在圆底之上。 */
+.brand-expand-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10rpx; }
 .brand-expand-text { width: 28rpx; color: #1d2129; font-size: 24rpx; line-height: 30rpx; text-align: center; word-break: break-all; }
 .brand-expand-icon { display: flex; flex-direction: column; align-items: center; }
 .brand-expand-bars { color: #1d2129; font-size: 28rpx; line-height: 22rpx; }
