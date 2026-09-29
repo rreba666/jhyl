@@ -45,6 +45,17 @@ const loadError = ref('')
 const sceneDrafts = reactive<Record<string, string>>({})
 /** 场景开关缓存：`displayKey -> 是否允许外呼`。 */
 const sceneEnabled = reactive<Record<string, boolean>>({})
+/**
+ * 场景「语音模板码」编辑缓存：`displayKey -> 正在编辑的 ttsCode`（2026-09-29 第十二批新增）。
+ * ⚠️ 与下面的 `sceneTtsOrigin` 配合，实现后端要求的**三态**语义：
+ * 不传 = 不修改 / 传空串 `''` = 清除本场景覆盖（回落全局）/ 传值 = 设置本场景 TTS。
+ */
+const sceneTtsDrafts = reactive<Record<string, string>>({})
+/**
+ * 场景「语音模板码」的**加载时原值**（= 后端返回的**生效值**，三级回落后的结果）。
+ * ⚠️ 用途只有一个：判断运营**到底改没改** —— 没改就**不传**该字段，避免无谓覆盖。
+ */
+const sceneTtsOrigin = reactive<Record<string, string>>({})
 
 /** 全局参数表单。 */
 const form = reactive<{
@@ -135,9 +146,14 @@ async function load(): Promise<void> {
     // 场景草稿
     Object.keys(sceneDrafts).forEach((key) => delete sceneDrafts[key])
     Object.keys(sceneEnabled).forEach((key) => delete sceneEnabled[key])
+    Object.keys(sceneTtsDrafts).forEach((key) => delete sceneTtsDrafts[key])
+    Object.keys(sceneTtsOrigin).forEach((key) => delete sceneTtsOrigin[key])
     result.items.forEach((item) => {
       sceneDrafts[item.displayKey] = item.contentTemplate || ''
       sceneEnabled[item.displayKey] = item.enabled
+      // 语音模板码：草稿与原值都记（原值用来判断"没改就不传"）
+      sceneTtsDrafts[item.displayKey] = item.ttsCode || ''
+      sceneTtsOrigin[item.displayKey] = item.ttsCode || ''
     })
   } catch (error) {
     data.value = null
@@ -211,14 +227,36 @@ async function saveScene(item: VoiceSceneItem): Promise<void> {
     return
   }
 
+  // ⚠️ 语音模板码的**三态**（后端第十二批语义，务必照此实现）：
+  //    · 草稿 === 原值 ⇒ **不传该字段**（不修改已配置的 TTS）
+  //    · 草稿为空 且 原值非空 ⇒ 传**空串**（清除本场景覆盖、回落全局）
+  //    · 草稿非空 ⇒ 传值（须 `TTS_` 开头，后端会校验；后端落库转大写）
+  const ttsDraft = (sceneTtsDrafts[item.displayKey] || '').trim()
+  const ttsOrigin = sceneTtsOrigin[item.displayKey] || ''
+  let ttsPayload: string | undefined
+  if (ttsDraft !== ttsOrigin) {
+    if (!ttsDraft) {
+      // ⚠️ 必须是**空串**而不是 null：null 在 JSON 里会被省略，语义会从"清除覆盖"变成"不修改"
+      ttsPayload = ''
+    } else if (!/^TTS_[A-Za-z0-9]{6,12}$/i.test(ttsDraft)) {
+      ElMessage.warning('语音模板码格式不对：应为「TTS_ + 6~12 位字母数字」（可在阿里云控制台查看）')
+      return
+    } else {
+      ttsPayload = ttsDraft.toUpperCase()
+    }
+  }
+
   savingScene.value = item.displayKey
   try {
     const result = await updateVoiceTemplate(item.displayKey, {
       contentTemplate: draft || null,
       enabled: enabled !== false,
+      // ⚠️ undefined 时 JSON.stringify 会**省略**该字段 —— 正是"不修改"所需的语义，所以用展开式传参
+      ...(ttsPayload === undefined ? {} : { ttsCode: ttsPayload }),
       reason: null,
     })
-    ElMessage.success(result.cleared ? '已清除后台覆盖，回落代码文案' : '场景文案已保存')
+    const ttsNote = ttsPayload === '' ? '（已清除本场景的模板码覆盖，回落全局）' : ''
+    ElMessage.success((result.cleared ? '已清除后台覆盖，回落代码文案' : '场景文案已保存') + ttsNote)
     await load()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '语音场景文案保存失败')
@@ -371,6 +409,24 @@ onMounted(() => {
             />
             <p class="hint">
               <strong>留空 = 清除后台覆盖</strong>，回落代码里现成的摘要文案。业务上限 200 字。
+            </p>
+            <!-- ⚠️ 语音模板 ID（2026-09-29 第十二批新增）：**每个场景一个**阿里云 TTS 模板码。
+                 三态：不改 = 不提交该字段 / 清空 = 清除本场景覆盖（回落全局）/ 填值 = 设置本场景 TTS。 -->
+            <p class="field-label" style="margin-top: 12px">
+              语音模板 ID
+              <span class="hint inline">`TTS_` + 6~12 位字母数字；各场景可用不同模板</span>
+            </p>
+            <el-input
+              v-model="sceneTtsDrafts[item.displayKey]"
+              placeholder="例如 TTS_328610728；清空 = 清除本场景覆盖、回落全局"
+              clearable
+              maxlength="17"
+            />
+            <p class="hint">
+              当前生效：<code>{{ item.ttsCode || '（无，该场景呼不出去）' }}</code>
+              <template v-if="item.ttsCode && sceneTtsDrafts[item.displayKey] !== sceneTtsOrigin[item.displayKey]">
+                <strong>（改过了，保存后生效）</strong>
+              </template>
             </p>
           </div>
 

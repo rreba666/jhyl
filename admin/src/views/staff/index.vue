@@ -128,9 +128,9 @@ async function openEditIdentity(row: StaffAccount): Promise<void> {
 /** 校验并提交：新增走建号，编辑走改身份（可一步式发号）；微信字段编辑时单独走绑定接口。 */
 async function submitForm(): Promise<void> {
   if (!(await formRef.value?.validate().catch(() => false))) return
-  // 微信绑定校验：店长 / 骑手至少填 userId 或 openid 之一
+  // 微信绑定校验：店长 / 骑手至少填一个微信标识（userId / openid / 微信号 三选一）
   if (needWechat.value && !isEditing.value && !form.wechatUserId.trim() && !form.wechatOpenid.trim()) {
-    ElMessage.error('含店长 / 骑手身份时必须填写微信用户 ID 或微信号（openid）')
+    ElMessage.error('含店长 / 骑手身份时必须填写微信用户 ID、openid 或微信号（填其一即可）')
     return
   }
   // 身份会互相影响，提交前再确认一次（尤其"取消店长会同时取消骑手能力"）
@@ -229,7 +229,7 @@ async function viewHistory(row: StaffAccount): Promise<void> {
 // ===== 绑定 / 解绑微信（D4b / D4c）=====
 async function bindWechat(row: StaffAccount): Promise<void> {
   try {
-    const result = await ElMessageBox.prompt('请输入微信用户 ID 或 openid', '绑定微信', { inputPattern: /^\S+$/, inputErrorMessage: '不能为空' })
+    const result = await ElMessageBox.prompt('请输入微信用户 ID、openid 或微信号（填其一即可）', '绑定微信', { inputPattern: /^\S+$/, inputErrorMessage: '不能为空' })
     const value = result.value.trim()
     await store.bindWechat(row.id, /^\d+$/.test(value) ? { userId: value } : { openid: value })
     ElMessage.success('微信绑定成功')
@@ -530,8 +530,10 @@ watch(() => route.query.shopId, (value) => {
           <el-form-item :label="isEditing && editingRow?.accountIssued ? '密码（留空不改）' : '密码'" prop="password"><el-input v-model="form.password" type="password" show-password /></el-form-item>
         </template>
         <template v-if="needWechat && !isEditing">
-          <el-form-item label="微信用户ID"><el-input v-model="form.wechatUserId" placeholder="wx_user.id（与 openid 二选一，必填其一）" /></el-form-item>
-          <el-form-item label="微信号/openid"><el-input v-model="form.wechatOpenid" placeholder="openid 或微信号（与 userId 二选一）" /></el-form-item>
+          <el-form-item label="微信用户ID"><el-input v-model="form.wechatUserId" placeholder="wx_user.id（与下面二选一，必填其一）" /></el-form-item>
+          <!-- ⚠️ 2026-09-29 第十二批：后端该字段**同时接受 openid 与微信号**（通过条件任一：= 该用户 openid / = 其登记的 wx_id / 形如 wxid_）。
+               此前标签写「微信号/openid」而**后端只比对 openid** ⇒ 运营按标签填微信号会被拒（B 端反馈的"微信号不匹配"就是这个）。 -->
+          <el-form-item label="微信号 或 openid"><el-input v-model="form.wechatOpenid" placeholder="openid 或微信号（形如 wxid_xxx）均可，与上面二选一" /></el-form-item>
         </template>
         <el-form-item v-if="isEditing && needWechat" label-width="0">
           <el-alert title="微信绑定请用操作列「绑定微信 / 解绑微信」，此处不修改。" type="warning" :closable="false" show-icon />

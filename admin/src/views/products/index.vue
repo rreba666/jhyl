@@ -29,7 +29,7 @@ const promotionUseDefault = ref(true)
 /** 平台红包是否使用默认比例自动计算。 */
 const dividendUseDefault = ref(true)
 /**
- * 编辑回显是否拿到了商品级「配送方式」两个开关（`pickupEnabled` / `deliveryEnabled`）。
+ * 编辑回显是否拿到了商品级「自提 + 物流」两个开关（`pickupEnabled` / `deliveryEnabled`）。
  *
  * 这两个字段的后端语义是「**不传 = 不修改**」（2026-09-22 上线），而详情接口是唯一回显来源：
  * 详情里没有这两个字段时（老后端 / 灰度期）**必须整个字段都不提交** ——
@@ -37,6 +37,16 @@ const dividendUseDefault = ref(true)
  * 新增态没有回显，恒为 true（用默认值 1 显式提交）。
  */
 const deliverySwitchEchoed = ref(true)
+/**
+ * 编辑回显是否拿到了商品级「**同城配送**」开关（`sameCityEnabled`，2026-09-29 第十二批新增）。
+ *
+ * ⚠️ **必须与 `deliverySwitchEchoed` 分开判断，不能合并成一个变量**：
+ *    `sameCityEnabled` 是后端本批才加的字段，**老后端 / 灰度期的详情里不会有它**；
+ *    若并进上面那个变量，就会出现「`pickupEnabled`/`deliveryEnabled` 明明回显到了，
+ *    却因为同城字段缺失而**三者一起不提交**」⇒ 运营改了自提/物流开关也保存不了。
+ * ⇒ 三个开关**各自独立**决定本次要不要提交（后端对三者都是"不传 = 不修改"）。
+ */
+const sameCitySwitchEchoed = ref(true)
 const detailUploadCount = ref(0)
 /**
  * 打开表单那一刻的详情图快照（保存后回读比对用）。
@@ -160,7 +170,7 @@ async function loadBrandOptions(): Promise<void> {
 /** 创建新增商品的默认表单。 */
 function createEmptyForm(): AdminProductSaveDTO {
   // pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增）后端默认 1：新增商品默认两种配送方式都支持
-  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1 }
+  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1, sameCityEnabled: 1 }
 }
 
 function getMinSkuPrice(skuList: AdminProductSaveDTO['skuList'] = form.skuList): number {
@@ -208,8 +218,11 @@ function fillForm(detail?: ProductDetail): void {
   // 商品级配送方式（2026-09-22）：详情回显拿到原样回填；拿不到则显示默认 1，但提交阶段会跳过这两个字段
   const pickupEcho = detail ? normalizeSwitchOrNull(detail.pickupEnabled) : 1
   const deliveryEcho = detail ? normalizeSwitchOrNull(detail.deliveryEnabled) : 1
+  // ⚠️ 同城开关是第十二批新增字段：老后端详情里没有 ⇒ **单独**判断是否提交（见 sameCitySwitchEchoed 的说明）
+  const sameCityEcho = detail ? normalizeSwitchOrNull(detail.sameCityEnabled) : 1
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
-  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  sameCitySwitchEchoed.value = sameCityEcho !== null
+  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, sameCityEnabled: sameCityEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 回填后按该商户加载门店选项（否则 shopIds 在选项里找不到，多选显示为空）
   // ⚠️ 第二参传 true：该商户只有**一个**门店、且本次没回填到 shopIds 时，自动选中它；
   //    若 `detail.shopIds` 已有值，上面的 Object.assign 已写入 ⇒ 自动跳过，不覆盖用户原有选择。
@@ -344,7 +357,7 @@ async function submitForm(): Promise<void> {
   // 后端 categoryId / goodsBrandId 是 integer：传非数字字符串会被 Jackson 判为「请求体格式错误」
   // （2026-09-19 实测复现：categoryId="分类A" → code=1000 请求体格式错误）。
   // 这里提前拦下来给出可读提示，空值则整个字段都不提交。
-  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, ...rest } = form
+  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, sameCityEnabled: rawSameCityEnabled, ...rest } = form
   const categoryId = toOptionalInteger(rawCategoryId)
   if (String(rawCategoryId ?? '') !== '' && categoryId === undefined) {
     ElMessage.error('商品分类参数不合法，请重新选择分类')
@@ -388,6 +401,9 @@ async function submitForm(): Promise<void> {
       ...(deliverySwitchEchoed.value
         ? { pickupEnabled: normalizeBinary(rawPickupEnabled), deliveryEnabled: normalizeBinary(rawDeliveryEnabled) }
         : {}),
+      // 同城配送开关（2026-09-29 第十二批新增）：同样是"不传 = 不修改"，
+      // 但**独立判断** —— 老后端详情没有该字段时只跳过它，不影响上面两个开关的提交。
+      ...(sameCitySwitchEchoed.value ? { sameCityEnabled: normalizeBinary(rawSameCityEnabled) } : {}),
       // 规格名必须**两个字段名都带同值**：后端 2026-09-22 起对 `skuList[].skuName` 强校验（@NotBlank，
       // 缺失/空串 → 1000 skuList[0].skuName: SKU 名称不能为空），而写库历史上用的是 `specName`（2026-09-19 实测）。
       // 后端 Jackson 忽略未知字段，所以两个都带上可同时兼容两套字段名。
@@ -686,13 +702,17 @@ onMounted(() => {
         <el-form-item label="排序权重"><el-input-number v-model="form.sortOrder" :min="0" /></el-form-item>
         <div class="fund-config-row form-item-full"><el-form-item label="推广资金"><div class="fund-control"><el-switch v-model="promotionUseDefault" active-text="默认比例" inactive-text="手动金额" /><el-input-number v-model="form.promotionFund" :min="0" :precision="2" :disabled="promotionUseDefault" /><el-switch v-model="form.promotionEnabled" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="禁用" /></div></el-form-item><el-form-item label="平台红包"><div class="fund-control"><el-switch v-model="dividendUseDefault" active-text="默认比例" inactive-text="手动金额" /><el-input-number v-model="form.dividendFund" :min="0" :precision="2" :disabled="dividendUseDefault" /><el-switch v-model="form.dividendEnabled" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="禁用" /></div></el-form-item></div>
         <el-form-item label="商品状态"><el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="上架" inactive-text="下架" /></el-form-item>
-        <!-- 商品级配送方式（2026-09-22）：与「模块开关」「门店是否上架」三重叠加；关闭后 C 端下单会报 13023 / 13024 -->
+        <!-- 商品级配送方式（2026-09-22 上线，2026-09-29 第十二批拆为三段）：
+             与「模块开关」「门店是否上架」三重叠加；关闭后 C 端下单会报 13023（自提）/ 13024（物流·同城）。
+             ⚠️ 本批把「同城」从 `deliveryEnabled` 里拆出为独立字段 `sameCityEnabled`：
+                `deliveryEnabled` 语义收窄为「仅物流」；下单时 `pickupType=0` 看它，`pickupType=2` **只看 `sameCityEnabled`**。 -->
         <el-form-item label="配送方式" class="form-item-full">
           <div class="delivery-switch-row">
             <el-switch v-model="form.pickupEnabled" :active-value="1" :inactive-value="0" active-text="支持线下自提" inactive-text="不支持线下自提" />
-            <el-switch v-model="form.deliveryEnabled" :active-value="1" :inactive-value="0" active-text="支持物流/同城配送" inactive-text="不支持物流/同城配送" />
+            <el-switch v-model="form.deliveryEnabled" :active-value="1" :inactive-value="0" active-text="支持物流（快递）" inactive-text="不支持物流（快递）" />
+            <el-switch v-model="form.sameCityEnabled" :active-value="1" :inactive-value="0" active-text="支持同城配送" inactive-text="不支持同城配送" />
           </div>
-          <p class="upload-hint">关闭后用户下单不能选择该配送方式（自提 13023、物流/同城 13024）；按详情回显值原样提交，详情未返回时不提交（后端语义：不传 = 不修改）。</p>
+          <p class="upload-hint">三个开关各自独立：关闭后用户下单不能选择对应方式（自提 13023；物流 / 同城 13024，后端文案已按三档区分）。按详情回显值原样提交，详情未返回的字段单独不提交（后端语义：不传 = 不修改）。</p>
         </el-form-item>
         <el-form-item label="首页推荐"><el-switch v-model="form.isRecommended" :disabled="normalizeBinary(form.status) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
         <el-form-item label="推荐文本"><el-switch v-model="form.recommendTextEnabled" :disabled="normalizeBinary(form.status) === 0 || normalizeBinary(form.isRecommended) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
@@ -751,7 +771,7 @@ onMounted(() => {
 .fund-config-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
 .fund-config-row :deep(.el-form-item) { min-width: 0; }
 .fund-control { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
-/* 商品级配送方式两个开关并排，窄屏自动换行 */
+/* 商品级配送方式三个开关并排（自提 / 物流 / 同城），窄屏自动换行 */
 .delivery-switch-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 28px; min-width: 0; }
 .fund-control .form-hint { margin-left: 0; }
 .selection-tip { color: #8492a6; font-size: 13px; }

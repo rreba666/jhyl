@@ -38,6 +38,15 @@ export interface VoiceSceneItem {
   triggerPoint: string
   /** 当前生效的模板原文；`null` = 没配过（回落代码文案）。 */
   contentTemplate: string | null
+  /**
+   * **本场景当前生效的语音模板码**（`ttsCode`，2026-09-29 第十二批新增）。
+   *
+   * 语义：**三级回落后的结果**（场景配置 → 全局 → 渠道静态配置）。
+   * `null` = 该场景没有可用的模板码（呼不出去）。
+   * ⚠️ 这是**生效值**，不是"本场景的覆盖值" —— 想判断"本场景是否单独配过"，
+   *    需对比它与全局 `AdminVoiceConfigVO` 里的全局码。
+   */
+  ttsCode: string | null
   /** 文案来源三态。 */
   source: VoiceSceneSource
   /** 该场景当前是否允许外呼。 */
@@ -149,6 +158,19 @@ export interface VoiceTemplateUpdate {
   contentTemplate?: string | null
   /** 不传视为 `true`；`false` = **该场景不外呼**（保留行、**不回落**代码文案）。 */
   enabled?: boolean
+  /**
+   * 本场景的语音模板码（`ttsCode`，2026-09-29 第十二批新增）。**三态语义，UI 必须照此实现**：
+   *
+   * | 用户行为 | 传值 | 效果 |
+   * |---|---|---|
+   * | **没改** | **字段省略**（`undefined`） | **不修改**已配置的 TTS |
+   * | 点「清除 / 回落全局」 | **空串 `''`** | 清除本场景覆盖 ⇒ 回落全局 |
+   * | 填了模板码 | 值（须 `TTS_` 开头） | 设置本场景 TTS |
+   *
+   * ⚠️ 所以**不能**简单地传 `draft || null`：`null` 与"不传"在 JSON 里可能都被省略，
+   *    会导致「想清除却变成不修改」。清除必须传**空串**。
+   */
+  ttsCode?: string | null
   /** 变更原因。 */
   reason?: string | null
 }

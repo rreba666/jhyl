@@ -70,6 +70,9 @@ function normalizeItem(value: unknown): VoiceSceneItem {
     role: String(row.role ?? 'USER'),
     triggerPoint: String(row.triggerPoint ?? ''),
     contentTemplate: row.contentTemplate ?? null,
+    // ⚠️ 2026-09-29 第十二批新增字段：**白名单重建里必须同步补**，
+    //    否则后端下发了 ttsCode 也会被这里丢掉 —— 表现与"字段还没上线"完全一样，极难排查。
+    ttsCode: row.ttsCode ?? null,
     source: (row.source ?? 'FALLBACK') as VoiceSceneItem['source'],
     enabled,
     // 后端显式给 blocked；缺失时按 !enabled 兜底（前端不主动反推，仅防御）

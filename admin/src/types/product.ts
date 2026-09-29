@@ -82,10 +82,18 @@ export interface ProductDetail extends ProductListItem {
    */
   pickupEnabled?: ProductSwitchStatusValue
   /**
-   * 商品级「支持物流(0)/同城(2)配送」（`deliveryEnabled`，2026-09-22 新增）：1=支持, 0=不支持，默认 1。
-   * 关闭后 C 端下单走物流/同城会报 `13024`。
+   * 商品级「支持**物流（快递）**」配送（`deliveryEnabled`，2026-09-22 新增）：1=支持, 0=不支持，默认 1。
+   * ⚠️ **2026-09-29 语义已收窄为「仅物流」**（原为「物流 + 同城」）——
+   * 同城已拆到独立字段 `sameCityEnabled`，下单校验随之拆分（`pickupType=0` 看本字段）。
+   * 关闭后 C 端下单走物流会报 `13024`（错误码不变，后端文案已按"自提/同城/物流"三档精准化）。
    */
   deliveryEnabled?: ProductSwitchStatusValue
+  /**
+   * 商品级「支持**同城配送**」（`sameCityEnabled`，2026-09-29 新增）：1=支持（默认）, 0=不支持。
+   * ⚠️ 下单校验：`pickupType=2` **只看本字段**（不再看 `deliveryEnabled`）。
+   * ⚠️ 为 `undefined` = 详情接口未返回该字段（后端未部署/旧数据）⇒ 提交时**整个字段不提交**（不传 = 不修改）。
+   */
+  sameCityEnabled?: ProductSwitchStatusValue
 }
 
 export interface AdminProductSaveDTO {
@@ -116,8 +124,10 @@ export interface AdminProductSaveDTO {
   skuList: ProductSku[]
   /** 商品级「支持线下自提」：1=支持, 0=不支持；新增商品默认 1。 */
   pickupEnabled: ProductStatus
-  /** 商品级「支持物流(0)/同城(2)配送」：1=支持, 0=不支持；新增商品默认 1。 */
+  /** 商品级「支持**物流（快递）**」：1=支持, 0=不支持；新增商品默认 1（⚠️ 语义已收窄为"仅物流"）。 */
   deliveryEnabled: ProductStatus
+  /** 商品级「支持**同城配送**」（2026-09-29 新增）：1=支持（默认）, 0=不支持。 */
+  sameCityEnabled: ProductStatus
 }
 
 /**
@@ -152,10 +162,11 @@ export interface AdminSkuSaveItem {
  * ⚠️ 后端 `categoryId` / `goodsBrandId` 是 **integer**：传非数字字符串会被 Jackson 判为
  * **「请求体格式错误」**（2026-09-19 实测复现：`categoryId="分类A"` → `code=1000 请求体格式错误`）。
  * 所以这里用 number 类型，空值一律**不传该字段**（而不是传空串）。
- * ⚠️ `pickupEnabled` / `deliveryEnabled` 语义是「**不传 = 不修改**」：详情接口没回显到这两个字段时
- * 整个字段都不提交（传默认值 1 会把商家已关掉的开关重新打开）。
+ * ⚠️ `pickupEnabled` / `deliveryEnabled` / `sameCityEnabled` 三个配送开关的语义都是「**不传 = 不修改**」：
+ * 详情接口没回显到某个字段时，**该字段单独不提交**（传默认值 1 会把商家已关掉的开关重新打开）。
+ * ⇒ 三个字段各自独立判断，不要"一个没回显就全都不提交"（那会导致明明回显到的开关也保存不了）。
  */
-export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled'> {
+export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled' | 'sameCityEnabled'> {
   categoryId?: number
   goodsBrandId?: number
   /** 所属商户 id（long；undefined = 不提交/不修改）。 */
@@ -165,8 +176,10 @@ export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'cate
   skuList: AdminSkuSaveItem[]
   /** 支持线下自提：1/0；undefined = 不提交（不修改）。 */
   pickupEnabled?: ProductStatus
-  /** 支持物流(0)/同城(2)配送：1/0；undefined = 不提交（不修改）。 */
+  /** 支持**物流（快递）**：1/0；undefined = 不提交（不修改）。 */
   deliveryEnabled?: ProductStatus
+  /** 支持**同城配送**（2026-09-29 新增）：1/0；undefined = 不提交（不修改）。 */
+  sameCityEnabled?: ProductStatus
 }
 
 export interface CategoryNode {
