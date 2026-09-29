@@ -565,7 +565,8 @@ onMounted(() => {
       ⇒ 下面两个 radial-gradient 就是这两个圆；末位 #fff 是面板底色。
    ⚠️ opacity 必须覆盖为 1 —— 基础类 .heritage-header-glow 是 .78（那是给收起态整张花纹图用的），
       纯 CSS 渐变本身已经很淡，再乘 .78 会几乎看不见。 */
-.heritage-header-glow.expanded { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; opacity: 1; background-color: #fff; background-image: radial-gradient(circle at 11% 24%, #FBE0D3 0%, rgba(251, 224, 211, 0) 39%), radial-gradient(circle at 89% 24%, #D3FBE2 0%, rgba(211, 251, 226, 0) 39%); background-repeat: no-repeat; }/* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
+.heritage-header-glow.expanded { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; opacity: 1; background-color: #fff; background-image: radial-gradient(circle at 11% 24%, #FBE0D3 0%, rgba(251, 224, 211, 0) 39%), radial-gradient(circle at 89% 24%, #D3FBE2 0%, rgba(211, 251, 226, 0) 39%); background-repeat: no-repeat; }
+/* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
 .brand-strip { position: absolute; top: 177rpx; right: 0; left: 0; display: flex; height: 181rpx; align-items: flex-start; padding: 15rpx 23rpx 0; box-sizing: border-box; gap: 16rpx; }
 .brand-scroll { width: 100%; height: 142rpx; white-space: nowrap; }
 /* scroll-view 横向滚动推荐写法：inline-block + nowrap，避免品牌折行 */
