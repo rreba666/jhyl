@@ -84,8 +84,15 @@ const formShopLoading = ref(false)
  * 按商户加载编辑用门店选项。
  * ⚠️ 必须在**编辑回填之后**调用 —— 否则回显的 `shopIds` 在选项里找不到，多选会显示成空。
  * ⚠️ 未选商户时不加载（后端也要求「先选品牌，再选门店」）。
+ *
+ * ⭐ 2026-09-29 新增 `autoPickSingle`：**该商户只有一个门店时自动选中它**（用户要求）。
+ *    动机：像「平台自营」这类**一个商户只有一个门店**的场景占多数，
+ *    每次都让运营再点一次门店纯属多余。
+ *    ⚠️ **只有「恰好一个门店」才自动选** —— 多门店时**绝不猜**（猜错会让商品关联到错误门店）。
+ *    ⚠️ **只有「当前没有已选门店」时才自动选** —— 否则编辑回填会被覆盖
+ *      （编辑时 `Object.assign` 已先写入 `detail.shopIds`，这里必须让位于它）。
  */
-async function loadFormShopOptions(merchantId?: number | null): Promise<void> {
+async function loadFormShopOptions(merchantId?: number | null, autoPickSingle = false): Promise<void> {
   if (merchantId == null || !Number.isFinite(Number(merchantId))) {
     formShopOptions.value = []
     return
@@ -94,6 +101,10 @@ async function loadFormShopOptions(merchantId?: number | null): Promise<void> {
   try {
     const result = await getShops(1, 200, '', Number(merchantId))
     formShopOptions.value = (result?.list || []) as Shop[]
+    // 单门店自动选中（两个前提都满足才动，见上方注释）
+    if (autoPickSingle && formShopOptions.value.length === 1 && (form.shopIds || []).length === 0) {
+      form.shopIds = [Number(formShopOptions.value[0].id)]
+    }
   } catch {
     // 失败不阻塞：只是门店选不出来，保存时后端会兜底校验
     formShopOptions.value = []
@@ -104,10 +115,11 @@ async function loadFormShopOptions(merchantId?: number | null): Promise<void> {
 /**
  * 切换「所属商户」时重载门店选项，并**清空已选门店**。
  * ⚠️ 必须清空：旧商户的门店对新商户无效，留着会被后端拒（门店不属于该品牌）。
+ * ⚠️ 清空后正好满足「单门店自动选中」的前提 ⇒ 传 `true`（选完商户即自动带出唯一门店）。
  */
 function onMerchantChange(value: unknown): void {
   form.shopIds = []
-  void loadFormShopOptions(value == null || value === '' ? null : Number(value))
+  void loadFormShopOptions(value == null || value === '' ? null : Number(value), true)
 }
 
 const mediaUploading = computed(() => store.uploading || detailUploadCount.value > 0)
@@ -193,7 +205,9 @@ function fillForm(detail?: ProductDetail): void {
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
   Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 回填后按该商户加载门店选项（否则 shopIds 在选项里找不到，多选显示为空）
-  void loadFormShopOptions(form.merchantId as number | null)
+  // ⚠️ 第二参传 true：该商户只有**一个**门店、且本次没回填到 shopIds 时，自动选中它；
+  //    若 `detail.shopIds` 已有值，上面的 Object.assign 已写入 ⇒ 自动跳过，不覆盖用户原有选择。
+  void loadFormShopOptions(form.merchantId as number | null, true)
   // 新增商品默认使用比例；编辑商品根据已保存金额恢复模式（后端暂无独立模式字段）。
   promotionUseDefault.value = detail ? isDefaultFundAmount(detail.promotionFund, detail.minPrice, getDefaultPromotionFund) : true
   dividendUseDefault.value = detail ? isDefaultFundAmount(detail.dividendFund, detail.minPrice, getDefaultDividendFund) : true
