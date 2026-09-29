@@ -21,15 +21,25 @@ import LoginGuide from '@/components/LoginGuide.vue'
 type PickupType = 0 | 1 | 2
 type InvoiceType = 'personal' | 'company'
 /**
- * 商品级「配送方式」开关的下单拦截错误码与文案（后端 2026-09-22 新增，与文档 §7b ② 一致）：
- * 自提单里含 pickupEnabled=0 的商品 → 13023；物流/同城单里含 deliveryEnabled=0 的商品 → 13024。
- * 前端提前按这两个开关过滤配送方式，后端这一层仍然拦截（前端过滤只是少让用户白跑一趟）。
+ * 商品级「配送方式」开关的下单拦截错误码与兜底文案（后端 2026-09-22 新增；2026-09-29 第十二批拆分）。
+ *
+ * - 自提单里含 `pickupEnabled=0` 的商品 → `13023`；
+ * - 物流 / 同城单里含**对应**开关为 0 的商品 → `13024`（**错误码不变**）。
+ *
+ * ⚠️ 第十二批把「同城」从 `deliveryEnabled` 里拆出为独立字段 `sameCityEnabled`：
+ *    `deliveryEnabled` 语义**收窄为「仅物流」**；下单时 `pickupType=0` 看它，`pickupType=2` **只看 `sameCityEnabled`**。
+ * ⚠️ 后端已把 `13024` 的文案**按三档精准化**（自提被拦 / 同城被拦 / 物流被拦各一句），
+ *    所以下面这些常量只作**兜底**用 —— 有后端文案时必须让后端文案透出（见 `productDeliveryErrorMessage`）。
+ * 前端提前按三个开关过滤配送方式，后端这一层仍然拦截（前端过滤只是少让用户白跑一趟）。
  */
 const PRODUCT_PICKUP_BLOCKED_CODE = 13023
 const PRODUCT_DELIVERY_BLOCKED_CODE = 13024
 const PRODUCT_PICKUP_BLOCKED_MESSAGE = '该商品不支持线下自提，请选择其他配送方式'
-const PRODUCT_DELIVERY_BLOCKED_MESSAGE = '该商品不支持物流/同城配送，请选择其他配送方式'
-/** 两个开关都被关掉时的统一提示（任何配送方式后端都会拦，直接禁用下单）。 */
+/** ⚠️ 第十二批起本常量只代表「物流被拦」（原为"物流/同城"共用）。 */
+const PRODUCT_DELIVERY_BLOCKED_MESSAGE = '该商品不支持物流配送，请选择其他配送方式'
+/** 同城被拦的兜底文案（13024 的后端文案已按三档精准化，这里只是后端没给 message 时的退路）。 */
+const PRODUCT_SAME_CITY_BLOCKED_MESSAGE = '该商品不支持同城配送，请选择其他配送方式'
+/** 三个开关都被关掉时的统一提示（任何配送方式后端都会拦，直接禁用下单）。 */
 const PRODUCT_DELIVERY_NONE_MESSAGE = '该商品暂不支持任何配送方式'
 const PAYMENT_CONTACT_NAME_MAX_LENGTH = 32
 const PAYMENT_ADDRESS_MAX_LENGTH = 200
@@ -403,6 +413,7 @@ async function loadExistingOrder(): Promise<void> {
         stock: 0,
         pickupEnabled: 1,
         deliveryEnabled: 1,
+        sameCityEnabled: 1,
       }))
     } else if (detail.totalQuantity > 0) {
       items.value = [{
@@ -419,6 +430,7 @@ async function loadExistingOrder(): Promise<void> {
         stock: 0,
         pickupEnabled: 1,
         deliveryEnabled: 1,
+        sameCityEnabled: 1,
       }]
     }
   } catch (error) {
@@ -573,22 +585,27 @@ interface DeliveryOption {
 }
 
 /**
- * 商品级配送开关（后端 2026-09-22 新增，默认 1=支持；缺失/非法值由 normalizeDeliverySwitch 按 1 兜底）：
- * - 任一已选商品 pickupEnabled=0 → 不提供「门店自提」（后端会以 13023 拦）；
- * - 任一已选商品 deliveryEnabled=0 → 不提供「快递配送」与「同城配送」（后端会以 13024 拦）。
- * 与「模块开关」「同城可送性」是三重叠加关系，缺一层都会出现「能选但下不了单」。
+ * 商品级配送开关（后端 2026-09-22 新增、**2026-09-29 第十二批拆为三个**；默认 1=支持，
+ * 缺失/非法值由 normalizeDeliverySwitch 按 1 兜底）：
+ * - 任一已选商品 `pickupEnabled=0` → 不提供「门店自提」（后端以 `13023` 拦）；
+ * - 任一已选商品 `deliveryEnabled=0` → 不提供「快递配送」（后端以 `13024` 拦）—— ⚠️ 本批起它**只管物流**；
+ * - 任一已选商品 `sameCityEnabled=0` → 不提供「同城配送」（后端同以 `13024` 拦，文案按档区分）。
+ * 与「模块开关」「门店可送性」是多重叠加关系，缺一层都会出现「能选但下不了单」。
  */
 const pickupBlockedByProduct = computed(() => items.value.some((item) => normalizeDeliverySwitch(item.pickupEnabled) === 0))
 const deliveryBlockedByProduct = computed(() => items.value.some((item) => normalizeDeliverySwitch(item.deliveryEnabled) === 0))
-/** 同一批商品里两个开关都关掉：任何配送方式都下不了单（页面提示 + 禁用下单 + 提交拦截三重兜底）。 */
-const noSupportedDeliveryMethod = computed(() => pickupBlockedByProduct.value && deliveryBlockedByProduct.value)
+/** ⚠️ 同城**独立**判断：不再复用 `deliveryBlockedByProduct`（那会让"物流被关"把同城也一起拦掉）。 */
+const sameCityBlockedByProduct = computed(() => items.value.some((item) => normalizeDeliverySwitch(item.sameCityEnabled) === 0))
+/** 同一批商品里**三个**开关都关掉：任何配送方式都下不了单（页面提示 + 禁用下单 + 提交拦截三重兜底）。 */
+const noSupportedDeliveryMethod = computed(() => pickupBlockedByProduct.value && deliveryBlockedByProduct.value && sameCityBlockedByProduct.value)
 
 /**
  * 取某个配送方式被「商品级配送开关」过滤掉的原因；返回空串表示该方式可选。
- * 物流(0) 与同城(2) 共用 deliveryEnabled，自提(1) 用 pickupEnabled。
+ * 物流(0) 用 `deliveryEnabled`、自提(1) 用 `pickupEnabled`、**同城(2) 用 `sameCityEnabled`**（第十二批拆分）。
  */
 function deliveryBlockedReasonFor(type: PickupType): string {
   if (type === 1) return pickupBlockedByProduct.value ? PRODUCT_PICKUP_BLOCKED_MESSAGE : ''
+  if (type === 2) return sameCityBlockedByProduct.value ? PRODUCT_SAME_CITY_BLOCKED_MESSAGE : ''
   return deliveryBlockedByProduct.value ? PRODUCT_DELIVERY_BLOCKED_MESSAGE : ''
 }
 
@@ -1289,13 +1306,22 @@ function validateCheckoutInputs(isExistingOrder: boolean): boolean {
 }
 
 /**
- * 商品级「配送方式」开关的下单拦截码 → 用户可读文案（13023 自提 / 13024 物流同城）。
+ * 商品级「配送方式」开关的下单拦截码 → 用户可读文案（`13023` 自提 / `13024` 物流·同城）。
+ *
+ * ⚠️ 2026-09-29 第十二批：后端已把 `13024` 的文案**按三档精准化**
+ * （自提被拦 / **同城被拦** / 物流被拦各一句）⇒ 这里**优先让后端文案透出**。
+ * 此前是"本地常量直接覆盖后端"，会把后端那句精准文案盖成笼统的「不支持物流/同城配送」✗。
+ * ⇒ 仅当后端**没给** message 时才退回本地常量兜底。
  * 返回空串表示不是这两类错误，交给调用方继续按原文案处理。
  */
-function productDeliveryErrorMessage(code: number): string {
-  if (code === PRODUCT_PICKUP_BLOCKED_CODE) return PRODUCT_PICKUP_BLOCKED_MESSAGE
-  if (code === PRODUCT_DELIVERY_BLOCKED_CODE) return PRODUCT_DELIVERY_BLOCKED_MESSAGE
-  return ''
+function productDeliveryErrorMessage(code: number, backendMessage?: string): string {
+  const fallback = code === PRODUCT_PICKUP_BLOCKED_CODE
+    ? PRODUCT_PICKUP_BLOCKED_MESSAGE
+    : code === PRODUCT_DELIVERY_BLOCKED_CODE
+      ? PRODUCT_DELIVERY_BLOCKED_MESSAGE
+      : ''
+  if (!fallback) return ''
+  return (backendMessage || '').trim() || fallback
 }
 
 /** 将红包商品购买机会错误转换为面向用户的业务提示。 */
@@ -1304,9 +1330,11 @@ function getPaymentErrorMessage(error: unknown): string {
   // ⚠️ 2026-09-27：改用 utils/request 的统一实现，此前这里自己写了一份 `.replace(/旧词/g,'红包')` —— 那份会
   // 把「「部分」+「红包」」毁成「部红包包」，也会把后端的「旧词+红包」变成「红包红包」（今华有肽已踩过同样两个坑）。
   const message = normalizeLegacyWording(error instanceof Error ? error.message : '')
-  // 商品级配送开关：后端文案已定，这里用本地常量兜一层，避免后端改词时前端提示含混
+  // 商品级配送开关：⚠️ 2026-09-29 第十二批起**优先用后端文案** ——
+  // 后端已把 13024 按「自提 / 同城 / 物流」三档精准化，用本地常量覆盖会把精准文案盖成笼统一句。
+  // 只有后端没给 message 时才退回本地兜底常量。
   if (isApiRequestError(error)) {
-    const deliveryMessage = productDeliveryErrorMessage(error.code)
+    const deliveryMessage = productDeliveryErrorMessage(error.code, message)
     if (deliveryMessage) return deliveryMessage
   }
   if (message.includes('购买机会不足') || message.includes('无法购买该红包商品')) {

@@ -27,14 +27,21 @@ export interface CartItem {
   dividendEligible?: boolean
   /**
    * 商品级「是否支持线下自提」（后端 2026-09-22 新增，1=支持 / 0=不支持，**默认 1**）。
-   * CartListVO 不返回这两个开关，由 getCartList({ resolveDeliverySwitch: true }) 用商品详情缓存补齐。
+   * CartListVO 不返回这三个开关，由 getCartList({ resolveDeliverySwitch: true }) 用商品详情缓存补齐。
    */
   pickupEnabled?: 0 | 1
   /**
-   * 商品级「是否支持物流(0)/同城配送(2)」（后端 2026-09-22 新增，1=支持 / 0=不支持，**默认 1**）。
+   * 商品级「是否支持**物流（快递）**」（后端 2026-09-22 新增，1=支持 / 0=不支持，**默认 1**）。
+   * ⚠️ **2026-09-29 第十二批语义收窄为「仅物流」**（原为"物流 + 同城"）：同城已拆到 `sameCityEnabled`。
    * 同上，由商品详情缓存补齐；缺失/非法值一律按 1 兜底。
    */
   deliveryEnabled?: 0 | 1
+  /**
+   * 商品级「是否支持**同城配送**」（后端 2026-09-29 第十二批新增，1=支持 / 0=不支持，**默认 1**）。
+   * ⚠️ 下单校验：`pickupType=2` **只看本字段**（不再看 `deliveryEnabled`）。
+   * 同上，由商品详情缓存补齐；缺失/非法值一律按 1 兜底。
+   */
+  sameCityEnabled?: 0 | 1
 }
 
 /** 加入购物车请求体（对应 CartAddDTO） */
@@ -45,7 +52,7 @@ export interface CartAddDTO {
 }
 
 /**
- * 归一化商品级配送开关（pickupEnabled / deliveryEnabled）：
+ * 归一化商品级配送开关（pickupEnabled / deliveryEnabled / sameCityEnabled）：
  * 后端约定 1=支持、0=不支持，**字段缺失或下发非 0/1 的值时按 1（支持）兜底**，与后端默认值保持一致。
  * 取舍：宁可先把用户放到后端下单校验（13023/13024 拦），也不能把「字段缺失」误判成「不支持」而挡掉正常下单。
  */
@@ -57,7 +64,7 @@ export function normalizeDeliverySwitch(value: unknown): 0 | 1 {
 export interface CartListOptions {
   /** 是否补齐补贴周期资格 dividendEligible（红包商品购买限制需要）。 */
   resolveDividendEligibility?: boolean
-  /** 是否补齐商品级配送开关 pickupEnabled / deliveryEnabled（结算页判断可选配送方式需要）。 */
+  /** 是否补齐商品级配送开关 pickupEnabled / deliveryEnabled / sameCityEnabled（结算页判断可选配送方式需要）。 */
   resolveDeliverySwitch?: boolean
 }
 
@@ -104,10 +111,12 @@ async function getCachedProductDetail(productId: number): Promise<ProductDetail 
 
 /**
  * 用商品详情缓存补齐购物车条目上「只有商品详情接口才下发」的字段：
- * - pickupEnabled / deliveryEnabled：商品级配送开关（CartListVO 不带）；
+ * - pickupEnabled / deliveryEnabled / sameCityEnabled：商品级配送开关（CartListVO 不带）；
+ *   ⚠️ 2026-09-29 第十二批把「同城」从 `deliveryEnabled` 拆出为 `sameCityEnabled`，这里同步补上 ——
+ *   **白名单式重建必须跟着补**，否则结算页拿不到同城开关，会把"不支持同城"的商品放行。
  * - dividendEligible：红包商品购买资格（需要详情里的 dividendEnabled + SKU 价格）。
  *
- * 为什么补在**购物车这条链路**上：结算页要按「整批已选商品」判断能不能自提、能不能物流/同城，
+ * 为什么补在**购物车这条链路**上：结算页要按「整批已选商品」判断能不能自提、能不能物流、能不能同城，
  * 如果放到结算页逐条现查详情，一次结算就会多打 N 个请求；购物车里本来就要为红包资格查详情，
  * 这里复用同一个 getCachedProductDetail 缓存（TTL 30s）一次拿全，两种字段共用同一批请求。
  * 详情查不到时（网络失败 / 商品下架）保留原值 —— 也就是按默认 1（支持）兜底，绝不静默放行错误订单：
@@ -125,6 +134,8 @@ async function resolveProductFlags(items: CartItem[], withDividendEligibility: b
       ...item,
       pickupEnabled: detail ? normalizeDeliverySwitch(detail.pickupEnabled) : item.pickupEnabled,
       deliveryEnabled: detail ? normalizeDeliverySwitch(detail.deliveryEnabled) : item.deliveryEnabled,
+      // ⚠️ 第十二批新增：**白名单式重建必须同步补**，否则结算页拿不到同城开关（表现 = 不支持同城的商品被放行）
+      sameCityEnabled: detail ? normalizeDeliverySwitch(detail.sameCityEnabled) : item.sameCityEnabled,
       ...(withDividendEligibility
         ? {
             dividendEligible: sku
