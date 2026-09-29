@@ -490,7 +490,12 @@ onMounted(() => {
    ⇒ padding-top 由 358rpx 降为 24rpx：让位给 fixed 头部的活现在由 margin-top 承担，
      padding-top 只保留"商品卡片与盒子顶部"的那点间距。
    注：background 那行实际被模板内联的 themeConfig.backgroundColor 覆盖（heritage 为 #F6E7C8）。 */
-.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; overflow: hidden; background: #fff; }
+/* ⚠️ 2026-09-29 第三轮：用户要求「盒子与上方没有间距」+「高度撑满整个页面」。
+   ⇒ margin-top 由 374rpx（358 + 16 露缝）改回 **358rpx**，正好等于固定头部高度 ⇒ 盒子顶与头部**无缝相接**。
+   ⇒ 圆角依然可见：border-radius 的弧**向下凹在盒子内部**，弧的外侧露出的是**页面底色**（pageBackgroundColor
+     的 #f9e7e1 浅暖色），而盒子是白色 ⇒ 有对比。
+   ⇒ min-height 用 calc(100vh - 358rpx)：扣掉固定头部的 358rpx，让盒子**撑满剩余整屏**（商品少时也不留白）。 */
+.theme-heritage .category-products { z-index: 1; margin-top: 358rpx; min-height: calc(100vh - 358rpx); padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; overflow: hidden; background: #fff; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
 /* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
