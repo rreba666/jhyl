@@ -95,7 +95,7 @@ const themeConfig = computed(() => {
     // 品牌栏是 .heritage-header 的 #fff 底 + 头图 heritage-header.jpg 以 opacity .78 叠加，
     // 取头图占比最高的主色 #f8e0d8 与白色按 78% 混合 ⇒ 约 #f9e7e1（即品牌栏实际显示的颜色）。
     // 这样下方装商品卡片的米黄容器（#fae7c9）扣在这个底色上，**顶部圆角才看得出来**。
-    backgroundColor: '#eaf7ef', categoryNames: ['非遗老号', '非遗老字号'] }
+    backgroundColor: '#fff', categoryNames: ['非遗老号', '非遗老字号'] }
     : theme.value === 'landmark'
       ? { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/landmark-hero.jpg', className: 'theme-landmark', fallbackImage: '/static/figma-category/product-main-2.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
       : { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/nutrition-hero.jpg', className: 'theme-nutrition', fallbackImage: '/static/figma-category/product-main-1.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
@@ -126,7 +126,7 @@ const themeConfig = computed(() => {
     // ⚠️ 2026-09-29 同上：给**页面底色**也加一个固定值，避免被后端 `l.backgroundColor`
     // 覆盖成与盒子相同的颜色（那会让米黄容器的圆角彻底看不出来）。
     // heritage 取 #eaf7ef —— 即「品牌栏实际显示色」（#fff 底 + 头图 78% 叠加后的近似色）。
-    pageBackgroundColor: theme.value === 'heritage' ? '#eaf7ef' : undefined,
+    pageBackgroundColor: theme.value === 'heritage' ? '#fff' : undefined,
     // 商品分类：优先用落地页配置的分类（后台「分类」字段），未配置才用主题默认。
     categoryNames: (l.categoryNames?.filter(Boolean).length ? l.categoryNames.filter(Boolean) : base.categoryNames),
   }
@@ -379,6 +379,16 @@ onMounted(() => {
       占位：图片加载完成前用后端给的 headImageHeight 撑住高度，加载后立刻让位给图片真实比例（既不跳动也不留白）。
       ⚠️ 不要再用 headImageHeight 写死容器高度 —— 那正是裁图的根源。
     -->
+    <!-- ⚠️ 非遗老号顶部装饰层（2026-09-29 按 Figma node 2187:10303 补）：
+         Figma `Frame 105` 里是「透明渐变圆 + 浅绿 #D3FBE2 圆（304×304，位于页面右上）」，
+         圆角之所以可见，就是因为商品容器的顶部圆角正好切在这块浅绿上。
+         ⚠️ 只覆盖顶部 404rpx（品牌区 358 + 容器圆角 32 + 余量）——**绝不铺满整屏**，
+            上一版铺满整屏导致页面到处是花纹、效果很差。
+         ⚠️ 用 absolute（随页面滚动）而非 fixed：fixed 会在滚动后与固定头部错位。
+         参数与 .heritage-header-glow 完全一致 ⇒ 两者在 358rpx 交界处自然衔接、无色差。 -->
+    <view v-if="themeConfig.className === 'theme-heritage'" class="heritage-top-glow">
+      <image src="/static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
+    </view>
     <view v-if="themeConfig.templateType !== 'brandGrid'" class="category-hero" :style="heroStyle">
       <image class="category-hero-image" :src="themeConfig.hero" mode="widthFix" @load="onHeroLoad" />
       <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" :fixed="true" @back="goBack" />
@@ -495,7 +505,14 @@ onMounted(() => {
    ⇒ 圆角依然可见：border-radius 的弧**向下凹在盒子内部**，弧的外侧露出的是**页面底色**（pageBackgroundColor
      的 #f9e7e1 浅暖色），而盒子是白色 ⇒ 有对比。
    ⇒ min-height 用 calc(100vh - 358rpx)：扣掉固定头部的 358rpx，让盒子**撑满剩余整屏**（商品少时也不留白）。 */
-.theme-heritage .category-products { z-index: 1; margin-top: 358rpx; min-height: calc(100vh - 358rpx); padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; overflow: hidden; background: #fff; }
+/* ⚠️ 2026-09-29 按 Figma 设计稿（node 2187:10303「金刚区_非遗老号」）校准：
+   · Figma `Frame 103`（商品容器）radii = 16,16,0,0（设计稿 1x，390px 宽）
+     ⇒ 16px × (750/390) ≈ 30.8rpx ⇒ 取 **32rpx**（原为 24rpx，偏小）；
+   · Figma 根容器 / `Frame 104`（品牌区）/ `Frame 103` 三者 fill **都是 #FFFFFF**
+     ⇒ 页面底色与品牌栏底色都应为**纯白**（此前误改成 #eaf7ef 已回退）；
+   · 圆角之所以在设计稿里可见，是因为右上角有一个 **浅绿 `#D3FBE2` 的圆**（`Ellipse 4`，304×304，
+     覆盖到容器顶下方 16px），圆角正好切在它上面 ⇒ 装饰层只覆盖顶部那一段，**不能铺满整屏**。 */
+.theme-heritage .category-products { z-index: 1; margin-top: 358rpx; min-height: calc(100vh - 358rpx); padding: 24rpx 23rpx 23rpx; border-radius: 32rpx 32rpx 0 0; overflow: hidden; background: #fff; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
 /* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
@@ -504,8 +521,14 @@ onMounted(() => {
 .category-product-slot { width: 100%; }
 .category-products-loading { padding: 160rpx 0; color: #86909c; font-size: 28rpx; line-height: 44rpx; text-align: center; }
 /* 非遗页头部整块固定：标题栏 + 品牌条不随商品滚动（与首页一致） */
-.heritage-header { position: fixed; top: 0; right: 0; left: 0; z-index: 10; height: 358rpx; overflow: hidden; background: #eaf7ef; }
+.heritage-header { position: fixed; top: 0; right: 0; left: 0; z-index: 10; height: 358rpx; overflow: hidden; background: #fff; }
 .heritage-header-glow { position: absolute; top: -204rpx; left: -216rpx; width: 1212rpx; height: 608rpx; opacity: .78; }
+/* 非遗老号顶部装饰层：只盖住「品牌区 + 商品容器顶部圆角」这一段（高 404rpx = 头部 358 + 圆角 32 + 余量）。
+   z-index 0 ⇒ 商品容器（1）与固定头部（10）都在它之上；固定头部自带白底，
+   所以 0~358rpx 由头部自己的 glow 呈现，本层只在 358rpx 之下露出 ⇒ 正好给容器圆角当背景。
+   ⚠️ 定位参数必须与 .heritage-header-glow 一致，否则两段花纹在 358rpx 处会错位。 */
+.heritage-top-glow { position: absolute; top: 0; left: 0; z-index: 0; width: 100%; height: 404rpx; overflow: hidden; }
+.heritage-top-glow image { position: absolute; top: -204rpx; left: -216rpx; width: 1212rpx; height: 608rpx; opacity: .78; }
 .heritage-header-glow.expanded { top: 0; left: 0; width: 100%; height: 100%; }
 /* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
 .brand-strip { position: absolute; top: 177rpx; right: 0; left: 0; display: flex; height: 181rpx; align-items: flex-start; padding: 15rpx 23rpx 0; box-sizing: border-box; gap: 16rpx; }
