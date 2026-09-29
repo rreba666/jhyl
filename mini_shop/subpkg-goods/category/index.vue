@@ -112,6 +112,13 @@ const themeConfig = computed(() => {
     // 国家地标那张本地切图是 780×480 的横长图，仍按 476 占位；后端对未配置项兜底返回 696（与"真配 696"无法区分）。
     headImageHeight: (l.landingKey === '国家地标' && (!l.headImageHeight || l.headImageHeight === 696)) ? 476 : (l.headImageHeight || base.headImageHeight),
     backgroundColor: l.backgroundColor ?? base.backgroundColor,
+    // ⚠️ 2026-09-29 新增「商品容器（米黄大盒子）底色」：
+    // 此前盒子的背景直接复用 `themeConfig.backgroundColor`，**与页面底色是同一个值** ⇒
+    // 圆角两侧永远同色 ⇒ 非遗老号的盒子圆角**视觉上永远看不出来**。
+    // 用户明确：**页面底色应与上方品牌 icon 区域的背景一致（白）**，而**盒子是米黄**，
+    // 所以这里给盒子单独一个固定色（沿用 .category-products 的默认米黄 #fae7c9），
+    // 页面底色仍走 backgroundColor（后端配置）。
+    boxBackgroundColor: theme.value === 'heritage' ? '#fae7c9' : undefined,
     // 商品分类：优先用落地页配置的分类（后台「分类」字段），未配置才用主题默认。
     categoryNames: (l.categoryNames?.filter(Boolean).length ? l.categoryNames.filter(Boolean) : base.categoryNames),
   }
@@ -390,7 +397,7 @@ onMounted(() => {
       </view>
     </view>
 
-    <view class="category-products" :class="{ 'products-grid': themeConfig.mode === 'grid' }" :style="{ backgroundColor: themeConfig.backgroundColor || '' }">
+    <view class="category-products" :class="{ 'products-grid': themeConfig.mode === 'grid' }" :style="{ backgroundColor: themeConfig.boxBackgroundColor || themeConfig.backgroundColor || '' }">
       <view v-if="loading" class="category-products-loading">加载中...</view>
       <!-- 空状态（用户 2026-09-22）：金刚区落地页「没有商品」时**直接提示「暂无商品」**即可 ——
            这里刻意不用插画空状态（那套只用于骑手端/商家端的三处列表），保持与其它商品类列表一致的轻提示。 -->
@@ -475,7 +482,7 @@ onMounted(() => {
    ⇒ padding-top 由 358rpx 降为 24rpx：让位给 fixed 头部的活现在由 margin-top 承担，
      padding-top 只保留"商品卡片与盒子顶部"的那点间距。
    注：background 那行实际被模板内联的 themeConfig.backgroundColor 覆盖（heritage 为 #F6E7C8）。 */
-.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; background: #fff; }
+.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; background: #fae7c9; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
 /* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
