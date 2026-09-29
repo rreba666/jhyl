@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { getCartList, normalizeDeliverySwitch, type CartItem } from '@/api/cart'
 import { ADDRESS_DRAFT_KEY, cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
-import { createPrepay, requestPayment, payByBalance, switchToBalance } from '@/api/payment'
+import { createPrepay, requestPayment, payByBalance, switchToBalance, switchToWechat, releasePayChannel } from '@/api/payment'
 import { getEnabledShops, getDeliverableShops, type EnabledShop } from '@/api/shop'
 import { quoteDelivery, type DeliveryQuote } from '@/api/delivery-order'
 import { distanceMeters } from '@/utils/location'
@@ -1032,6 +1032,23 @@ onLoad(async (options?: Record<string, string | undefined>) => {
   await Promise.all([loadSelectedItems(), loadShops(), loadBalance(), loadModuleConfig()])
 })
 
+/**
+ * 页面卸载（用户返回 / 跳走）时**释放支付通道占用** —— 2026-09-29 第十二批新增。
+ *
+ * ⚠️ 为什么必须做：占位不主动释放的话会一直卡到后端自动过期（第十二批起统一 2 分钟；
+ *    **此前"余额占用"永不过期** ⇒ 微信支付会永久报「已选择余额支付」，是死锁）。
+ * ⚠️ 只在「有订单且尚未确认支付成功」时调用：`release-channel` 幂等、且**只释放占用、不动已成功的支付**，
+ *    但已成功后就没必要再打一次。
+ * ⚠️ 失败静默：最坏结果只是多等一次自动清理，不该在页面销毁时报错打扰用户。
+ *
+ * ⚠️ **刻意不放在「微信支付取消」分支里**：那条链路要保留 `switchToBalance`（改用余额）的可能性，
+ *    而 `switch-to-balance` 自己会先释放微信占位再扣余额 —— 提前释放反而会让"改用余额"失效。
+ */
+onUnload(() => {
+  if (!currentOrderId || paymentSucceeded.value) return
+  void releasePayChannel(currentOrderId).catch(() => { /* 静默：释放失败最坏只是多等一次自动清理 */ })
+})
+
 /** 页面重新显示时关闭残留的发票抽屉；并从「配送地址」页读回刚保存的地址草稿。 */
 onShow(() => {
   invoiceDrawerVisible.value = false
@@ -1117,13 +1134,26 @@ async function loadBalance(): Promise<void> {
   }
 }
 
-/** 选择支付方式；余额不足时禁止切到余额支付并引导微信。 */
+/**
+ * 选择支付方式；余额不足时禁止切到余额支付并引导微信。
+ *
+ * ⚠️ 2026-09-29 第十二批：**从「余额支付」切回「微信支付」时要通知后端**。
+ * 余额通道一旦被占用，不切走的话微信侧会一直报「已选择余额支付」——
+ * 第十二批之前该占用**永不过期**（后端从不清理），会造成永久死锁；
+ * 现在后端每分钟自动清理，但仍应**主动切换**，别让用户干等。
+ * ⚠️ 后端 `switch-to-wechat` 幂等、且会先确认支付状态，重复/多余调用都安全。
+ */
 function selectPayMethod(method: PayMethod): void {
   if (method === 'balance' && !balanceEnough.value) {
     uni.showToast({ title: '余额不足，请使用微信支付', icon: 'none' })
     return
   }
+  const previous = payMethod.value
   payMethod.value = method
+  if (previous === 'balance' && method === 'wechat' && currentOrderId && !paymentSucceeded.value) {
+    // 切换失败**不阻断**：用户仍可直接走微信支付，后端会自行清理残留占用
+    void switchToWechat(currentOrderId).catch(() => { /* 静默：释放/切换失败最坏只是多等一次自动清理 */ })
+  }
 }
 
 /**
