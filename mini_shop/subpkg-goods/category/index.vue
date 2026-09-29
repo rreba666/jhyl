@@ -537,13 +537,16 @@ onMounted(() => {
    ⚠️ 定位参数必须与 .heritage-header-glow 一致，否则两段花纹在 358rpx 处会错位。 */
 .heritage-top-glow { position: absolute; top: 0; left: 0; z-index: 0; width: 100%; height: 404rpx; overflow: hidden; }
 .heritage-top-glow image { position: absolute; top: -204rpx; left: -216rpx; width: 1212rpx; height: 608rpx; opacity: .78; }
-/* ⚠️ 2026-09-29 修复「展开面板只铺了上半截渐变、下半截露白」：
-   原写法 `width: 100%; height: 100%` 对父元素**无效** —— 父层 .brand-expanded-panel 只有
-   `min-height: 600rpx`、没有确定的 height，百分比高度无法解析 ⇒ 退化成 auto，
-   于是 <image> 按**素材自身宽高比**撑高（606×304 ≈ 2:1，宽 750rpx 时仅约 376rpx），
-   只盖住面板的上面约 63%。改用四边定位让高度由父容器撑开，
-   配合模板里的 mode="scaleToFill" 才真正铺满整个展开面板。 */
-.heritage-header-glow.expanded { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; }
+/* ⚠️ 2026-09-29 二次修复（上一版方案在本平台不生效，已在编译产物里确认样式确实生效了，
+   所以问题出在方案本身而不是没编译 —— 产物 index.wxss:72 就是上一版的 top/right/bottom/left/auto）。
+   ❌ 上一版写法：`top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto;`
+      **在微信小程序里无效** —— `<image>` 是**原生组件**，自带固有尺寸（默认 320×240px），
+      绝对定位同时给 top/bottom 时**不会像 div 那样被撑开**，`height: auto` 会退回组件固有高度
+      ⇒ 依然只盖住面板上半截。
+   ✅ 改为**显式高度**：面板由 `min-height: 600rpx` 决定（设计稿面板 312px × 750/390 ≈ 600rpx），
+      这里给同一个值即可精确铺满，不依赖父容器的百分比解析。
+   ⚠️ 若面板因品牌行数增多而超过 600rpx，超出部分会露出面板自身的 #fff 底色（可接受）。 */
+.heritage-header-glow.expanded { top: 0; left: 0; width: 100%; height: 600rpx; }
 /* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
 .brand-strip { position: absolute; top: 177rpx; right: 0; left: 0; display: flex; height: 181rpx; align-items: flex-start; padding: 15rpx 23rpx 0; box-sizing: border-box; gap: 16rpx; }
 .brand-scroll { width: 100%; height: 142rpx; white-space: nowrap; }
