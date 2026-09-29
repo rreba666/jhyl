@@ -78,7 +78,7 @@ async function handlePhoneNumber(event: UniApp.GetPhoneNumberResult): Promise<vo
       try {
         // ⚠️ 2026-09-29 修复「退出登录重新登录就丢失头像昵称」：
         //    `uni.getUserProfile` **已被微信废弃** —— 它现在只会返回**占位昵称「微信用户」+ 默认灰色头像**，
-        //    不再返回真实资料。而这里此前**不做任何判断**就 `updateUserProfile(profile)`，
+        //    不再返回真实资料。而这里此前**不做任何判断就把微信资料整体回写**，
         //    ⇒ **把用户自己设置好的头像昵称覆盖成了占位值**，表现为"每次重新登录，头像变灰、昵称变「微信用户」"。
         //    ⇒ 现在**先读后端已有资料，只补「当前确实为空」的字段**，并过滤掉占位昵称。
         //    （用户主动改资料走的是个人页/设置页的 chooseAvatar + nickname input，不受这里影响。）
