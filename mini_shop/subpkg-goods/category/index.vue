@@ -91,7 +91,11 @@ const fallbackCategories: CategoryNode[] = [
 
 const themeConfig = computed(() => {
   const base = theme.value === 'heritage'
-    ? { title: '非遗老号', mode: 'grid' as const, hero: '', className: 'theme-heritage', fallbackImage: '/static/figma-category/product-main-heritage.jpg', subtitle: '自然植萃麦角硫因&萝卜硫苷内外兼顾多项专利、实验临床', location: '', templateType: 'brandGrid' as const, headImageHeight: 0, backgroundColor: '#fff', categoryNames: ['非遗老号', '非遗老字号'] }
+    ? { title: '非遗老号', mode: 'grid' as const, hero: '', className: 'theme-heritage', fallbackImage: '/static/figma-category/product-main-heritage.jpg', subtitle: '自然植萃麦角硫因&萝卜硫苷内外兼顾多项专利、实验临床', location: '', templateType: 'brandGrid' as const, headImageHeight: 0, // ⚠️ 2026-09-29：页面底色由 '#fff' 改为与**上方品牌栏一致**的浅暖色。
+    // 品牌栏是 .heritage-header 的 #fff 底 + 头图 heritage-header.jpg 以 opacity .78 叠加，
+    // 取头图占比最高的主色 #f8e0d8 与白色按 78% 混合 ⇒ 约 #f9e7e1（即品牌栏实际显示的颜色）。
+    // 这样下方装商品卡片的米黄容器（#fae7c9）扣在这个底色上，**顶部圆角才看得出来**。
+    backgroundColor: '#f9e7e1', categoryNames: ['非遗老号', '非遗老字号'] }
     : theme.value === 'landmark'
       ? { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/landmark-hero.jpg', className: 'theme-landmark', fallbackImage: '/static/figma-category/product-main-2.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
       : { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/nutrition-hero.jpg', className: 'theme-nutrition', fallbackImage: '/static/figma-category/product-main-1.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
