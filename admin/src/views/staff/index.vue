@@ -53,15 +53,18 @@ function fromIdentities(identities: string[] | undefined): StaffIdentityOption {
 }
 /**
  * 列表回显：出参 identities → 表单多选数组（过滤掉未知值）。
- * ⚠️ 当前后端出参的 `identities` **只给主身份码**（如店长兼骑手只回 `MANAGER`），
- * 骑手能力体现在 `deliveryEnabled`；而新版后端「店长不再自动带骑手」（需显式传 RIDER），
- * 所以这里按 `deliveryEnabled` 把「骑手」补勾上，避免保存时误把骑手能力去掉。
+ *
+ * ⚠️ 2026-09-29 修（用户反馈"改身份提示保存成功但没有变化"）：
+ * 这里**曾经**按 `deliveryEnabled` 自动补勾「骑手」，理由是"当时后端出参只给主身份码"。
+ * 但后端**自 2026-09-16 起 `identities` 已是完整叠加集合**（契约原文：
+ * 「前端「修改身份」回显应**直接用本字段**」），而那段补勾会**在打开弹窗时就把「骑手」勾上**
+ * ⇒ 用户若不手动取消、直接保存，提交的与原本**完全相同** ⇒ 后端无变化
+ * ⇒ 表现为"保存成功但列表没变"。
+ * ⇒ 现在**只用 `identities` 本身回显**，不再做任何自动补勾。
  */
 function toFormIdentities(row: StaffAccount): string[] {
   const allowed = SELECTABLE_IDENTITIES.map((item) => item.value)
-  const list = (row.identities || []).filter((item): item is StaffIdentityOption => allowed.includes(item as StaffIdentityOption))
-  if (list.includes('MANAGER') && row.deliveryEnabled && !list.includes('RIDER')) list.push('RIDER')
-  return list
+  return (row.identities || []).filter((item): item is StaffIdentityOption => allowed.includes(item as StaffIdentityOption))
 }
 
 // ===== 新增 / 编辑身份 =====
