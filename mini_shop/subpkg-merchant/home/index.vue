@@ -372,10 +372,13 @@ function goBack(): void {
 
     <scroll-view class="content" scroll-y>
         <!-- 未读通知条（2026-09-28）：商家侧通知的**主通道**，不依赖微信授权，一定能看到。
-             ⚠️ 后端「拉取即清零」⇒ 这里只做展示，不做本地累加。 -->
-        <view v-if="unread > 0" class="unread-bar">
+             ⚠️ 后端「拉取即清零」⇒ 这里只做展示，不做本地累加。
+             ⚠️ 2026-09-29 用户反馈"点击不了" ⇒ 补上跳转：点它进订单列表
+             （复用 goOrders，顺带在点击手势里引导订阅 NEW_ORDER）。 -->
+        <view v-if="unread > 0" class="unread-bar" @click="goOrders">
           <view class="unread-dot" />
           <text class="unread-text">有 {{ unread }} 条新通知待处理</text>
+          <text class="unread-arrow">›</text>
         </view>
       <!-- 经营数据大卡 -->
       <view class="data-card">
@@ -563,6 +566,8 @@ function goBack(): void {
 .unread-bar { display: flex; align-items: center; margin: 12rpx 24rpx 0; padding: 18rpx 22rpx; border: 1rpx solid #ffe1a6; border-radius: 16rpx; background: #fff8e6; }
 .unread-dot { flex-shrink: 0; width: 14rpx; height: 14rpx; margin-right: 14rpx; border-radius: 50%; background: #ff9f0a; }
 .unread-text { flex: 1; min-width: 0; color: #a15c00; font-size: 26rpx; line-height: 36rpx; }
+/* 箭头：让未读条"看起来能点"（2026-09-29 补，此前只有文字、用户以为点不了） */
+.unread-arrow { flex-shrink: 0; margin-left: 12rpx; color: #b07d33; font-size: 34rpx; line-height: 36rpx; }
 .page {
   position: relative;
   /* ⚠️ 2026-09-22 修（用户反馈"顶部应该固定、不该跟着滚"）：
