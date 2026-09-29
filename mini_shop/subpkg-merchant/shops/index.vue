@@ -24,6 +24,8 @@ import {
   type MerchantShopVO,
 } from '@/api/merchant'
 import { uploadFile } from '@/utils/request'
+// 订阅配置（2026-09-29）：用于展示「当前门店能否收到微信提示」
+import { preloadMerchantSubscribeConfig, readSubscribeReceiverBound } from '@/utils/subscribe'
 
 /** 自定义导航栏需要自己避开状态栏。 */
 const statusBarHeight = ref(0)
@@ -32,6 +34,19 @@ const loading = ref(true)
 const submitting = ref(false)
 const uploading = ref(false)
 const shops = ref<MerchantShopVO[]>([])
+/**
+ * **门店维度**的通知接收人是否已绑定微信（来自订阅配置的 `receiver.bound`）。
+ *
+ * ⚠️ 用它而不是"当前登录人自己的绑定状态"：微信提示发给的是**门店店长（MANAGER）优先、
+ * 未绑则回退门店主账号**，两者可能不是同一个人 ⇒ 用本人的状态会误导。
+ * `null` = 配置尚未取到 ⇒ 不展示该卡片（避免闪一下又变）。
+ */
+const receiverBound = ref<boolean | null>(null)
+/** 拉取订阅配置并回填门店接收人绑定状态（失败保持 null ⇒ 不展示卡片）。 */
+async function loadNotifyStatus(): Promise<void> {
+  await preloadMerchantSubscribeConfig()
+  receiverBound.value = readSubscribeReceiverBound()
+}
 
 /** 新建表单是否展开。 */
 const formVisible = ref(false)
@@ -191,6 +206,8 @@ function goBack(): void {
 }
 
 onLoad(() => {
+  // 微信通知状态（门店维度接收人是否已绑微信）
+  void loadNotifyStatus()
   const info = uni.getSystemInfoSync()
   statusBarHeight.value = info.statusBarHeight || 0
   void loadShops()
@@ -213,6 +230,16 @@ onPullDownRefresh(async () => {
     </view>
 
     <view class="body">
+      <!-- 微信通知状态（2026-09-29）：门店维度接收人是否已绑微信。
+           ⚠️ 文案刻意不说"你没绑" —— 当前登录人不一定是店长，那样会误导。 -->
+      <view v-if="receiverBound !== null" class="card notice-card" :class="{ 'notice-card-off': !receiverBound }">
+        <view class="notice-head">
+          <text class="notice-title">微信通知</text>
+          <text class="notice-state" :class="{ 'notice-state-off': !receiverBound }">{{ receiverBound ? '已开启' : '未开启' }}</text>
+        </view>
+        <text v-if="receiverBound" class="notice-desc">有新订单、接单超时、配送异常等消息，会通过微信订阅消息提醒门店接收人。</text>
+        <text v-else class="notice-desc">当前门店的通知接收人（店长优先，未绑则回退门店主账号）尚未绑定微信，微信提示发不出去。红点与短信不受影响；如需开启，请让店长完成微信绑定。</text>
+      </view>
       <!-- 新建门店 -->
       <view class="card">
         <view class="card-head" @click="toggleForm">
@@ -289,6 +316,14 @@ onPullDownRefresh(async () => {
 </template>
 
 <style scoped>
+/* 微信通知状态卡片（2026-09-29） */
+.notice-card { border-left: 6rpx solid #07c160; }
+.notice-card-off { border-left-color: #ff9f0a; }
+.notice-head { display: flex; align-items: center; justify-content: space-between; }
+.notice-title { color: #172033; font-size: 28rpx; font-weight: 600; }
+.notice-state { padding: 4rpx 16rpx; border-radius: 999rpx; background: #e8f8ef; color: #07c160; font-size: 22rpx; }
+.notice-state-off { background: #fff4e5; color: #d97706; }
+.notice-desc { display: block; margin-top: 12rpx; color: #667085; font-size: 24rpx; line-height: 36rpx; }
 .page { min-height: 100vh; box-sizing: border-box; background: #f5f6f8; }
 .nav { position: fixed; top: 0; right: 0; left: 0; z-index: 20; background: #f5f6f8; }
 .nav-inner { position: relative; display: flex; align-items: center; height: 44px; padding: 0 24rpx; }
