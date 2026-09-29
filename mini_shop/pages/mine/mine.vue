@@ -907,7 +907,13 @@ onShow(() => { void refreshData() })
 .member-label { position: relative; z-index: 1; margin-left: 19.08rpx; font-size: 26.72rpx; font-weight: 500; }
 .member-label-registered { margin-top: 48rpx; margin-left: 114rpx; }
 .member-end { position: relative; z-index: 1; margin-left: auto; }
-.income-strip { position: relative; z-index: 1; display: flex; height: 196rpx; margin: -196rpx -38.17rpx 0; padding: 38rpx 38.17rpx 50rpx; box-sizing: border-box; overflow: hidden; background: linear-gradient(104deg, #303134 0%, #5c5d61 48%, #28292b 100%); box-shadow: inset 0 1rpx rgba(255, 255, 255, .24); }
+/* ⚠️ 2026-09-29 背景改为 #4D3D3D + 透明度 0.6（用户指定），原来是深灰渐变
+   `linear-gradient(104deg, #303134, #5c5d61, #28292b)`。
+   ⚠️ 注意这是**半透明**底色：本元素 `margin-top: -196rpx` 向上压在头部区域之上，
+      透出的正是头部自己的底色 ⇒ 实际观感会随头部渐变走（"融进头部"的效果）。
+   ⚠️ 下面两层修饰保留：`box-shadow: inset` 是顶部内高光、`::after` 是一道斜向柔光，
+      在深棕底上依旧成立；若后续觉得亮度过高再单独调。 */
+.income-strip { position: relative; z-index: 1; display: flex; height: 196rpx; margin: -196rpx -38.17rpx 0; padding: 38rpx 38.17rpx 50rpx; box-sizing: border-box; overflow: hidden; background: rgba(77, 61, 61, .6); box-shadow: inset 0 1rpx rgba(255, 255, 255, .24); }
 .income-strip::after { position: absolute; top: -120%; left: -16%; width: 34%; height: 340%; background: linear-gradient(108deg, transparent 0%, rgba(255, 255, 255, .11) 46%, rgba(255, 255, 255, .03) 62%, transparent 100%); content: ''; transform: rotate(16deg); pointer-events: none; }
 .income-item { position: relative; z-index: 1; display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; justify-content: center; }
 .income-item + .income-item::before { position: absolute; top: 50%; left: 0; width: 2rpx; height: 116rpx; background: rgba(255, 255, 255, .72); content: ''; transform: translateY(-50%); }
