@@ -294,6 +294,13 @@ async function submitForm(): Promise<void> {
     ElMessage.error('请补全 SKU 表格里的「规格名称 / 价格 / 库存」后再保存')
     return
   }
+  // ⚠️ 商户 / 门店归属校验（2026-09-29 新增）：后端要求「先选品牌，再选门店」。
+  // 必须**前端提前拦** —— 因为后端是**先落库商品、再校验门店**，
+  // 只靠后端会出现"弹了报错但商品其实已经保存"（用户反馈的现象）。
+  if (form.merchantId == null && (form.shopIds || []).length > 0) {
+    ElMessage.error('请先选择「所属商户」，再选择关联门店')
+    return
+  }
   // ⚠️ 2026-09-22 用户实测确认的边界：后端**不支持清空详情图** ——
   // `detailImages` 传空数组 `[]` 时该字段被整段跳过（`isNotEmpty` 之类短路），保存后会**回滚成原来那几张**；
   // 而「上传新图替换 / 部分删除（数组仍非空）」是能正常保存的。
@@ -333,8 +340,13 @@ async function submitForm(): Promise<void> {
     const merchantIdPayload = rawMerchantId == null || String(rawMerchantId) === ''
       ? null
       : Number(rawMerchantId)
-    // 门店：long[]；空数组 = **清空关联**（后端语义），不传 = 不修改。
-    const normalizedShopIds = (rawShopIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    // 门店：long[]；后端语义「**不传 = 不修改；空数组 `[]` = 清空关联**」。
+    // ⚠️ 2026-09-29 修（用户反馈"没选商户/门店却弹『请先选择归属品牌，再选择门店』，但仍能保存"）：
+    //   **未选商户时绝不能提交 `shopIds`** —— 后端把"没有品牌却传了门店（哪怕是空数组）"判为 1000。
+    //   此前无条件提交 `[]` ⇒ 未选商户保存时必弹该错误；而后端是**先落库商品、再校验门店**
+    //   ⇒ 造成"提示报错但商品其实已保存"的错觉。现在未选商户就**整个不提交**该字段。
+    const shopIdList = (rawShopIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    const normalizedShopIds = merchantIdPayload == null ? undefined : shopIdList
     const payload: AdminProductSavePayload = {
       ...rest,
       ...(categoryId === undefined ? {} : { categoryId }),
@@ -342,7 +354,7 @@ async function submitForm(): Promise<void> {
       // 商户 / 门店归属（2026-09-28 接入）：V2 的 save 已支持这两个字段（此前 V2 缺失 ⇒ 保存被静默忽略）。
       // ⚠️ 两者都是 long / long[]：必须传**数字**，传字符串会被 Jackson 判为「请求体格式错误」。
       merchantId: merchantIdPayload,
-      shopIds: normalizedShopIds,
+      ...(normalizedShopIds === undefined ? {} : { shopIds: normalizedShopIds }),
       status: normalizeBinary(form.status),
       promotionEnabled: normalizeBinary(form.promotionEnabled),
       dividendEnabled: normalizeBinary(form.dividendEnabled),
