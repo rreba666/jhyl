@@ -245,6 +245,17 @@ const router = createRouter({
           component: () => import('@/views/settings/voice/index.vue'),
           meta: { title: '语音配置管理', roles: rolesForPath('/settings/voice'), requiresAuth: true },
         },
+        {
+          // 微信通知（订阅消息诊断）：看模板配置 → 查门店可达性 → 真发一条验证。
+          // ⚠️ 后端 `/api/admin/notify/**` 仅**超管 + 运营客服**，商户管理员调用 403
+          //    ⇒ 矩阵里不含 ADMIN（menu 与路由同源，商户管理员既看不到菜单、也进不来）。
+          // ⚠️ 该模块后端**没有声明权限点**（`auth/me` 的 permissions 里没有对应项），故不写 `permission` 字段，
+          //    与 `/announcement`、`/settings` 的写法一致。
+          path: 'notify',
+          name: 'NotifyDiagnosis',
+          component: () => import('@/views/notify/index.vue'),
+          meta: { title: '微信通知', roles: rolesForPath('/notify'), requiresAuth: true },
+        },
       ],
     },
   ],

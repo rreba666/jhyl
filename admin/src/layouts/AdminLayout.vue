@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import {
   Bell,
   Box,
+  ChatDotRound,
   Collection,
   Document,
   Fold,
@@ -336,6 +337,12 @@ onUnmounted(() => {
         <el-menu-item v-if="canVisit('/settings/voice')" index="/settings/voice">
           <el-icon><Bell /></el-icon>
           <template #title>语音配置管理</template>
+        </el-menu-item>
+        <!-- 微信通知（订阅消息诊断）：仅超管 + 运营客服（后端 /api/admin/notify/** 对商户管理员 403，
+             且「测试发送」会消耗商家订阅授权额度）⇒ 与「短信模板管理 / 语音配置管理」并列为通知通道页 -->
+        <el-menu-item v-if="canVisit('/notify')" index="/notify">
+          <el-icon><ChatDotRound /></el-icon>
+          <template #title>微信通知</template>
         </el-menu-item>
       </el-menu>
     </el-aside>

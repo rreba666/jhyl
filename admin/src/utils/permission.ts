@@ -45,6 +45,10 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/settings/sms-templates', '/settings/voice',
     // 入驻申请审核：与 `/merchants` 同角色（现行矩阵里只有超管）；含身份证等敏感信息，不放开给其它角色
     '/merchant-apply',
+    // 微信通知（订阅消息诊断 + 测试发送）：与「短信模板管理 / 语音配置管理」同层的**通知通道页**。
+    // 后端 `/api/admin/notify/**` 为**超管 + 运营客服**专属：含跨商户信息面，且「测试发送」会消耗商家授权额度
+    // ⇒ 商户管理员（ADMIN）**访问会 403**，矩阵里也不给他（菜单与路由同源，见文件头说明）。
+    '/notify',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
@@ -61,6 +65,8 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
   CUSTOMER_SERVICE: [
     '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
+    // 微信通知（订阅消息诊断）：后端只给**超管 + 运营客服**，客服是这条链路的日常使用方（答疑"店长收不到"）
+    '/notify',
   ],
   FINANCE: [
     '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/audit', '/logs/ledger', '/shops',
@@ -110,6 +116,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/settings': '业务设置',
   '/settings/sms-templates': '短信模板管理',
   '/settings/voice': '语音配置管理',
+  '/notify': '微信通知',
 }
 
 /** 各角色登录后的默认落地页。 */
