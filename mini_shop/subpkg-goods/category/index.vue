@@ -398,7 +398,7 @@ onMounted(() => {
       <image class="heritage-header-glow" src="/static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
       <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" :fixed="true" @back="goBack" />
       <view class="brand-strip">
-        <scroll-view class="brand-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :show-scrollbar="false">
+        <scroll-view class="brand-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false">
           <view class="brand-list">
             <view v-for="brand in brands" :key="brandKey(brand)" class="brand-item" :class="{ selected: selectedBrandKey === brandKey(brand) }" @click="selectBrand(brand)">
               <view class="brand-icon"><image class="brand-logo" :src="brand.image" mode="aspectFit" /><image class="brand-ring" :src="brandRing(brand)" mode="aspectFit" /></view>

@@ -189,7 +189,7 @@ onShow(() => {
             @click="changeDirection(dir.value)"
           >{{ dir.label }}</view>
         </view>
-        <scroll-view class="type-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :show-scrollbar="false">
+        <scroll-view class="type-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false">
           <view class="type-tags">
             <view
               v-for="type in typeTabs"

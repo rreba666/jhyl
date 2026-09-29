@@ -322,7 +322,7 @@ async function runBatchPrepare(): Promise<void> {
         <text class="batch-entry" @click="toggleBatchMode">{{ batchMode ? '取消' : '批量' }}</text>
       </view>
       <view class="tab-bar">
-        <scroll-view class="tabs-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false" :show-scrollbar="false">
+        <scroll-view class="tabs-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false">
           <view class="tabs">
             <view
               v-for="tab in TABS"
