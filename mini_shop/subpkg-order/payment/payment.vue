@@ -593,10 +593,38 @@ function deliveryBlockedReasonFor(type: PickupType): string {
 }
 
 /**
+ * 「门店自提」的候选门店。
+ *
+ * ⚠️ 与同城的口径**只差一层**：自提**只按商品筛**（这家店有没有这批商品），
+ * 而**不叠加** `deliveryEnabled` —— 那是同城配送开关，一家店没开通同城，
+ * 照样可以让顾客上门自提它自己有的商品。
+ * ⚠️ 筛选结果拿不到（`deliverableShops === null`，如历史订单详情拿不到 skuId 或接口失败）
+ * 时退回全量启用门店，保住可用性（与同城的降级策略一致）。
+ */
+const pickupShopList = computed<EnabledShop[]>(() => deliverableShops.value ?? shops.value)
+
+/** 有没有门店能**提供当前这批商品**（供自提置灰判定；口径同 {@link pickupShopList}）。 */
+const hasPickupShop = computed(() => pickupShopList.value.length > 0)
+
+/**
  * 有没有门店能**配送当前这批商品**（= 门店级 `deliveryEnabled` + 门店有没有这些 SKU）。
  * ⚠️ 与**商品级** `deliveryEnabled` 同名但是两回事：前者是"这家店能不能送这单"，后者是"这件商品能不能走配送"。
  */
 const hasSameCityShop = computed(() => sameCityShops.value.length > 0)
+
+/**
+ * 门店层的「门店自提」阻断原因（2026-09-29 补，与同城的同一套机制）。
+ *
+ * ⚠️ 为什么需要：自提的门店列表现在也只列**有这批商品**的门店（见 `pickerShops`），
+ * 若一家都没有，用户会一路选到「选择门店」弹层才看到空态 ⇒ 和同城一样**提前置灰并说明**。
+ * ⚠️ 与同城的唯一区别：**自提不叠加 `deliveryEnabled`**（那是同城开关，没开通同城照样能上门自提），
+ * 所以这里用 `pickupShopList` 而不是 `sameCityShops`。
+ * ⚠️ 加载中不判定，避免先闪一下置灰再恢复（与同城保持一致的体验）。
+ */
+const pickupShopBlockedReason = computed(() => {
+  if (!shopsLoaded.value || deliverablePending.value) return ''
+  return hasPickupShop.value ? '' : shopEmptyText.value
+})
 
 /**
  * 门店层的同城配送阻断原因（2026-09-22 补）。
@@ -631,6 +659,9 @@ const deliveryOptions = computed<DeliveryOption[]>(() => {
     const blockedReason = deliveryBlockedReasonFor(option.type)
       // 同城配送再叠一层门店可用性（没有可用门店时提前置灰，别让用户白选一轮）
       || (option.type === 2 ? sameCityShopBlockedReason.value : '')
+      // ⚠️ 门店自提同样叠一层（2026-09-29 补）：一家有这批商品的门店都没有时提前置灰，
+      //    与同城行为对齐，别让用户点进去才看到空态。
+      || (option.type === 1 ? pickupShopBlockedReason.value : '')
     return blockedReason ? { ...option, blockedReason } : option
   })
 })
@@ -807,8 +838,8 @@ watch([shops, moduleConfig, deliverableShops], () => {
  * ⚠️ 别再退回 `shops.value` 给自提/同城 —— 那是全量启用门店，会把没有该商品的门店也列出来。
  */
 const pickerShops = computed(() => {
-  // 自提：只按商品筛，不看 deliveryEnabled（同城开关与自提无关）
-  if (pickupType.value === 1) return deliverableShops.value ?? shops.value
+  // 自提：只按商品筛，不看 deliveryEnabled（同城开关与自提无关）—— 复用 pickupShopList，避免两处口径漂移
+  if (pickupType.value === 1) return pickupShopList.value
   // 物流：不涉及门店选择
   if (pickupType.value !== 2) return shops.value
   const deliverable = sameCityShops.value
