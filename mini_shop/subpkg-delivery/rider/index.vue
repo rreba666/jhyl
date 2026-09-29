@@ -248,7 +248,7 @@ function mapMarkers(task: RiderTask): Array<Record<string, unknown>> {
       id: 1,
       latitude: Number(task.pickupLat),
       longitude: Number(task.pickupLng),
-      iconPath: '/static/rider/map-marker-shop.png',
+      iconPath: '/subpkg-delivery/static/rider/map-marker-shop.png',
       width: 24,
       height: 26,
       callout: {
@@ -267,7 +267,7 @@ function mapMarkers(task: RiderTask): Array<Record<string, unknown>> {
       id: 2,
       latitude: Number(task.deliveryLat),
       longitude: Number(task.deliveryLng),
-      iconPath: '/static/rider/map-marker-dest.png',
+      iconPath: '/subpkg-delivery/static/rider/map-marker-dest.png',
       width: 24,
       height: 26,
       callout: {
@@ -286,7 +286,7 @@ function mapMarkers(task: RiderTask): Array<Record<string, unknown>> {
       id: 3,
       latitude: riderPoint.value.latitude,
       longitude: riderPoint.value.longitude,
-      iconPath: '/static/rider/rider-on-bike.png',
+      iconPath: '/subpkg-delivery/static/rider/rider-on-bike.png',
       width: 32,
       height: 32,
     })
@@ -711,7 +711,7 @@ onUnload(() => {
                 <view class="distance-text">
                   <text class="distance-num">取货</text>
                 </view>
-                <image class="distance-rider" src="/static/rider/rider-badge.png" mode="aspectFit" />
+                <image class="distance-rider" src="/subpkg-delivery/static/rider/rider-badge.png" mode="aspectFit" />
                 <view class="distance-text">
                   <text class="distance-num">{{ distanceNum(task) }}</text>
                   <text class="distance-unit">{{ distanceUnit(task) }}</text>
