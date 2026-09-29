@@ -370,12 +370,6 @@ onMounted(() => {
 
 <template>
   <view class="category-page" :class="themeConfig.className" :style="{ backgroundColor: themeConfig.pageBackgroundColor || themeConfig.backgroundColor || '' }">
-    <!-- ⚠️ 2026-09-29：品牌栏的「底 + 头图 78%」整套方案**铺满整屏**（仅非遗老号）。
-         原先只有 .heritage-header（fixed, 358rpx）里有这张图，页面底色是纯色 ⇒
-         两者在 358rpx 交界处必然有色差。现在整页共用同一层固定背景，
-         头部改为透明，**圆角外侧与品牌栏就是同一套背景，彻底无色差**。
-         position: fixed ⇒ 不随页面滚动，因此滚动后头部区域与下方仍然一致。 -->
-    <image v-if="themeConfig.className === 'theme-heritage'" class="heritage-page-glow" src="/static/design-cuts/figma-category/heritage-header.jpg" mode="aspectFill" />
     <!--
       头图（2026-09-22 优化：用户反馈「头图被裁减」）
       原来是「固定高度 + mode="aspectFill"」：容器高度写死（默认 696rpx、国家地标 476rpx，或用后端 headImageHeight），
@@ -391,7 +385,7 @@ onMounted(() => {
     </view>
 
     <view v-else class="heritage-header">
-      <!-- 头图已提升为整页背景 .heritage-page-glow（2026-09-29），此处不再重复渲染 -->
+      <image class="heritage-header-glow" src="/static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
       <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" :fixed="true" @back="goBack" />
       <view class="brand-strip">
         <scroll-view class="brand-scroll" scroll-x :show-scrollbar="false">
@@ -510,7 +504,7 @@ onMounted(() => {
 .category-product-slot { width: 100%; }
 .category-products-loading { padding: 160rpx 0; color: #86909c; font-size: 28rpx; line-height: 44rpx; text-align: center; }
 /* 非遗页头部整块固定：标题栏 + 品牌条不随商品滚动（与首页一致） */
-.heritage-header { position: fixed; top: 0; right: 0; left: 0; z-index: 10; height: 358rpx; overflow: hidden; background: transparent; }
+.heritage-header { position: fixed; top: 0; right: 0; left: 0; z-index: 10; height: 358rpx; overflow: hidden; background: #eaf7ef; }
 .heritage-header-glow { position: absolute; top: -204rpx; left: -216rpx; width: 1212rpx; height: 608rpx; opacity: .78; }
 .heritage-header-glow.expanded { top: 0; left: 0; width: 100%; height: 100%; }
 /* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
