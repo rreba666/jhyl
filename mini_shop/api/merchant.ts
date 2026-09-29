@@ -747,6 +747,17 @@ export interface MerchantSubscribeReceiver {
 /** `GET /api/merchant/notify/subscribe-config` 的响应数据。 */
 export interface MerchantSubscribeConfig {
   scenes: MerchantSubscribeSceneConfig[]
+  /**
+   * **可直接用于 `requestSubscribeMessage` 的模板 ID 列表**（后端 2026-09-29 新增）。
+   *
+   * ⚠️ 由后端保证：**已去重、已过滤空值、最多 3 个**。
+   * 之所以需要它：后端 9 个模板键**全部指向同一个模板 ID**，前端若自己 `scenes.map(s => s.templateId)`
+   * 会传出重复 ID —— 而微信对重复项**直接拒整批**（`Request list fail`）。
+   *
+   * ⚠️ 当前前端仍按「点击的场景」逐个取 `templateId`（并本地去重），
+   * 保持"点订单只申请新订单授权"的精准语义；本字段留作后端就绪后的兜底。
+   */
+  tmplIds?: string[]
   receiver?: MerchantSubscribeReceiver | null
   variableHint?: string
   note?: string

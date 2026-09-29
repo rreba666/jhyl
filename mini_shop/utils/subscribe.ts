@@ -106,7 +106,12 @@ export function requestMerchantSubscribe(scenes: string[]): void {
     .map((scene) => list.find((item) => item.scene === scene))
     .filter((item): item is MerchantSubscribeSceneConfig => !!item && item.configured && !!item.templateId)
     .slice(0, MAX_TMPL_PER_CALL)
-  const ids = picked.map((item) => String(item.templateId))
+  // ⚠️ 2026-09-29 **必须去重**（后端反馈：其 9 个模板键**全部指向同一个模板 ID**）：
+  // 一旦一次传入多个场景，就会得到**重复的模板 ID**，而微信对重复项**不是忽略、而是直接拒整批**
+  // （`requestSubscribeMessage:fail Request list fail`）。
+  // ⚠️ 本次实测日志里只传了 1 个 ID，所以重复**不是**当时那次报错的原因（另见交付说明）；
+  //    但去重是必须的，避免将来一次引导多个场景时踩同一个坑。
+  const ids = Array.from(new Set(picked.map((item) => String(item.templateId)))).slice(0, MAX_TMPL_PER_CALL)
   if (!ids.length) return
 
   // ② 非微信端跳过
