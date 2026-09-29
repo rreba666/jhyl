@@ -283,22 +283,6 @@ const showIdentitySection = computed(() => Boolean(
 ))
 
 /**
- * 店长身份「内含骑手能力」时补的骑手入口。
- * 后端常常**只下发一张店长卡**（`IdentityVO.deliveryCapability = true`）而不发 RIDER 卡，
- * 与 `subpkg-merchant/home/index.vue` 的 `roleOptions` 同口径。
- * 进骑手页**不需要切换身份**（同一 token，任务接口用 C 端 token 直调）→ `bindingId` 保持 null。
- */
-const RIDER_ENTRY: IdentityItem = {
-  bindingId: null,
-  role: 'RIDER',
-  label: '骑手工作台',
-  targetPage: 'RIDER',
-  primary: false,
-  pending: false,
-  hint: null,
-}
-
-/**
  * 身份区实际渲染的行：已开通身份在前、待开通占位在后，**并按 targetPage 去重**。
  *
  * 为什么必须去重（2026-09-19 后端行为变更）：入驻审核通过会**同时**授予
@@ -308,8 +292,13 @@ const RIDER_ENTRY: IdentityItem = {
  * 两组直接渲染，用户就会看到两个「门店管理」。
  * 口径见 docs/商家端-入驻身份与通知-方案架构-2026-09-19.md §十-①。
  *
- * ⚠️ 2026-09-22 补充：后端只发店长卡时（`deliveryCapability=true`）**补一张「骑手工作台」**，
- * 否则骑手/店长在「我的」这页找不到骑手入口（此前只有商家端工作台里补了，见该页注释）。
+ * ⚠️ 2026-09-29 修正（用户反馈「第一次进个人页会同时出现门店管理和骑手工作台，
+ *    进过门店管理再回来才正常」）：
+ *    这里**曾**在 `deliveryCapability=true` 时**主动补一张「骑手工作台」**（原 2026-09-22 行为）。
+ *    但那是**冗余**的 —— 点「门店管理」进入的商家端工作台（`subpkg-merchant/home`）里
+ *    **本身就有骑手入口**（见该页 roleOptions 注释："门店管理员必须能进配送页"）。
+ *    ⇒ 个人页再补一张，就会出现「门店管理 + 骑手工作台」两张卡，用户以为重复。
+ *    ⇒ 已删除补入口逻辑。**纯骑手**账号不受影响：后端会给它下发真正的 `RIDER` 身份卡。
  */
 const identityRows = computed<IdentityItem[]>(() => {
   const owned = identity.value?.identities || []
@@ -317,10 +306,7 @@ const identityRows = computed<IdentityItem[]>(() => {
   const pending = (identity.value?.pendingIdentities || []).filter(
     (item) => !ownedTargets.has(item.targetPage || 'CUSTOMER'),
   )
-  const rows = [...owned, ...pending]
-  const hasRiderEntry = rows.some((item) => (item.targetPage || '') === 'RIDER')
-  if (identity.value?.deliveryCapability && !hasRiderEntry) rows.push(RIDER_ENTRY)
-  return rows
+  return [...owned, ...pending]
 })
 
 /** 点击身份卡：切换身份并按 entry 跳对应工作台（token 不变）。 */

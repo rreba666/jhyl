@@ -32,7 +32,7 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { loginByWechat } from '@/api/auth'
-import { updateUserProfile } from '@/api/user'
+import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
 import { isLoggedIn, saveAuth } from '@/utils/auth'
 import { getWechatProfile } from '@/utils/wechat-profile'
 import { clearPromotionContext, capturePromotionContext, getStoredPromoterId } from '@/utils/promotion'
@@ -76,7 +76,23 @@ async function handlePhoneNumber(event: UniApp.GetPhoneNumberResult): Promise<vo
     const profile = await profilePromise
     if (profile) {
       try {
-        await updateUserProfile(profile)
+        // ⚠️ 2026-09-29 修复「退出登录重新登录就丢失头像昵称」：
+        //    `uni.getUserProfile` **已被微信废弃** —— 它现在只会返回**占位昵称「微信用户」+ 默认灰色头像**，
+        //    不再返回真实资料。而这里此前**不做任何判断**就 `updateUserProfile(profile)`，
+        //    ⇒ **把用户自己设置好的头像昵称覆盖成了占位值**，表现为"每次重新登录，头像变灰、昵称变「微信用户」"。
+        //    ⇒ 现在**先读后端已有资料，只补「当前确实为空」的字段**，并过滤掉占位昵称。
+        //    （用户主动改资料走的是个人页/设置页的 chooseAvatar + nickname input，不受这里影响。）
+        const current = await getUserProfile().catch(() => null)
+        const patch: Partial<UserProfile> = {}
+        /** `getUserProfile` 废弃后返回的占位昵称，不能当作真实昵称写入。 */
+        const PLACEHOLDER_NICKNAMES = ['微信用户', '微信用户昵称', '微信']
+        if (profile.nickname && !PLACEHOLDER_NICKNAMES.includes(profile.nickname) && !current?.nickname) {
+          patch.nickname = profile.nickname
+        }
+        if (profile.avatarUrl && !current?.avatarUrl) {
+          patch.avatarUrl = profile.avatarUrl
+        }
+        if (Object.keys(patch).length) await updateUserProfile(patch)
       } catch (profileUpdateError) {
         console.warn('微信资料回写未完成，登录继续进行', profileUpdateError)
       }
