@@ -82,7 +82,24 @@ const selectedBankCard = ref<BankCardVO | null>(null)
 
 const navStyle = computed(() => ({ top: `${menuTop.value}px`, height: `${menuHeight.value}px` }))
 const bodyStyle = computed(() => ({ paddingTop: `${menuTop.value + menuHeight.value + uni.upx2px(100)}px` }))
-const availableBalance = computed(() => Number(wallet.value?.balance ?? 0))
+/**
+ * 当前**实际可提现**金额（元）—— 提现金额输入的上限按它算。
+ *
+ * ⚠️ 2026-09-29：优先采用后端新字段 `wallet.availableBalance`
+ *    （后端《设计草案-提现按金额锁定》第十批上线；语义 = 账面总额扣掉**仍在提现锁定期内**的部分）。
+ *    **后端提现校验用的就是它** ⇒ 上限必须按它算，否则会出现
+ *    「页面允许输入、提交却被拒」（用户感知就是"余额明明有钱却提不出来"）。
+ * ⚠️ 兼容旧后端：该字段缺失或非数值时**回退到 `balance`** ——
+ *    宁可比实际可提**宽松**（提交时后端会给准确文案），
+ *    也不能因为字段没上线就把上限算成 0 而**完全无法提现**。
+ */
+const availableBalance = computed(() => {
+  const available = wallet.value?.availableBalance
+  if (available !== null && available !== undefined && Number.isFinite(Number(available))) {
+    return Number(available)
+  }
+  return Number(wallet.value?.balance ?? 0)
+})
 /** 提现规则本地兜底费率：后台 `GET /api/wallet/withdraw-rules` 请求失败或字段缺失时使用（页面不留空白）。 */
 const DEFAULT_WITHDRAW_FEE_RATE = 0.05
 /** 后台下发的提现规则；null = 未取到，全部走本地兜底值。 */
@@ -173,19 +190,26 @@ const nextWithdrawableAt = computed(() => {
 })
 
 /**
- * 锁定期提示文案（口径：自订单支付时刻起算的 N×24 小时，不再按自然日零点解锁）：
- * 后端没有下发 `nextWithdrawableAt` 时不展示，避免提示与实际可提现时间不一致。
+ * 锁定期提示文案。
  *
- * ⚠️ 2026-09-29 补充口径说明（用户反馈「只要有新订单就全冻住了」）：
- *    后端口径是「**锁定中订单的最晚支付时间** + payLockDays」⇒ **每来一笔新订单，解锁时刻就往后顺延**，
- *    持续下单的用户会长期提不出来。这是**后端口径问题**（已提需求：
- *    `docs/后端需求-提现锁定期口径-2026-09-29.md`，诉求改为按金额/按订单锁定，并在 C 端钱包补
- *    `availableBalance`/`frozenBalance`），**前端无法绕过**。
- *    ⇒ 但在后端改之前，必须把口径讲清楚，否则用户会认定是前端 bug。
+ * ⚠️ 口径已变（后端《设计草案-提现按金额锁定》2026-09-29）：
+ *    由「**用户级整体锁**」改为「**按笔/按金额锁**」—— 每笔收益各自锁 `payLockDays` 天，
+ *    **已过锁定期的部分随时可提**，且**不被后续新订单顺延**。
+ *    因此 `nextWithdrawableAt` 的语义也从「最晚」改成了「**最早**一笔锁定收益的解锁时刻」。
+ *    ⇒ 文案**不能再写"最近有订单支付…期间新下单会顺延"** —— 那是旧口径，
+ *      会让用户误以为永远提不出来（这正是用户反馈「只要有新订单就全冻住了」的由来）。
+ *
+ * ⚠️ 有锁定金额时把金额也讲出来（`frozenBalance`），让用户明白"钱没丢，只是还没到期"。
+ * ⚠️ 后端未下发 `nextWithdrawableAt` 时**不展示**该提示，避免与实际可提现时间不一致。
+ *    后端 §七 有灰度开关 `withdraw_lock_mode`，切回 `USER_LEVEL` 旧模式时这里仍能正常显示（只是措辞按新口径）。
  */
 const withdrawLockHint = computed(() => {
   if (!nextWithdrawableAt.value) return ''
-  return `最近有订单支付，暂时无法提现；${nextWithdrawableAt.value} 后可提现（按最近一笔订单支付时间计算，期间新下单会顺延）`
+  const locked = Number(wallet.value?.frozenBalance ?? 0)
+  if (locked > 0) {
+    return `¥${formatMoney(locked)} 处于提现锁定期，最早 ${nextWithdrawableAt.value} 后可提现；其余金额随时可提`
+  }
+  return `部分收益处于提现锁定期，最早 ${nextWithdrawableAt.value} 后可提现`
 })
 
 /**
@@ -212,7 +236,9 @@ const withdrawFrozenLimit = computed(() => {
 })
 
 /**
- * 支付后锁定期天数（后端 `WithdrawRuleVO.payLockDays`，自订单支付时刻起算 N×24 小时）。
+ * 锁定期天数（后端 `WithdrawRuleVO.payLockDays`）。
+ * ⚠️ 2026-09-29 新口径：**每笔收益各自**锁定；锚点以后端为准
+ *    （草案 §十-2 仍在评审「入账时刻 vs 订单支付时刻」）⇒ 前端**不写锚点**、只展示天数。
  * 这里是**只读展示**：后端未下发时返回 0，规则区块随之隐藏该条，**不写死天数**（避免与后端口径打架）。
  */
 const withdrawLockDays = computed(() => {
@@ -914,7 +940,8 @@ onUnload(() => {
           </view>
           <text class="panel-title panel-section-title">提现金额</text>
           <input v-model="withdrawAmount" class="panel-input" maxlength="11" type="digit" :disabled="withdrawSubmitting" :placeholder="`请输入提现余额，最低 ${withdrawMinimumLabel}`" />
-          <!-- 锁定期提示：后端 nextWithdrawableAt 非空时说明可提现时刻（口径：自订单支付时刻起算） -->
+          <!-- 锁定期提示：后端 nextWithdrawableAt 非空时说明**最早**可提现时刻
+               （2026-09-29 新口径：每笔收益各自锁定、已到期部分随时可提，不再"整体锁"） -->
           <view v-if="withdrawLockHint" class="lock-banner">
             <text class="lock-text">{{ withdrawLockHint }}</text>
           </view>
@@ -923,7 +950,11 @@ onUnload(() => {
           <!-- 未实名时就地说明：审核账号若未实名会卡在「实名绑定」，这里把口径说透（仅一次、无其他门槛） -->
           <text v-if="!realnameVerified" class="fee-hint">首次提现需完成实名认证（仅一次），认证后余额满 {{ withdrawMinimumLabel }} 元即可提现，无其他门槛。</text>
           <text v-if="withdrawLimitHint" class="fee-hint">{{ withdrawLimitHint }}</text>
-          <text class="fee-hint">提现额度自订单支付时刻起算，锁定期结束后即可提现。</text>
+          <!-- ⚠️ 2026-09-29 按新口径（按笔/按金额锁定）改写：不再写"自订单支付时刻起算"，
+               也不再暗示"期满才能一起提"—— 现在是**每笔各自**锁、**已到期的随时可提**。
+               ⚠️ 刻意不写锁定锚点（后端草案 §十-2 仍在评审"入账时刻 vs 订单支付时刻"），
+                  避免前端文案与最终口径打架。 -->
+          <text class="fee-hint">{{ withdrawLockDays > 0 ? '每笔收益各有 ' + withdrawLockDays + ' 天锁定期；已过锁定期的部分随时可提，不受后续下单影响。' : '收益需过锁定期后方可提现。' }}</text>
           <text v-if="withdrawAmountNumber > 0" class="fee-calc">手续费 ¥{{ formatMoney(withdrawFee) }}，实际到账 ¥{{ formatMoney(withdrawActual) }}</text>
           <!--
             提现规则区块（微信提审合规要求：提现页须清晰展示门槛 / 额度 / 次数 / 提现时间 / 可提现时间 / 到账时间 / 实名认证 / 收款授权 / 手续费）。
@@ -947,8 +978,10 @@ onUnload(() => {
             <view v-if="withdrawMaxConcurrent > 0" class="rule-item"><text class="rule-label">在途笔数</text><text class="rule-text">同时处理中的提现最多 {{ withdrawMaxConcurrent }} 笔</text></view>
               <view v-if="withdrawFrozenLimit > 0" class="rule-item"><text class="rule-label">冻结上限</text><text class="rule-text">提现冻结总额上限 {{ formatMoney(withdrawFrozenLimit) }} 元</text></view>
               <view class="rule-item"><text class="rule-label">提现时间</text><text class="rule-text">提现申请全天可提交（00:00–24:00），提交后进入平台审核</text></view>
-              <!-- 可提现时间：天数取后端 payLockDays，具体时刻取 nextWithdrawableAt，两者都不写死 -->
-              <view class="rule-item"><text class="rule-label">可提现时间</text><text class="rule-text">{{ withdrawLockDays > 0 ? '收益有 ' + withdrawLockDays + ' 天锁定期（自订单支付时刻起算），期满后方可提现' : '收益需过锁定期后方可提现' }}{{ nextWithdrawableAt ? '；当前可提现时刻 ' + nextWithdrawableAt : '' }}</text></view>
+              <!-- 可提现时间：天数取后端 payLockDays，具体时刻取 nextWithdrawableAt，两者都不写死。
+                   ⚠️ 2026-09-29 新口径：`nextWithdrawableAt` 语义已由「最晚」改为「**最早**一笔解锁时刻」，
+                      文案相应改为"最早可提现时刻"，不再暗示"期满才能一起提"。 -->
+              <view class="rule-item"><text class="rule-label">可提现时间</text><text class="rule-text">{{ withdrawLockDays > 0 ? '每笔收益各有 ' + withdrawLockDays + ' 天锁定期；已过锁定期的部分随时可提，不受后续下单影响' : '收益需过锁定期后方可提现' }}{{ nextWithdrawableAt ? '；最早可提现时刻 ' + nextWithdrawableAt : '' }}</text></view>
               <view class="rule-item"><text class="rule-label">到账时间</text><text class="rule-text">提交后进入平台审核，审核通过后由平台打款到账（非实时到账）</text></view>
               <view class="rule-item"><text class="rule-label">实名认证</text><text class="rule-text">依据法律法规要求，首次提现前需完成实名认证（仅需一次），认证后即可正常提现</text></view>
               <view class="rule-item"><text class="rule-label">收款授权</text><text class="rule-text">零钱提现首次需在微信中确认一次免确认收款授权，授权后后续提现无需重复操作</text></view>
