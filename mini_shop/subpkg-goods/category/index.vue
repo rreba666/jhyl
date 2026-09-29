@@ -565,7 +565,15 @@ onMounted(() => {
       ⇒ 下面两个 radial-gradient 就是这两个圆；末位 #fff 是面板底色。
    ⚠️ opacity 必须覆盖为 1 —— 基础类 .heritage-header-glow 是 .78（那是给收起态整张花纹图用的），
       纯 CSS 渐变本身已经很淡，再乘 .78 会几乎看不见。 */
-.heritage-header-glow.expanded { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; opacity: 1; background-color: #fff; background-image: radial-gradient(circle at 11% 24%, #FBE0D3 0%, rgba(251, 224, 211, 0) 39%), radial-gradient(circle at 89% 24%, #D3FBE2 0%, rgba(211, 251, 226, 0) 39%); background-repeat: no-repeat; }
+/* ⚠️ 2026-09-29 五次定稿（渐变已生效，本次解决「不够高、没占满整个盒子」）：
+   ⚠️ 三个关键点缺一不可：
+   ① `position: absolute` 显式写出来（不再依赖基础类继承），配合四边定位 0 ⇒ 元素撑满父容器；
+   ② **`background-size: 100% 100%`** —— 让渐变**严格按元素盒子铺满**，不随半径百分比漂移；
+   ③ **半径由 39% 放大到 85%、圆心下移**：设计稿原几何（圆心 24%、半径 39%）只能覆盖面板中上部，
+      越往下越淡到白 ⇒ 视觉上"没占满"。用户要求铺满整个盒子，故放大两团颜色让它们延伸到面板底部。
+      （设计稿坐标：面板 390×312；Ellipse 3 #FBE0D3 @872,2098、Ellipse 4 #D3FBE2 @1176,2098，均 304×304。
+        换算圆心 11%/24% 与 89%/24%、半径 152/390=39% —— 保留为注释备查，实际按"铺满"需求放大。） */
+.heritage-header-glow.expanded { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; width: auto; height: auto; opacity: 1; background-color: #fff; background-image: radial-gradient(circle at 11% 30%, #FBE0D3 0%, rgba(251, 224, 211, 0) 85%), radial-gradient(circle at 89% 30%, #D3FBE2 0%, rgba(211, 251, 226, 0) 85%); background-repeat: no-repeat; background-size: 100% 100%; }
 /* 品牌条紧贴导航栏下方（设计稿导航 177rpx 之下），不再留大段空白 */
 .brand-strip { position: absolute; top: 177rpx; right: 0; left: 0; display: flex; height: 181rpx; align-items: flex-start; padding: 15rpx 23rpx 0; box-sizing: border-box; gap: 16rpx; }
 .brand-scroll { width: 100%; height: 142rpx; white-space: nowrap; }
