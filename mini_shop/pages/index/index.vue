@@ -15,6 +15,8 @@ import HomeSharePoster from '@/components/home/HomeSharePoster.vue'
 import HomeWelfare from '@/components/home/HomeWelfare.vue'
 import { getPromotionCode } from '@/api/promotion'
 import { isLoggedIn } from '@/utils/auth'
+import SubscribeGuide from '@/components/SubscribeGuide.vue'
+import { shouldGuideUserSubscribe } from '@/utils/user-subscribe'
 
 type LayoutMode = 'grid' | 'list'
 
@@ -76,6 +78,15 @@ const splashLeaving = shallowRef(false)
  * 否则渐出途中切走再切回来会把 tabBar 又藏住、且再也没人恢复它。
  */
 const splashRevealed = shallowRef(false)
+/**
+ * 「开启配送通知」引导弹层是否可见（2026-09-29 新增）。
+ *
+ * ⚠️ 为什么是「弹层引导」而不是「直接调授权接口」：微信规定 `wx.requestSubscribeMessage`
+ * 必须在**用户点击手势的同步链路**里调用，`onLaunch`/`onShow` 里调必然 fail。
+ * ⇒ 本实现做到的是「进首页就弹引导，用户点一下按钮即同步发起授权」，体验上等价于「进入即授权」。
+ * ⚠️ 只在**首次**引导（由 `shouldGuideUserSubscribe()` 判本地标记），避免每次进首页都打扰。
+ */
+const subscribeGuideVisible = shallowRef(false)
 /** 开屏页最少停留时长（毫秒）—— 2026-09-29 用户要求由 3 秒降到 1.5 秒。 */
 const SPLASH_MIN_DURATION = 1500
 /** 渐入/渐出时长（毫秒）：**必须与样式里 splash-fade-in / splash-fade-out 的时长一致**，否则会提前卸载或闪白。 */
@@ -352,7 +363,13 @@ onMounted(() => {
     // 且「tabBar 消失」比「淡出期间露出 tabBar」严重得多 —— 安全优先。
     restoreTabBarAfterSplash()
     // 等淡出动画跑完再卸载遮罩
-    setTimeout(() => { splashVisible.value = false }, SPLASH_FADE_DURATION)
+    setTimeout(() => {
+      splashVisible.value = false
+      // ⚠️ 开屏**完全揭开后**再引导「开启配送通知」（2026-09-29 新增）：
+      //    这里只能弹引导弹层 —— 微信要求 requestSubscribeMessage 必须在点击手势的同步链路里，
+      //    真正发起授权在 SubscribeGuide 的按钮 tap 回调里（详见 utils/user-subscribe.ts 顶部说明）。
+      if (shouldGuideUserSubscribe()) subscribeGuideVisible.value = true
+    }, SPLASH_FADE_DURATION)
   }
   const minStay = new Promise<void>((resolve) => { setTimeout(() => resolve(), SPLASH_MIN_DURATION) })
   const maxStay = new Promise<void>((resolve) => { setTimeout(() => resolve(), SPLASH_MAX_DURATION) })
@@ -459,6 +476,10 @@ onShow(() => {
 
     <HomeWelfare v-model:active-tab="welfareTab" :welfare="welfareConfig" @image-tap="goWelfareImage" />
     <HomeSharePoster v-model="sharePosterVisible" :code-url="sharePosterCodeUrl" :share-link="shareLink" />
+    <!-- ⚠️ 首次进首页引导「开启配送通知」（2026-09-29 新增）：
+         开屏揭开后才弹；点「开启通知」时在按钮的 tap 回调里**同步**发起微信订阅授权
+         （微信强制要求点击手势，详见 utils/user-subscribe.ts 顶部说明）。 -->
+    <SubscribeGuide v-model="subscribeGuideVisible" />
   </view>
 </template>
 
