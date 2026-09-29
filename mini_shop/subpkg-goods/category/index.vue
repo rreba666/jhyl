@@ -408,12 +408,17 @@ onMounted(() => {
         </scroll-view>
         <view class="brand-expand-button" @click="brandExpanded = true">
           <view class="brand-expand-surface">
-            <!-- ⚠️ 展开按钮的圆形底（2026-09-29 按 Figma node 2220:10768 的 Frame 97 补）：
-                 设计稿为 60×60、fill #567F65（墨绿）透明度 15%、带 LAYER_BLUR 柔光。
+            <!-- ⚠️ 2026-09-29 按 Figma node 2220:10768 的 Frame 97 分层（用户指正）：
+                 · `Frame 97`（本层 .brand-expand-surface）= **父容器**，职责只有两件：
+                   ① 铺背景（下面的 .brand-expand-glow）② 承接事件；
+                 · `Frame 98`（下面的 .brand-expand-content）= 真正承载「展开」文字与图标的内容层。
+                 背景圆：设计稿 60×60、fill #567F65（墨绿）透明度 15%、带 LAYER_BLUR 柔光；
                  小程序对 filter: blur 支持有限且耗性能，这里用同色值 + 径向渐变近似。 -->
             <view class="brand-expand-glow" />
-            <text class="brand-expand-text">展开</text>
-            <view class="brand-expand-icon"><text class="brand-expand-bars">≡</text><text class="brand-expand-arrow">⌄</text></view>
+            <view class="brand-expand-content">
+              <text class="brand-expand-text">展开</text>
+              <view class="brand-expand-icon"><text class="brand-expand-bars">≡</text><text class="brand-expand-arrow">⌄</text></view>
+            </view>
           </view>
         </view>
       </view>
