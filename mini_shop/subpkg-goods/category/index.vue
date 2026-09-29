@@ -120,9 +120,9 @@ const themeConfig = computed(() => {
     // 此前盒子的背景直接复用 `themeConfig.backgroundColor`，**与页面底色是同一个值** ⇒
     // 圆角两侧永远同色 ⇒ 非遗老号的盒子圆角**视觉上永远看不出来**。
     // 用户明确：**页面底色应与上方品牌 icon 区域的背景一致（白）**，而**盒子是米黄**，
-    // 所以这里给盒子单独一个固定色（沿用 .category-products 的默认米黄 #fae7c9），
+    // 所以这里给盒子单独一个固定色（按用户要求改为白色 #fff（原为 .category-products 的默认米黄 #fae7c9）），
     // 页面底色仍走 backgroundColor（后端配置）。
-    boxBackgroundColor: theme.value === 'heritage' ? '#fae7c9' : undefined,
+    boxBackgroundColor: theme.value === 'heritage' ? '#fff' : undefined,
     // ⚠️ 2026-09-29 同上：给**页面底色**也加一个固定值，避免被后端 `l.backgroundColor`
     // 覆盖成与盒子相同的颜色（那会让米黄容器的圆角彻底看不出来）。
     // heritage 取 #f9e7e1 —— 即「品牌栏实际显示色」（#fff 底 + 头图 78% 叠加后的近似色）。
@@ -490,7 +490,7 @@ onMounted(() => {
    ⇒ padding-top 由 358rpx 降为 24rpx：让位给 fixed 头部的活现在由 margin-top 承担，
      padding-top 只保留"商品卡片与盒子顶部"的那点间距。
    注：background 那行实际被模板内联的 themeConfig.backgroundColor 覆盖（heritage 为 #F6E7C8）。 */
-.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; overflow: hidden; background: #fae7c9; }
+.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; overflow: hidden; background: #fff; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
 /* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
