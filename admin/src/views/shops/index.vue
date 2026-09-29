@@ -76,13 +76,28 @@ function discardDraft(silent = false): void {
   if (!silent) ElMessage.success('已清除草稿')
 }
 
+/**
+ * 把「新增」表单的内容**立即**落盘（取消防抖，并清掉待触发的定时器）。
+ *
+ * ⚠️ 为什么必须有它（2026-09-29 自查发现的真问题）：
+ *   用户「新增」填到一半、**防抖 600ms 还没到**时，若直接点列表里的「编辑」，
+ *   `openForm(shop)` 会**立刻** `Object.assign(form, 门店数据)` 覆盖掉 `form` ——
+ *   此时那部分还没落盘的输入就**永久丢失**了。
+ *   ⇒ 切换到编辑模式之前先 flush 一次，把「防抖窗口」压缩为 0。
+ *
+ * ⚠️ 只在「新增且表单打开着」时落盘：
+ *   编辑模式（`editingId` 有值）表单里是**服务端数据**，落盘会让下次新增恢复出别的门店的内容。
+ */
+function flushDraft(): void {
+  if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
+  if (formVisible.value && !editingId.value) {
+    saveFormDraft(SHOP_DRAFT_NAME, { ...form }, auth.adminUserId)
+  }
+}
+
 onBeforeUnmount(() => {
   // 卸载时把待写的草稿立刻落盘，否则防抖窗口内离开页面会丢掉最后几个字
-  if (draftTimer) {
-    clearTimeout(draftTimer)
-    draftTimer = null
-    if (formVisible.value && !editingId.value) saveFormDraft(SHOP_DRAFT_NAME, { ...form }, auth.adminUserId)
-  }
+  flushDraft()
 })
 
 /** 门店图片上传中（禁用按钮，防连点）。 */
@@ -477,6 +492,9 @@ function clearMapPoint(): void {
 
 /** 清空并打开门店编辑表单（编辑时回显所属品牌，便于改归属）。 */
 function openForm(shop?: Shop): void {
+  // ⚠️ 必须在改 `editingId` / 覆盖 `form` **之前** flush：
+  //    否则「新增填到一半直接点编辑」时，防抖窗口内未落盘的内容会被下面的 Object.assign 冲掉。
+  flushDraft()
   editingId.value = shop?.id
   Object.assign(form, {
     name: shop?.name || '',
