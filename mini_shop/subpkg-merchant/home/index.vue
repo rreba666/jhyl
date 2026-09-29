@@ -499,7 +499,7 @@ function goBack(): void {
 
       <!-- 门店管理入口（2026-09-23 新增）：后端 `/api/merchant/shop*` 支持品牌商家自建/启停门店。
            与下方「结算与提现」一样用文字入口（四宫格卡片依赖 card-*.png 切图，本项无对应切图）。 -->
-      <view class="settle-entry" @click="goShops">
+      <view v-if="isMerchantOwner" class="settle-entry" @click="goShops">
         <view class="settle-text">
           <text class="settle-title">门店管理</text>
           <text class="settle-sub">查看门店 · 新建门店 · 启用停用</text>

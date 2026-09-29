@@ -24,6 +24,7 @@ import {
   type MerchantShopVO,
 } from '@/api/merchant'
 import { uploadFile } from '@/utils/request'
+import { getIdentity, type IdentityVO } from '@/api/identity'
 // 订阅配置（2026-09-29）：用于展示「当前门店能否收到微信提示」
 import { preloadMerchantSubscribeConfig, readSubscribeReceiverBound } from '@/utils/subscribe'
 
@@ -41,6 +42,32 @@ const shops = ref<MerchantShopVO[]>([])
  * 未绑则回退门店主账号**，两者可能不是同一个人 ⇒ 用本人的状态会误导。
  * `null` = 配置尚未取到 ⇒ 不展示该卡片（避免闪一下又变）。
  */
+/**
+ * 当前身份信息（用于判断是否「品牌主体」）。
+ * ⚠️ 与工作台、结算与提现同一口径：**门店管理只给「商户管理员（MERCHANT_OWNER）」**。
+ * 口径说明（来自工作台注释，避免重蹈覆辙）：**不要因为"看不到入口"就回退** ——
+ * 那是因为身份没切/本地环境，线上验证过原判断是对的。
+ */
+const identity = ref<IdentityVO | null>(null)
+/**
+ * 账号里**是否存在**「商家（MERCHANT_OWNER）」身份。
+ * ⚠️ 看 `identities` **全集**而不是只看 `staffRole` 单值：入驻审核通过会**同时**授予
+ * 「商家 MERCHANT_OWNER」与「首店店长 MANAGER」，只判 `staffRole` 会把品牌主体误判成店长。
+ */
+const isMerchantOwner = computed(() => {
+  const list = identity.value?.identities || []
+  if (list.some((item) => String(item.role || '').toUpperCase() === 'MERCHANT_OWNER')) return true
+  // 兜底：identities 缺失/为空（老接口或异常场景）时退回 staffRole 判断
+  return String(identity.value?.staffRole || '').toUpperCase() === 'MERCHANT_OWNER'
+})
+/** 拉取身份（失败置 null ⇒ 视为无权限，宁可少显示也不越权）。 */
+async function loadIdentity(): Promise<void> {
+  try {
+    identity.value = await getIdentity()
+  } catch {
+    identity.value = null
+  }
+}
 const receiverBound = ref<boolean | null>(null)
 /** 拉取订阅配置并回填门店接收人绑定状态（失败保持 null ⇒ 不展示卡片）。 */
 async function loadNotifyStatus(): Promise<void> {
@@ -206,6 +233,8 @@ function goBack(): void {
 }
 
 onLoad(() => {
+  // 身份（门店管理只给品牌主体）
+  void loadIdentity()
   // 微信通知状态（门店维度接收人是否已绑微信）
   void loadNotifyStatus()
   const info = uni.getSystemInfoSync()
@@ -229,7 +258,14 @@ onPullDownRefresh(async () => {
       </view>
     </view>
 
-    <view class="body">
+    <!-- 非「品牌主体（商户管理员）」：整页只显示提示（与结算与提现同口径）。
+         ⚠️ 前端判断只是体验优化，真正的拦截应由后端做（见交付说明）。 -->
+      <view v-if="!isMerchantOwner" class="not-owner">
+        <text class="not-owner-title">仅商户管理员可管理门店</text>
+        <text class="not-owner-desc">门店管理仅对「商户管理员（品牌主体）」开放。你当前是店长/店员身份，如需新增或调整门店，请让商户管理员操作。</text>
+      </view>
+
+      <view v-else class="body">
       <!-- 微信通知状态（2026-09-29）：门店维度接收人是否已绑微信。
            ⚠️ 文案刻意不说"你没绑" —— 当前登录人不一定是店长，那样会误导。 -->
       <view v-if="receiverBound !== null" class="card notice-card" :class="{ 'notice-card-off': !receiverBound }">
@@ -316,6 +352,10 @@ onPullDownRefresh(async () => {
 </template>
 
 <style scoped>
+/* 非品牌主体提示（与结算与提现同口径） */
+.not-owner { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 160rpx 60rpx; }
+.not-owner-title { color: #172033; font-size: 32rpx; font-weight: 600; }
+.not-owner-desc { margin-top: 20rpx; color: #667085; font-size: 26rpx; line-height: 40rpx; text-align: center; }
 /* 微信通知状态卡片（2026-09-29） */
 .notice-card { border-left: 6rpx solid #07c160; }
 .notice-card-off { border-left-color: #ff9f0a; }
