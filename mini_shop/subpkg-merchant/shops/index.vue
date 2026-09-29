@@ -238,7 +238,7 @@ onPullDownRefresh(async () => {
           <text class="notice-state" :class="{ 'notice-state-off': !receiverBound }">{{ receiverBound ? '已开启' : '未开启' }}</text>
         </view>
         <text v-if="receiverBound" class="notice-desc">有新订单、接单超时、配送异常等消息，会通过微信订阅消息提醒门店接收人。</text>
-        <text v-else class="notice-desc">当前门店的通知接收人（店长优先，未绑则回退门店主账号）尚未绑定微信，微信提示发不出去。红点与短信不受影响；如需开启，请让店长完成微信绑定。</text>
+        <text v-else class="notice-desc">当前门店的通知接收人（店长优先，未绑则回退门店主账号）尚未绑定微信，微信提示发不出去。红点与短信不受影响；如需开启，请在 PC 后台「店员管理」中为店长绑定微信。</text>
       </view>
       <!-- 新建门店 -->
       <view class="card">
