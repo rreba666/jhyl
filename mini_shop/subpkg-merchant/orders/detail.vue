@@ -21,7 +21,7 @@ import {
   type MerchantOrderDetailVO,
 } from '@/api/merchant'
 import { resolveImageUrl } from '@/utils/request'
-import { requestMerchantSubscribe } from '@/utils/subscribe'
+import { preloadMerchantSubscribeConfig, requestMerchantSubscribe } from '@/utils/subscribe'
 import { formatDateTime, formatClock } from '@/utils/datetime'
 
 const statusBarHeight = ref(0)
@@ -33,6 +33,8 @@ const loading = ref(true)
 const errorMsg = ref('')
 
 onLoad((options) => {
+  // ⚠️ 预取订阅配置（缓存）：点击那一刻只能同步读缓存，来不及请求接口
+  void preloadMerchantSubscribeConfig()
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
   uni.setNavigationBarTitle({ title: '订单详情' })
   orderNo.value = String(options?.orderNo || '')

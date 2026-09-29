@@ -18,7 +18,7 @@ import {
 import OrderCard from '@/components/merchant/OrderCard.vue'
 // 空状态（设计稿 2026-09-22）：普通空态与「搜索无结果」是**两张不同插画**；插画放本分包 static
 import EmptyState from '@/components/EmptyState.vue'
-import { requestMerchantSubscribe } from '@/utils/subscribe'
+import { preloadMerchantSubscribeConfig, requestMerchantSubscribe } from '@/utils/subscribe'
 
 const TABS = [
   { key: 'all', api: 'ALL', label: '全部' },
@@ -74,6 +74,8 @@ onLoad(() => {
 })
 
 onShow(() => {
+  // ⚠️ 预取订阅配置（缓存）：点击那一刻只能同步读缓存，来不及请求接口
+  void preloadMerchantSubscribeConfig()
   void loadList(true)
 })
 

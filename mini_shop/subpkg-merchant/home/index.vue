@@ -20,7 +20,7 @@ import {
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
 import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
 import { uploadFile } from '@/utils/request'
-import { requestMerchantSubscribe } from '@/utils/subscribe'
+import { preloadMerchantSubscribeConfig, requestMerchantSubscribe } from '@/utils/subscribe'
 
 const statusBarHeight = ref(0)
 const shopName = ref('')
@@ -64,6 +64,8 @@ function stopUnreadTimer(): void {
   }
 }
 onShow(() => {
+  // ⚠️ 预取订阅配置（缓存）：点击那一刻只能同步读缓存，来不及请求接口
+  void preloadMerchantSubscribeConfig()
   // 店铺名与可选身份从后端拉取（身份卡列表同源）；用户头像单独取资料
   void loadIdentity()
   void loadUser()

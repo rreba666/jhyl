@@ -715,3 +715,50 @@ export function updateMerchantShopStatus(id: number | string, status: 0 | 1): Pr
 export function getMerchantUnread(): Promise<number> {
   return request<number>({ url: '/api/merchant/delivery/unread', method: 'GET' })
 }
+
+// ===== 商家端订阅消息配置（2026-09-28 后端下发；前端不再硬编码模板 ID）=====
+
+/** 单个订阅场景的下发配置。 */
+export interface MerchantSubscribeSceneConfig {
+  /** 模板键（如 `MERCHANT_NEW_ORDER`），与后端 `delivery.notify.template-ids` 同一套。 */
+  key: string
+  /** 场景码（如 `NEW_ORDER`），前端按它选择引导时机。 */
+  scene: string
+  /** 角色（商家侧固定 `MERCHANT`）。 */
+  role?: string
+  /** 中文标签，可直接展示。 */
+  label?: string
+  /** 微信模板 ID；`configured=false` 时为 null。 */
+  templateId?: string | null
+  /** ⚠️ **false = 运营尚未配该模板** ⇒ 不要引导订阅、也不要报 bug。 */
+  configured: boolean
+  /** 模板里的文本变量名（默认 `thing1`；`thing` 类目单值 ≤20 字）。 */
+  variableName?: string
+}
+
+/** 接收人（**门店维度**）：店长优先、未绑则回退门店主账号，两步都要求已绑微信。 */
+export interface MerchantSubscribeReceiver {
+  shopId?: number | null
+  /** ⚠️ 门店维度接收人是否已绑微信；false 时后端会**跳过微信通道**（红点照常）。 */
+  bound?: boolean
+  desc?: string
+}
+
+/** `GET /api/merchant/notify/subscribe-config` 的响应数据。 */
+export interface MerchantSubscribeConfig {
+  scenes: MerchantSubscribeSceneConfig[]
+  receiver?: MerchantSubscribeReceiver | null
+  variableHint?: string
+  note?: string
+}
+
+/**
+ * 拉取商家端订阅消息配置（模板 ID + 接收人绑定状态）。
+ *
+ * ⚠️ 鉴权：商家端 Token 即可，`shopId` 由后端从登录态取，**前端不用传**。
+ * ⚠️ 调用方应在**进页面时预取并缓存** —— 因为 `wx.requestSubscribeMessage` 只能在点击手势的
+ * 同步链路里调用，点击那一刻来不及请求接口（见 `utils/subscribe.ts`）。
+ */
+export function getMerchantSubscribeConfig(): Promise<MerchantSubscribeConfig> {
+  return request<MerchantSubscribeConfig>({ url: '/api/merchant/notify/subscribe-config', method: 'GET' })
+}
