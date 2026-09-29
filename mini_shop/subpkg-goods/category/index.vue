@@ -485,7 +485,7 @@ onMounted(() => {
 /* 圆形边框图：叠在 logo 之上（中心透明，不遮挡品牌图） */
 .brand-ring { position: absolute; top: 0; left: 0; z-index: 2; display: block; width: 92rpx; height: 92rpx; }
 .brand-name { padding: 0 10rpx; border-radius: 999rpx; }
-/* 选中态：图标白底圆 + 名称橙色胶囊白字（设计稿） */
+/* 选中态：名称橙色胶囊白字（图标已不铺白底，选中高亮由圆形边框图 border.png 体现） */
 .brand-item.selected .brand-icon { background: transparent; }
 .brand-item.selected .brand-name { background: #ff5500; color: #fff; }
 /* 展开按钮：贴右、浮在品牌之上；左侧渐变到品牌条底色做遮罩，避免品牌透出显得突兀 */
