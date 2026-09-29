@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
+import { removeWhiteBackground } from '@/utils/whiteToTransparent'
 import {
   createAdminGoodsBrand,
   deleteAdminGoodsBrand,
@@ -144,13 +145,31 @@ async function openEdit(row: AdminGoodsBrand): Promise<void> {
   }
 }
 
-/** 上传品牌 logo。 */
+/**
+ * 是否自动把 logo 的白底抠成透明（默认开）。
+ *
+ * ⚠️ 为什么默认开：运营上传的 logo 多为**白底图**，而小程序品牌条把 logo 放在**透明圆形**里显示，
+ * 白底会变成一个方块把圆形容器填满，很难看。CSS 无法去白底，只能在上传前用 canvas 处理。
+ * ⚠️ 为什么给开关：抠图只清除**与图片边缘连通的白色**（flood fill），理论上不会伤到 logo 内部的白，
+ * 但若遇到特殊情况（如 logo 本身贴边且含白色描边），关掉它即可按原图上传。
+ */
+const autoRemoveWhite = ref(true)
+
+/** 上传品牌 logo：按需先把白底抠成透明，再上传。 */
 async function handleUpload(options: UploadRequestOptions): Promise<void> {
-  const file = options.file as File
-  if (!file.type.startsWith('image/')) { ElMessage.error('请上传图片'); return }
-  if (file.size > 10 * 1024 * 1024) { ElMessage.error('图片不能超过 10MB'); return }
+  const raw = options.file as File
+  if (!raw.type.startsWith('image/')) { ElMessage.error('请上传图片'); return }
+  if (raw.size > 10 * 1024 * 1024) { ElMessage.error('图片不能超过 10MB'); return }
   uploading.value = true
   try {
+    // ⚠️ 白底转透明：只清除「与图片边缘连通的白色」（flood fill），logo 内部封闭的白色会保留；
+    //    失败或本来就无可清除的白底时返回原文件，**绝不阻断上传流程**。
+    let file = raw
+    if (autoRemoveWhite.value) {
+      const result = await removeWhiteBackground(raw)
+      file = result.file
+      if (!result.changed) console.info('[brands] 未检测到可去除的边缘白底，已按原图上传')
+    }
     form.logo = await uploadGoodsBrandLogo(file)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : 'logo 上传失败')
@@ -317,7 +336,11 @@ onMounted(() => {
             <el-upload :show-file-list="false" :http-request="handleUpload" accept="image/*">
               <el-button :loading="uploading">上传 Logo</el-button>
             </el-upload>
-            <span class="muted">建议方形透明底图（品牌条圆形图标）</span>
+            <!-- ⚠️ 白底自动转透明（2026-09-29）：运营上传的多为白底图，而品牌条用透明圆形显示 logo，
+                 白底会变方块填满圆形容器。抠图只清除**与图片边缘连通**的白色，logo 内部的白会保留；
+                 万一遇到特殊情况（如白色描边贴边被误伤），关掉此开关即按原图上传。 -->
+            <el-switch v-model="autoRemoveWhite" active-text="自动去白底" inline-prompt />
+            <span class="muted">建议方形透明底图（品牌条圆形图标）；白底图会自动抠成透明</span>
           </div>
         </el-form-item>
         <el-form-item label="归属大类">
