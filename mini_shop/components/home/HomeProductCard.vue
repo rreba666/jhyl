@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { ProductCard } from '@/api/product'
 
 type LayoutMode = 'grid' | 'list'
@@ -12,6 +12,18 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string]
 }>()
+
+/**
+ * 主图是否已「加载结束」（成功或失败都算）。
+ *
+ * ⚠️ 图片是**逐张异步加载**的（还带 `lazy-load`），加载完之前该位置需要骨架占位；
+ * 图片一旦就位就收起骨架、让实图淡入。
+ * ⚠️ **失败（`@error`）也必须收骨架** —— 否则扫光会一直转，看起来像卡死。
+ */
+const imageLoaded = ref(false)
+function onImageSettled(): void {
+  imageLoaded.value = true
+}
 
 const imageUrl = computed(() => props.product.mainImage || '/static/figma-home/product-default.jpg')
 const description = computed(() => props.product.descriptionTitle || props.product.tag || '精选好物，安心品质')
@@ -37,13 +49,27 @@ function selectProduct(): void {
 
 <template>
   <view
-    class="product-card"
+    class="product-card motion-card-in"
     :class="`product-card-${mode}`"
     hover-class="product-card-pressed"
     :hover-stay-time="80"
     @click="selectProduct"
   >
-    <image class="product-image" :src="imageUrl" mode="aspectFill" lazy-load />
+    <!-- ⚠️ 图片位骨架 + 扫光（2026-09-29 用户要求）：
+         商品图是逐张异步加载的，原来这里只有一块纯浅灰 —— 用户看不出"在加载"，
+         会误以为图就是这样。改成骨架 + 一道来回扫过的柔光，加载完再淡入实图。 -->
+    <view class="product-image-wrap" :class="`product-image-wrap-${mode}`">
+      <view v-if="!imageLoaded" class="product-image-skeleton skeleton-shimmer" />
+      <image
+        class="product-image motion-image-in"
+        :class="{ 'motion-image-loaded': imageLoaded }"
+        :src="imageUrl"
+        mode="aspectFill"
+        lazy-load
+        @load="onImageSettled"
+        @error="onImageSettled"
+      />
+    </view>
     <view class="product-copy">
       <text class="product-title">{{ product.name || '精选商品' }}</text>
       <!-- 描述行：后台关闭「推荐文本」时不渲染文字，但仍留一个等高占位节点 ——
@@ -77,13 +103,15 @@ function selectProduct(): void {
 .product-card-pressed { transform: scale(.98); box-shadow: 0 2rpx 8rpx rgba(17, 24, 39, .06); }
 .product-card-grid { flex-direction: column; width: 100%; }
 .product-card-list { flex-direction: row; width: 100%; min-height: 272rpx; padding: 0; box-sizing: border-box; }
-/* 图片占位底色。
-   ⚠️ 这里原本是一个纯深红（全项目仅此一处）：商品图带透明边、或图片还没加载完时，
-   那层红色会沿着图片四周露出来，看起来就像商品图被加了一圈红框（2026-09-19 用户截图反馈）。
-   现改为与分类页 `.category-product-image-wrap` 一致的浅灰占位色。 */
-.product-image { flex-shrink: 0; background: #f5f6f7; }
-.product-card-grid .product-image { width: 100%; height: 366rpx; }
-.product-card-list .product-image { width: 272rpx; height: 272rpx; }
+/* 图片容器：骨架与实图叠放在同一格，圆角内裁切。
+   ⚠️ 尺寸规则从原来的 `.product-image` 移到容器上 —— 图片本身改为铺满容器（100%/100%），
+      这样骨架层才能与实图严格同位、切换时不跳动。 */
+.product-image-wrap { position: relative; flex-shrink: 0; overflow: hidden; background: #f5f6f7; }
+.product-card-grid .product-image-wrap { width: 100%; height: 366rpx; }
+.product-card-list .product-image-wrap { width: 272rpx; height: 272rpx; }
+/* 骨架层铺满容器（`skeleton-shimmer` 提供底色与扫光，见 styles/motion.wxss） */
+.product-image-skeleton { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; }
+.product-image { display: block; width: 100%; height: 100%; }
 .product-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: stretch; padding: 18rpx 24rpx 20rpx; box-sizing: border-box; }
 .product-card-list .product-copy { justify-content: space-between; padding: 8rpx 24rpx 16rpx; }
 .product-title, .product-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; text-overflow: ellipsis; }

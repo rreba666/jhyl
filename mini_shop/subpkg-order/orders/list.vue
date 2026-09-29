@@ -416,9 +416,23 @@ onShow(() => {
   <view class="page">
     <!-- 自定义导航栏，与胶囊按钮同一行 -->
     <view class="nav" :style="navStyle"><view class="nav-back" @click="goBack"><text class="back-icon">‹</text></view><text class="title">我的订单</text></view>
-    <view class="tabs" :style="{ marginTop: bodyTop + 'px' }">
-      <view v-for="(tab, index) in tabs" :key="tab.label" class="tab" :class="{ active: activeIndex === index }" @click="selectTab(index)">{{ tab.label }}</view>
-    </view>
+    <!-- ⚠️ 2026-09-29 改为横向滚动（用户反馈「订单状态的 tab 还是会挤，没有横向滚动」）：
+         这里有 **9 个** tab（全部/待付款/待发货/待收货/待自提/已完成/退款中/已退款/退款售后），
+         原样式是 `.tabs { display: flex; width: 100% }` + `.tab { flex: 1 }` ⇒ 每个仅约 83rpx，
+         3 个字的「待付款」刚好塞满、4 个字的「退款售后」直接溢出 ⇒ 看着就是全挤在一起。
+         ⇒ 改成 scroll-view + tab 宽度**自适应内容**：装得下就均分，装不下可左右滑。 -->
+    <scroll-view
+      class="tabs"
+      scroll-x
+      :enhanced="true"
+      :bounces="true"
+      :show-scrollbar="false"
+      :style="{ marginTop: bodyTop + 'px' }"
+    >
+      <view class="tabs-inner">
+        <view v-for="(tab, index) in tabs" :key="tab.label" class="tab" :class="{ active: activeIndex === index }" @click="selectTab(index)">{{ tab.label }}</view>
+      </view>
+    </scroll-view>
     <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="load(false)">
       <view v-show="loading && !(isAfterSaleTab ? afterSales.length : list.length)" class="state">加载中...</view>
 
@@ -524,8 +538,14 @@ onShow(() => {
 .nav { position: fixed; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: #fff; box-sizing: border-box; }
 .nav-back { position: absolute; left: 16rpx; display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; }.back-icon { font-size: 48rpx; line-height: 1; color: #222; }
 .title { font-size: 32rpx; font-weight: 700; }
-.tabs { display: flex; width: 100%; height: 82rpx; flex-shrink: 0; background: #fff; }
-.tab { flex: 1; display: flex; align-items: center; justify-content: center; height: 82rpx; color: #888; font-size: 26rpx; border-bottom: 4rpx solid transparent; box-sizing: border-box; }
+/* ⚠️ 2026-09-29 改为横向滚动容器（原为 flex + 100% 平分，9 个 tab 每个仅 ~83rpx ⇒ 全挤在一起）。
+   现在 tab 宽度自适应内容：内容总宽 < 屏宽时仍靠 space-between 均分铺满，超出时即可左右滑动。 */
+.tabs { width: 100%; height: 82rpx; flex-shrink: 0; background: #fff; white-space: nowrap; }
+.tabs-inner { display: inline-flex; min-width: 100%; height: 82rpx; align-items: stretch; justify-content: space-between; }
+/* ⚠️ 2026-09-29：`flex: 1` 改为**宽度自适应内容**（`flex: 0 0 auto` + 左右内边距）。
+   原来 9 个 tab 平分屏宽，每个仅约 83rpx，3 个字勉强放下、4 个字必然溢出 ⇒ 挤成一团。
+   现在每个 tab 按自身文案宽度撑开，配合外层 scroll-view 可横向滑动。 */
+.tab { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; height: 82rpx; padding: 0 22rpx; color: #888; font-size: 26rpx; border-bottom: 4rpx solid transparent; box-sizing: border-box; white-space: nowrap; }
 .tab.active { color: #222; border-color: #222; font-weight: 700; }
 .list { flex: 1; min-height: 0; padding: 20rpx 24rpx; box-sizing: border-box; }
 .order-card { margin-bottom: 20rpx; padding: 26rpx 30rpx; background: #fff; border-radius: 16rpx; }

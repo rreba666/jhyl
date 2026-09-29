@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { CategoryProduct } from '@/api/category'
 
 const props = withDefaults(defineProps<{
@@ -13,6 +13,17 @@ const emit = defineEmits<{
   select: [id: string]
   add: [product: CategoryProduct]
 }>()
+
+/**
+ * 主图是否已「加载结束」（成功或失败都算）。
+ *
+ * ⚠️ 图片逐张异步加载，加载完之前需要骨架 + 扫光占位（与首页 `HomeProductCard` 同口径）；
+ * ⚠️ **失败也必须收骨架**，否则扫光一直转、看起来像卡死。
+ */
+const imageLoaded = ref(false)
+function onImageSettled(): void {
+  imageLoaded.value = true
+}
 
 const imageUrl = computed(() => props.product.mainImage || props.fallbackImage)
 /** 产地直接取商品自身信息（每个商品产地不同，不再由落地页/后台统一配置）。 */
@@ -33,14 +44,25 @@ function addProduct(): void {
 
 <template>
   <view
-    class="category-product-card"
+    class="category-product-card motion-card-in"
     :class="`is-${mode}`"
     hover-class="category-product-card-pressed"
     :hover-stay-time="80"
     @click="selectProduct"
   >
     <view class="category-product-image-wrap">
-      <image class="category-product-image" :src="imageUrl" mode="aspectFill" />
+      <!-- ⚠️ 图片位骨架 + 扫光（2026-09-29，与首页 HomeProductCard 同口径）：
+           商品图逐张异步加载，原来只有纯浅灰底 ⇒ 用户看不出"在加载"。 -->
+      <view v-if="!imageLoaded" class="category-product-image-skeleton skeleton-shimmer" />
+      <image
+        class="category-product-image motion-image-in"
+        :class="{ 'motion-image-loaded': imageLoaded }"
+        :src="imageUrl"
+        mode="aspectFill"
+        lazy-load
+        @load="onImageSettled"
+        @error="onImageSettled"
+      />
     </view>
     <view class="category-product-copy">
       <view class="category-product-text">
@@ -79,7 +101,10 @@ function addProduct(): void {
 .category-product-card-pressed { transform: scale(.98); box-shadow: 0 2rpx 8rpx rgba(17, 24, 39, .06); }
 .category-product-card.is-horizontal { width: 100%; min-height: 272rpx; align-items: stretch; gap: 16rpx; padding: 16rpx; }
 .category-product-card.is-grid { width: 100%; flex-direction: column; gap: 16rpx; }
-.category-product-image-wrap { display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 12rpx; background: #f5f6f7; }
+/* ⚠️ 加 `position: relative` 作为骨架层的定位基准（骨架 absolute 铺满这一格）。 */
+.category-product-image-wrap { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 12rpx; background: #f5f6f7; }
+/* 骨架层铺满容器（底色与扫光由全局 `skeleton-shimmer` 提供，见 styles/motion.wxss） */
+.category-product-image-skeleton { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; }
 .is-horizontal .category-product-image-wrap { width: 240rpx; height: 240rpx; flex: 0 0 240rpx; }
 /* 双列卡片的商品图统一裁成等高（aspectFill + 固定 344rpx）—— 图片参差是"排列不齐"的一半原因 */
 .is-grid .category-product-image-wrap { width: 100%; height: 344rpx; }

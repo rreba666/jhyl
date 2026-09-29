@@ -104,6 +104,70 @@
   animation: motion-skeleton-pulse 1.4s ease-in-out infinite;
 }
 
+/**
+ * 骨架「扫光」（shimmer）：`class="skeleton-shimmer"`。
+ *
+ * 图片是逐张异步加载的（`lazy-load`），纯静态灰块会让用户以为"就长这样"，
+ * 一道来回扫过的柔光能明确传达"**这里还在加载**"。
+ *
+ * ⚠️ 为什么用 `::after` + `translateX` 而不是动画 `background-position`：
+ *    后者依赖 `background-size` 的百分比解析，在部分小程渲染器上会跳变；
+ *    `transform` 走合成层、也更省性能。
+ * ⚠️ 扫光层用白色半透明渐变的**两端为 0 透明**，避免出现生硬的"白条边界"。
+ */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: #eef0f3;
+}
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .72) 50%, rgba(255, 255, 255, 0) 100%);
+  transform: translateX(-100%);
+  animation: motion-shimmer 1.25s ease-in-out infinite;
+}
+@keyframes motion-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ===================== 列表卡片进场（带弹性） ===================== */
+
+/**
+ * 卡片进场：`class="motion-card-in"`。
+ *
+ * ⚠️ 用在**列表项**上：`v-for` + 稳定的 `:key` ⇒ **只有新出现的项**会播这次动画，
+ *    已有项在重渲染时不会重播（这正是我们要的"新加载进来的商品卡片渐入"）。
+ * ⚠️ 缓动用 `cubic-bezier(.34, 1.56, .64, 1)` —— **末段过冲**带来一点回弹手感（弹性），
+ *    而不是生硬的 ease-out。位移仅 22rpx，避免长列表滚动时过于花哨。
+ */
+@keyframes motion-card-in {
+  from { opacity: 0; transform: translateY(22rpx) scale(.965); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.motion-card-in {
+  animation: motion-card-in .42s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+
+/**
+ * 图片加载完成后的渐入：`class="motion-image-in"`，加载完成时再加 `motion-image-loaded`。
+ *
+ * ⚠️ **不能只给骨架做动效**：图片"啪"地出现（从骨架直接跳到实图）同样很突兀。
+ *    让实图淡入、骨架同时淡出，视觉上是平滑的"显影"。
+ */
+.motion-image-in {
+  opacity: 0;
+  transition: opacity .32s ease-out;
+}
+.motion-image-in.motion-image-loaded {
+  opacity: 1;
+}
+
 /* ===================== 无障碍：尊重"减弱动态效果" ===================== */
 
 /**
@@ -116,11 +180,24 @@
   .motion-enter-stagger,
   .motion-pop,
   .motion-slide-in,
-  .motion-skeleton {
+  .motion-skeleton,
+  .motion-card-in,
+  .skeleton-shimmer::after {
     animation: none;
+  }
+  /* 扫光关掉后必须让骨架仍可辨认，否则只剩纯灰块、失去"加载中"的语义 */
+  .skeleton-shimmer::after {
+    display: none;
+  }
+  .skeleton-shimmer {
+    background: #eef0f3;
   }
   .motion-tap,
   .motion-press {
+    transition: opacity .01ms;
+  }
+  /* 图片渐入保留（对"内容出现了"的理解有帮助），只是缩短到近乎瞬时 */
+  .motion-image-in {
     transition: opacity .01ms;
   }
   .motion-tap:active,
