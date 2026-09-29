@@ -111,7 +111,15 @@ export function requestMerchantSubscribe(scenes: string[]): void {
   // （`requestSubscribeMessage:fail Request list fail`）。
   // ⚠️ 本次实测日志里只传了 1 个 ID，所以重复**不是**当时那次报错的原因（另见交付说明）；
   //    但去重是必须的，避免将来一次引导多个场景时踩同一个坑。
-  const ids = Array.from(new Set(picked.map((item) => String(item.templateId)))).slice(0, MAX_TMPL_PER_CALL)
+  // 模板 ID：**优先用后端聚合好的 tmplIds**（2026-09-29 后端新增，已去重 / 已过滤空值 / ≤3）。
+  // ⚠️ 后端 9 个模板键**全部指向同一个模板 ID** ⇒ 自己 map 很容易传出**重复 ID**，
+  //    而微信对重复项**不是忽略、而是直接拒整批**（requestSubscribeMessage:fail Request list fail）。
+  // ⚠️ 兼容：老接口没有 tmplIds 时回退到自己按场景取，**依然强制去重**。
+  const serverTmplIds = (cachedConfig?.tmplIds || []).filter((id) => !!id)
+  const ids = (serverTmplIds.length
+    ? Array.from(new Set(serverTmplIds))
+    : Array.from(new Set(picked.map((item) => String(item.templateId))))
+  ).slice(0, MAX_TMPL_PER_CALL)
   if (!ids.length) return
 
   // ② 非微信端跳过
