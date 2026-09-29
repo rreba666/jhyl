@@ -604,7 +604,7 @@ onMounted(() => {
           <p class="upload-hint">建议尺寸 750×750px（1:1 正方形），首页卡片中图片将撑满显示，文字叠于底部</p>
         </el-form-item>
         <el-form-item label="轮播图" class="form-item-full">
-          <ImageGridUpload v-model="form.images" :max="5" :uploading="mediaUploading" @upload="onImagesUpload" @remove="form.images.splice($event, 1)" />
+          <ImageGridUpload v-model="form.images" :max="5" :multiple="true" :uploading="mediaUploading" @upload="onImagesUpload" @remove="form.images.splice($event, 1)" />
         </el-form-item>
         <el-form-item label="视频" class="form-item-full media-form-item">
           <div class="media-edit"><el-input v-model="form.videoUrl" /><el-upload :show-file-list="false" :http-request="onVideoUpload" accept="video/mp4"><el-button :loading="mediaUploading">上传 MP4</el-button></el-upload></div>
