@@ -77,7 +77,7 @@ const splashLeaving = shallowRef(false)
  */
 const splashRevealed = shallowRef(false)
 /** 开屏页最少停留时长（毫秒）—— 用户 2026-09-27 要求至少 3 秒。 */
-const SPLASH_MIN_DURATION = 3000
+const SPLASH_MIN_DURATION = 1500
 /** 渐入/渐出时长（毫秒）：**必须与样式里 splash-fade-in / splash-fade-out 的时长一致**，否则会提前卸载或闪白。 */
 const SPLASH_FADE_DURATION = 450
 /**
@@ -371,7 +371,7 @@ onShow(() => {
 
 <template>
   <view class="home-page">
-    <!-- 开屏遮罩：最少停留 3 秒（见 SPLASH_MIN_DURATION），加载中就绪后渐出（.splash-leaving） -->
+    <!-- 开屏遮罩：最少停留 1.5 秒（见 SPLASH_MIN_DURATION），加载中就绪后渐出（.splash-leaving） -->
     <view v-if="splashVisible" class="splash-mask" :class="{ 'splash-leaving': splashLeaving }">
       <!-- ⚠️ 用压缩后的 JPEG：原 start_bg.png 有 569KB，会让主包超过微信 2MB 上限（编译上传会失败） -->
       <image class="splash-image" src="/static/start_bg.jpg" mode="aspectFit" />
