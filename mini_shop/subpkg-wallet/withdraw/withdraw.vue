@@ -175,10 +175,17 @@ const nextWithdrawableAt = computed(() => {
 /**
  * 锁定期提示文案（口径：自订单支付时刻起算的 N×24 小时，不再按自然日零点解锁）：
  * 后端没有下发 `nextWithdrawableAt` 时不展示，避免提示与实际可提现时间不一致。
+ *
+ * ⚠️ 2026-09-29 补充口径说明（用户反馈「只要有新订单就全冻住了」）：
+ *    后端口径是「**锁定中订单的最晚支付时间** + payLockDays」⇒ **每来一笔新订单，解锁时刻就往后顺延**，
+ *    持续下单的用户会长期提不出来。这是**后端口径问题**（已提需求：
+ *    `docs/后端需求-提现锁定期口径-2026-09-29.md`，诉求改为按金额/按订单锁定，并在 C 端钱包补
+ *    `availableBalance`/`frozenBalance`），**前端无法绕过**。
+ *    ⇒ 但在后端改之前，必须把口径讲清楚，否则用户会认定是前端 bug。
  */
 const withdrawLockHint = computed(() => {
   if (!nextWithdrawableAt.value) return ''
-  return `最近有订单支付，暂时无法提现；${nextWithdrawableAt.value} 后可提现`
+  return `最近有订单支付，暂时无法提现；${nextWithdrawableAt.value} 后可提现（按最近一笔订单支付时间计算，期间新下单会顺延）`
 })
 
 /**
