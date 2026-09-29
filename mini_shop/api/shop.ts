@@ -31,10 +31,13 @@ export function getEnabledShops(): Promise<EnabledShop[]> {
  * 后端摘要原文：「按商品筛选可配送门店（C端公开）」—— 依据是**门店-SKU 关联**，
  * 所以入参是 `skuIds` 而不是 `productId`（门店商品按 SKU 维护）。
  *
- * ⚠️ **同城配送必须用这个接口**，不能用 `getEnabledShops()`：后者是「全部启用门店」，
- * 会把没有该商品的门店也列出来，用户选完到下单才被后端拒。
- * 自提（`pickupType=1`）仍然用 `getEnabledShops()` —— 门店级 `deliveryEnabled`
- * 只影响同城，不影响自提。
+ * ⚠️ **自提（`pickupType=1`）与同城（`pickupType=2`）都必须用它** —— 两者都只能选
+ * **有这批商品**的门店。
+ * （2026-09-29 修：此前注释写着"自提仍用 `getEnabledShops()`"，导致自提把没有该商品的
+ *   门店也列出来，真机反馈"商品只有 A 店有，自提却列出所有门店"。）
+ * ⚠️ 两者**唯一的区别**是**要不要再按 `deliveryEnabled` 过滤**：
+ *   · **同城要** —— `deliveryEnabled` 就是同城配送开关；
+ *   · **自提不要** —— 门店没开通同城，照样可以让顾客上门自提它自己有的商品。
  *
  * @param skuIds 订单里商品的 SKU 集合；为空时不带该参数（退化为后端默认口径）。
  *   传参用逗号分隔：Spring 的 `@RequestParam List<Long>` 对

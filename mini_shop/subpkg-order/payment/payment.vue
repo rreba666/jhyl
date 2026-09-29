@@ -527,7 +527,10 @@ watch(items, () => {
  * 同城配送的候选门店 = 「能配送这批商品的门店」∩「开通了同城配送的门店」。
  * 筛选结果拿不到（`deliverableShops === null`）时退回全量门店，保住可用性。
  *
- * ⚠️ 自提（`pickupType=1`）**不用**这个列表：门店级 `deliveryEnabled` 只影响同城，不影响自提。
+ * ⚠️ ⚠️ **自提（`pickupType=1`）不能用这个列表**（2026-09-29 更正）：
+ *    这里额外过滤了 `deliveryEnabled`，而那是**同城开关**——一家店没开通同城，
+ *    照样可以让顾客上门自提它自己有的商品。自提应直接用 `deliverableShops`（只按商品筛）。
+ *    （此前这句注释写的是反的："自提不用这个列表"，导致自提一直被喂全量门店。）
  */
 const sameCityShops = computed(() => {
   const base = deliverableShops.value ?? shops.value
@@ -536,9 +539,14 @@ const sameCityShops = computed(() => {
 
 /**
  * 门店弹层 / 置灰说明的空态文案。
- * 同城区分两种情况：按商品筛过 = 「这批商品没有门店能送」；退回全量 = 「没有门店开通同城配送」。
+ * ⚠️ 自提（1）与同城（2）都基于「按商品筛选」的结果 ⇒ 空态都该说明"这批商品没有门店能提供"；
+ *    只有筛选结果拿不到（退回全量）时才说"暂无可用门店 / 没有门店开通同城"。
  */
 const shopEmptyText = computed(() => {
+  // 自提：只看有没有门店能提供这批商品
+  if (pickupType.value === 1) {
+    return deliverableShops.value !== null ? '暂无门店可提供该商品' : '暂无可用门店'
+  }
   if (pickupType.value !== 2) return '暂无可用门店'
   return deliverableShops.value !== null ? '暂无门店可配送该商品' : '暂无门店开通同城配送'
 })
@@ -786,11 +794,22 @@ watch([shops, moduleConfig, deliverableShops], () => {
 })
 
 /**
- * 门店弹层数据源：同城配送只列**能配送这批商品且开通了同城配送**的门店；
- * 若预试算已出结果，则进一步只列**当前定位能送到**的门店（送不到的列出来也没意义）。
- * ⚠️ 别再退回 `shops.value` —— 那是全量启用门店，会把没有该商品的门店也列出来。
+ * 门店弹层数据源。
+ *
+ * ⚠️ **自提（pickupType=1）与同城（2）的门店口径应当一致**：都只能选**有这批商品**的门店。
+ *    （2026-09-29 修：此前自提直接返回 `shops.value`＝全部启用门店，真机反馈"商品只有 A 店有，
+ *      自提却列出所有门店"。）
+ * ⚠️ 但两者**不能共用 `sameCityShops`** —— 那里还额外过滤了 `deliveryEnabled`（**同城开关**），
+ *    而自提与同城开关无关：一家店没开通同城，照样可以让顾客上门自提自己有的商品。
+ *    ⇒ 自提只用 `deliverableShops`（口径 = `shop_product.status=1` 上架关系，与下单拦截同源）。
+ * ⚠️ 物流（0）不选门店，保持原样返回。
+ * ⚠️ 同城若预试算已出结果，进一步只列**当前定位能送到**的门店（送不到的列出来也没意义）。
+ * ⚠️ 别再退回 `shops.value` 给自提/同城 —— 那是全量启用门店，会把没有该商品的门店也列出来。
  */
 const pickerShops = computed(() => {
+  // 自提：只按商品筛，不看 deliveryEnabled（同城开关与自提无关）
+  if (pickupType.value === 1) return deliverableShops.value ?? shops.value
+  // 物流：不涉及门店选择
   if (pickupType.value !== 2) return shops.value
   const deliverable = sameCityShops.value
   const quotable = deliverable.filter((shop) => {
