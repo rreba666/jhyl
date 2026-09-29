@@ -30,6 +30,12 @@ const MAX_TMPL_PER_CALL = 3
 const rejectedScenes = new Set<string>()
 
 /**
+ * 本次会话是否已提示过「门店接收人未绑微信」。
+ * ⚠️ 只提示一次 —— 每次点击都弹会变成骚扰（而且绑定要去 PC 后台，提示再多也解决不了）。
+ */
+let receiverWarned = false
+
+/**
  * **预取订阅配置**（进页面时调用）。
  *
  * ⚠️ 必须**提前**调用：点击那一刻只能同步读缓存，来不及请求接口。
@@ -77,6 +83,22 @@ export function readConfiguredSubscribeScenes(): MerchantSubscribeSceneConfig[] 
 export function requestMerchantSubscribe(scenes: string[]): void {
   const list = cachedConfig?.scenes || []
   if (!list.length) return
+
+  // ⓿ ⚠️ 接收人未绑微信 ⇒ 订阅了也收不到（后端会跳过微信通道）。
+  // 文档 §2.2 要求"先引导绑定再订阅"；但**绑定入口在 PC 后台**、小程序内无法跳转，
+  // 所以这里只做**一次**提示（指向后台「店员管理」），不反复骚扰。
+  if (readSubscribeReceiverBound() === false) {
+    if (!receiverWarned) {
+      receiverWarned = true
+      uni.showModal({
+        title: '需先绑定微信',
+        content: '当前门店的通知接收人（店长优先，未绑则回退门店主账号）尚未绑定微信，订阅后也收不到提示。请在 PC 后台「店员管理」中为店长绑定微信。',
+        showCancel: false,
+        confirmText: '知道了',
+      })
+    }
+    return
+  }
 
   // ① 只取「已配置 + 有模板 ID + 未被拒」的，并遵守"一次最多 3 个"
   const picked = scenes
@@ -132,4 +154,5 @@ export function requestMerchantSubscribe(scenes: string[]): void {
 /** 清空"已拒绝"去重记录（例如用户重新登录/绑定微信后允许再引导一次）。 */
 export function resetMerchantSubscribeMemory(): void {
   rejectedScenes.clear()
+  receiverWarned = false
 }
