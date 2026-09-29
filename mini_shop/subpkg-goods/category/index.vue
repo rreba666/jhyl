@@ -66,6 +66,21 @@ const brands = computed<BrandItem[]>(() => {
 })
 /** 当前选中的品牌（用于高亮与按品牌筛选商品）。 */
 const selectedBrand = computed<BrandItem | null>(() => brands.value.find((item) => brandKey(item) === selectedBrandKey.value) || null)
+/**
+ * 品牌圆形边框素材（2026-09-29 接入）。
+ * ⚠️ 两张都是 **144×144 的透明圆环**，中心不遮挡 logo；品牌图本身是**透明背景**，
+ * 因此这里**不再给 `.brand-icon` 铺底色**，圆环直接叠在 logo 上即可。
+ */
+const BRAND_RING_NORMAL = '/static/figma-category/brands/white-border.png'
+const BRAND_RING_SELECTED = '/static/figma-category/brands/border.png'
+/**
+ * 取某品牌当前应叠加的边框素材：**未选中白框、选中橙框**。
+ * ⚠️ 刻意写成函数而不是在模板里写三元表达式 —— 项目约定：小程序模板对复杂表达式支持有限，
+ * 这类判断统一放到 script 里。
+ */
+function brandRing(brand: BrandItem): string {
+  return selectedBrandKey.value === brandKey(brand) ? BRAND_RING_SELECTED : BRAND_RING_NORMAL
+}
 const fallbackCategories: CategoryNode[] = [
   { id: 'nutrition', name: '营养膳食', icon: '' },
   { id: 'water', name: '风生水起', icon: '' },
@@ -361,7 +376,7 @@ onMounted(() => {
         <scroll-view class="brand-scroll" scroll-x :show-scrollbar="false">
           <view class="brand-list">
             <view v-for="brand in brands" :key="brandKey(brand)" class="brand-item" :class="{ selected: selectedBrandKey === brandKey(brand) }" @click="selectBrand(brand)">
-              <view class="brand-icon"><image class="brand-logo" :src="brand.image" mode="aspectFit" /></view>
+              <view class="brand-icon"><image class="brand-logo" :src="brand.image" mode="aspectFit" /><image class="brand-ring" :src="brandRing(brand)" mode="aspectFit" /></view>
               <text class="brand-name">{{ brand.name }}</text>
             </view>
           </view>
@@ -426,7 +441,7 @@ onMounted(() => {
         <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" @back="goBack" />
         <view class="brand-expanded-grid">
           <view v-for="brand in expandedBrands" :key="brandKey(brand)" class="brand-item" :class="{ selected: selectedBrandKey === brandKey(brand) }" @click="selectBrand(brand)">
-            <view class="brand-icon"><image class="brand-logo" :src="brand.image" mode="aspectFit" /></view>
+            <view class="brand-icon"><image class="brand-logo" :src="brand.image" mode="aspectFit" /><image class="brand-ring" :src="brandRing(brand)" mode="aspectFit" /></view>
             <text class="brand-name">{{ brand.name }}</text>
           </view>
         </view>
@@ -465,11 +480,13 @@ onMounted(() => {
 .brand-list { display: inline-block; white-space: nowrap; padding-right: 160rpx; }
 /* 品牌项：图标圆 92rpx + 名称 38rpx，inline-flex 保证图标与名称竖排 */
 .brand-item { display: inline-flex; flex-shrink: 0; min-width: 92rpx; margin-right: 31rpx; flex-direction: column; align-items: center; gap: 12rpx; color: #1d2129; font-size: 21rpx; line-height: 38rpx; text-align: center; white-space: nowrap; vertical-align: top; }
-.brand-icon { position: relative; display: flex; width: 92rpx; height: 92rpx; align-items: center; justify-content: center; border-radius: 50%; background: #f1f2f4; }
+.brand-icon { position: relative; display: flex; width: 92rpx; height: 92rpx; align-items: center; justify-content: center; border-radius: 50%; background: transparent; }
 .brand-logo { position: relative; z-index: 1; display: block; width: 67rpx; height: 67rpx; }
+/* 圆形边框图：叠在 logo 之上（中心透明，不遮挡品牌图） */
+.brand-ring { position: absolute; top: 0; left: 0; z-index: 2; display: block; width: 92rpx; height: 92rpx; }
 .brand-name { padding: 0 10rpx; border-radius: 999rpx; }
 /* 选中态：图标白底圆 + 名称橙色胶囊白字（设计稿） */
-.brand-item.selected .brand-icon { background: #fff; }
+.brand-item.selected .brand-icon { background: transparent; }
 .brand-item.selected .brand-name { background: #ff5500; color: #fff; }
 /* 展开按钮：贴右、浮在品牌之上；左侧渐变到品牌条底色做遮罩，避免品牌透出显得突兀 */
 .brand-expand-button { position: absolute; top: 15rpx; right: 0; z-index: 5; display: flex; height: 146rpx; align-items: center; padding-right: 6rpx; box-sizing: border-box; background: linear-gradient(90deg, rgba(234, 247, 239, 0) 0%, #eaf7ef 38%); }
