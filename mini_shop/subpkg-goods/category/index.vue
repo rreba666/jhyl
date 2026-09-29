@@ -466,7 +466,16 @@ onMounted(() => {
    ② 商品卡片与盒子顶部留出间距 —— padding-top 由 358rpx（正好等于固定头部高度）加到 381rpx，
       多出的 23rpx 与左右内边距同值，视觉最协调。注意用 padding 而不是 margin：
       盒子顶部仍与固定头部（.heritage-header height: 358rpx）无缝相接，只是卡片下移。 */
-.theme-heritage .category-products { z-index: 1; margin-top: 0; padding: 381rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; background: #fff; }
+/* ⚠️ 2026-09-29 修正（用户反馈"米黄大盒子上方两个角应是圆角，且商品卡片与盒子顶部有距离"）：
+   关键在 margin-top —— 原来是 0，盒子从**页面最顶端 y=0** 开始，只用 padding-top 358rpx 把卡片推到头部下方，
+   于是**盒子的顶边（圆角所在处）留在 y=0，被 fixed 头部（z-index 10、高 358rpx、纯白底）整块盖住**，
+   圆角等于不存在（只加 border-radius 治不了这个问题）。
+   ⇒ 改为 margin-top: 374rpx 把盒子顶推到头部下方（358 头部 + 16 露缝），圆角才真正可见；
+     露出的 16rpx 缝是页面底色，与盒子同为米黄（内联 #F6E7C8），所以过渡自然、不是一条突兀的线。
+   ⇒ padding-top 由 358rpx 降为 24rpx：让位给 fixed 头部的活现在由 margin-top 承担，
+     padding-top 只保留"商品卡片与盒子顶部"的那点间距。
+   注：background 那行实际被模板内联的 themeConfig.backgroundColor 覆盖（heritage 为 #F6E7C8）。 */
+.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; background: #fff; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
 /* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
