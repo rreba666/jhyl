@@ -408,13 +408,12 @@ onMounted(() => {
         </scroll-view>
         <view class="brand-expand-button" @click="brandExpanded = true">
           <view class="brand-expand-surface">
-            <!-- ⚠️ 2026-09-29 按 Figma node 2220:10768 的 Frame 97 分层（用户指正）：
-                 · `Frame 97`（本层 .brand-expand-surface）= **父容器**，职责只有两件：
-                   ① 铺背景（下面的 .brand-expand-glow）② 承接事件；
-                 · `Frame 98`（下面的 .brand-expand-content）= 真正承载「展开」文字与图标的内容层。
-                 背景圆：设计稿 60×60、fill #567F65（墨绿）透明度 15%、带 LAYER_BLUR 柔光；
-                 小程序对 filter: blur 支持有限且耗性能，这里用同色值 + 径向渐变近似。 -->
-            <view class="brand-expand-glow" />
+            <!-- ⚠️ 2026-09-29 按 Figma node 2220:10768 分层（用户指正后定稿）：
+                 · `Frame 97`（本层 .brand-expand-surface）= 父容器，只负责**承接事件**；
+                 · `Frame 98`（下面的 .brand-expand-content）= 承载「展开」文字与图标的内容层。
+                 ⚠️ 设计稿里父层还有一个背景圆（`Rectangle 3`：60×60、#567F65 15%、带 LAYER_BLUR），
+                    但**用户明确要求去掉**（在该底色上显得发灰、碍事）⇒ 已于 2026-09-29 移除，
+                    后续若要恢复，见 git 历史 commit 5653a13。 -->
             <view class="brand-expand-content">
               <text class="brand-expand-text">展开</text>
               <view class="brand-expand-icon"><text class="brand-expand-bars">≡</text><text class="brand-expand-arrow">⌄</text></view>
@@ -557,12 +556,9 @@ onMounted(() => {
 /* 展开按钮：贴右、浮在品牌之上；左侧渐变到品牌条底色做遮罩，避免品牌透出显得突兀 */
 .brand-expand-button { position: absolute; top: 15rpx; right: 0; z-index: 5; display: flex; height: 146rpx; align-items: center; padding-right: 6rpx; box-sizing: border-box; background: linear-gradient(90deg, rgba(234, 247, 239, 0) 0%, #eaf7ef 38%); }
 .brand-expand-surface { position: relative; display: flex; width: 92rpx; height: 140rpx; flex-direction: column; align-items: center; justify-content: center; gap: 10rpx; background: transparent; color: #1d2129; }
-/* 展开按钮圆形底（Figma Frame 97 / Rectangle 3）：60×60px ⇒ 60 × 1.923 ≈ 115rpx。
-   色值 #567F65 透明度 15%；设计稿带 LAYER_BLUR，这里用径向渐变近似那层柔光。 */
-.brand-expand-glow { position: absolute; top: 15rpx; left: 50%; width: 115rpx; height: 115rpx; margin-left: -57rpx; border-radius: 50%; background: radial-gradient(circle, rgba(86, 127, 101, .15) 0%, rgba(86, 127, 101, .15) 62%, rgba(86, 127, 101, 0) 100%); }
-/* Frame 98 —— 真正承载「展开」文字与图标的内容层（设计稿 36×76，位于父容器 Frame 97 内）。
-   ⚠️ 分层要点：背景圆 .brand-expand-glow 属于父层 Frame 97（只负责背景），
-   本层是内容层，z-index 高于背景圆，保证文字与图标永远压在圆底之上。 */
+/* Frame 98 —— 承载「展开」文字与图标的内容层（设计稿 36×76，位于父容器 Frame 97 内）。
+   ⚠️ 设计稿里父层 Frame 97 还有一个背景圆（`Rectangle 3`：60×60、#567F65 15%、带 LAYER_BLUR），
+   但**用户要求去掉**（在该底色上显得发灰、碍事）⇒ 已于 2026-09-29 移除。若需恢复见 commit 5653a13。 */
 .brand-expand-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10rpx; }
 .brand-expand-text { width: 28rpx; color: #1d2129; font-size: 24rpx; line-height: 30rpx; text-align: center; word-break: break-all; }
 .brand-expand-icon { display: flex; flex-direction: column; align-items: center; }
