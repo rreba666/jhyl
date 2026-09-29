@@ -81,6 +81,19 @@ export function readConfiguredSubscribeScenes(): MerchantSubscribeSceneConfig[] 
  * @param scenes 场景码数组，如 `['NEW_ORDER']`（与接口返回的 `scene` 字段一致）
  */
 export function requestMerchantSubscribe(scenes: string[]): void {
+  // ⚠️ 2026-09-29 诊断入口日志（真机排查用）：
+  // 本函数有**多处静默跳过**（配置没取到 / 接收人未绑微信 / 无可用模板 / 非微信端），
+  // 任何一个都会表现为"点了没反应、什么都不弹"，且**不会有 fail 日志**（因为根本没调用微信）。
+  // ⇒ 所以入口先打一条：**这条不出现 = 函数压根没被调用**（多半是页面没接、或代码没编译上传）；
+  //   出现了就按 receiverBound / scenesCount 判断卡在哪个分支。
+  console.warn('[subscribe] 进入订阅引导：', JSON.stringify({
+    scenes,
+    hasConfig: !!cachedConfig,
+    scenesCount: (cachedConfig?.scenes || []).length,
+    tmplIdsFromServer: (cachedConfig?.tmplIds || []).length,
+    receiverBound: readSubscribeReceiverBound(),
+    rejected: Array.from(rejectedScenes),
+  }))
   const list = cachedConfig?.scenes || []
   if (!list.length) return
 
