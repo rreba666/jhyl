@@ -62,6 +62,39 @@ const failedDetailImages = ref<Set<string>>(new Set())
 
 function onDetailImageError(image: string): void {
   failedDetailImages.value = new Set(failedDetailImages.value).add(image)
+  // ⚠️ 失败也必须标记「加载已结束」：否则骨架会常驻在裂图之上（看起来像"一直在加载"）。
+  // 放在这里而不是模板里写两条语句 —— 小程序模板对行内多语句支持不可靠。
+  detailSettled.value = new Set(detailSettled.value).add(image)
+}
+
+/**
+ * 已「加载结束」的轮播图 URL 集合（2026-09-29 新增，图片加载体验优化）。
+ *
+ * 用途：加载期间在图片位置显示**骨架 + 扫光**（全局 `styles/motion.wxss` 的 `.skeleton-shimmer`），
+ * 加载结束后收起骨架并让实图**淡入**（`.motion-image-in` + `.motion-image-loaded`）。
+ *
+ * ⚠️ 写法与 `failedDetailImages` 一致：**必须整体替换 Set**，reactive 的 Set 增删在小程序端不触发更新。
+ * ⚠️ **加载失败也要记进来** —— 否则骨架会一直盖在图上（图裂了骨架却不消失，看起来像"永远在加载"）。
+ * ⚠️ 不需要在商品切换时清空：详情页每次都是新的页面实例（同 `failedDetailImages`）。
+ */
+const gallerySettled = ref<Set<string>>(new Set())
+
+/** 轮播图（或单图封面）加载结束（成功或失败都算）→ 收起骨架并淡入实图。 */
+function onGalleryImageSettled(image: string): void {
+  if (!image) return
+  gallerySettled.value = new Set(gallerySettled.value).add(image)
+}
+
+/**
+ * 已「加载结束」的详情图 URL 集合（同上）。
+ * ⚠️ 详情图是 `mode="widthFix"`，**加载前高度未知**，所以骨架只能给一个 `min-height` 占位，
+ * 加载完图片把容器撑开 —— 这会有一次高度变化，但比"一片空白看不出在加载"要好。
+ */
+const detailSettled = ref<Set<string>>(new Set())
+
+/** 详情图加载结束（成功或失败都算）→ 收起骨架并淡入。 */
+function onDetailImageSettled(image: string): void {
+  detailSettled.value = new Set(detailSettled.value).add(image)
 }
 
 /**
@@ -294,9 +327,33 @@ onShow(() => {
 
       <view v-show="!loading && !errorMessage && product" class="product-body">
         <swiper v-if="galleryImages.length" class="gallery" circular indicator-dots>
-          <swiper-item v-for="image in galleryImages" :key="image"><image class="gallery-image" :src="image" mode="aspectFill" /></swiper-item>
+          <swiper-item v-for="image in galleryImages" :key="image">
+            <!-- ⚠️ 每张轮播图各自持有一层骨架：`.gallery` 高度固定（100vw）⇒ 骨架不引起任何布局跳动。
+                 加载结束（成功或失败）才收起骨架并让实图淡入（见 onGalleryImageSettled）。 -->
+            <view class="gallery-slide">
+              <view v-if="!gallerySettled.has(image)" class="gallery-skeleton skeleton-shimmer" />
+              <image
+                class="gallery-image motion-image-in"
+                :class="{ 'motion-image-loaded': gallerySettled.has(image) }"
+                :src="image"
+                mode="aspectFill"
+                @load="onGalleryImageSettled(image)"
+                @error="onGalleryImageSettled(image)"
+              />
+            </view>
+          </swiper-item>
         </swiper>
-        <image v-else class="gallery gallery-image single" :src="coverImage" mode="aspectFill" />
+        <view v-else class="gallery gallery-single">
+          <view v-if="!gallerySettled.has(coverImage)" class="gallery-skeleton skeleton-shimmer" />
+          <image
+            class="gallery-image motion-image-in"
+            :class="{ 'motion-image-loaded': gallerySettled.has(coverImage) }"
+            :src="coverImage"
+            mode="aspectFill"
+            @load="onGalleryImageSettled(coverImage)"
+            @error="onGalleryImageSettled(coverImage)"
+          />
+        </view>
 
         <view class="summary">
           <text class="price">¥{{ formatAmount(displayPrice) }}</text>
@@ -326,16 +383,20 @@ onShow(() => {
         <template v-if="detailImageList.length">
           <view class="detail-heading"><text>产品详情</text></view>
           <view class="detail-media">
-            <image
-              v-for="(image, index) in detailImageList"
-              :key="image"
-              class="product-detail-image"
-              :class="{ 'is-failed': failedDetailImages.has(image) }"
-              :src="image"
-              mode="widthFix"
-              @click="previewDetailImage(index)"
-              @error="onDetailImageError(image)"
-            />
+            <!-- ⚠️ 详情图是 mode="widthFix"（高度由图片自身决定）⇒ 加载前**无法预知高度**，
+                 骨架只能给一个 min-height 占位；好处是用户能看到「正在加载」而不是一片空白。 -->
+            <view v-for="(image, index) in detailImageList" :key="image" class="detail-image-wrap">
+              <view v-if="!detailSettled.has(image)" class="detail-image-skeleton skeleton-shimmer" />
+              <image
+                class="product-detail-image motion-image-in"
+                :class="{ 'is-failed': failedDetailImages.has(image), 'motion-image-loaded': detailSettled.has(image) }"
+                :src="image"
+                mode="widthFix"
+                @click="previewDetailImage(index)"
+                @load="onDetailImageSettled(image)"
+                @error="onDetailImageError(image)"
+              />
+            </view>
             <view v-if="failedDetailImages.size" class="detail-image-tip">有详情图加载失败，点图可查看原图</view>
           </view>
         </template>
@@ -375,6 +436,22 @@ onShow(() => {
 .gallery { width: 100%; height: 100vw; background: #d7d7d7; }
 .gallery-empty { display: block; }
 .gallery-image { width: 100%; height: 100%; }
+/* ── 图片加载体验（2026-09-29）─────────────────────────────────────────────
+   骨架 / 扫光 / 淡入三个类都来自全局 styles/motion.wxss（App.vue 已 @import），
+   分包页面可直接使用，无需在本文件重复引入：
+     .skeleton-shimmer  —— 骨架底 + 横向扫光
+     .motion-image-in   —— 未加载完时 opacity:0
+     .motion-image-loaded —— 加载完淡入到 opacity:1
+   ⚠️ 轮播的 `.gallery` 高度固定（100vw）⇒ 骨架不会引起任何布局跳动；
+   ⚠️ 详情图是 widthFix（高度由图决定）⇒ 骨架只能 min-height 占位，加载完会撑开一次。 */
+.gallery-slide { position: relative; width: 100%; height: 100%; }
+/* ⚠️ 单图兜底**不能**复用 `.gallery-slide`：两者选择器优先级相同、而 `.gallery-slide` 定义在后，
+   它的 `height: 100%` 会覆盖 `.gallery` 的 `height: 100vw`；单图的父容器高度是 auto ⇒ 百分比无法解析
+   ⇒ 整个容器高度塌成 0、封面图直接消失。所以单图只借一个 `position: relative`（高度仍由 `.gallery` 给）。 */
+.gallery-single { position: relative; }
+.gallery-skeleton { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 1; }
+.detail-image-wrap { position: relative; width: 100%; }
+.detail-image-skeleton { width: 100%; min-height: 240rpx; }
 .summary { padding: 22rpx 20rpx 0; background: #fff; }
 .price { display: block; color: #d40000; font-size: 40rpx; font-weight: 700; line-height: 1.2; }
 .title-row { display: flex; align-items: flex-start; justify-content: space-between; margin-top: 22rpx; gap: 18rpx; }
