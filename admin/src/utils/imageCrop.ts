@@ -6,6 +6,17 @@
 /** 首屏轮播图目标尺寸（UI 统一规范 750×960 竖图）。 */
 export const HERO_IMAGE_SIZE = { width: 750, height: 960 } as const
 
+/**
+ * 门店图片（门头图）目标尺寸。
+ *
+ * 690×345 ≈ 2:1，与 `types/shop.ts` 注释里「建议 690×345、<2MB」以及契约口径一致。
+ * 之所以要**自动裁剪**：运营多半直接拿手机拍一张（如 4032×3024，4:3），
+ * 比例与门头图完全不同，不处理就显示变形、也不能放。
+ * ⇒ 走 {@link cropImageToSize} 的 cover 居中裁剪，输出精确 690×345
+ *   （690×345 的 JPEG 通常只有几十 KB，**天然满足 <2MB**，无需再单独压缩）。
+ */
+export const SHOP_IMAGE_SIZE = { width: 690, height: 345 } as const
+
 /** 通过 objectURL 加载图片，加载完成后自动释放内存。 */
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
