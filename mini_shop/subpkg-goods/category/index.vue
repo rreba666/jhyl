@@ -123,6 +123,10 @@ const themeConfig = computed(() => {
     // 所以这里给盒子单独一个固定色（沿用 .category-products 的默认米黄 #fae7c9），
     // 页面底色仍走 backgroundColor（后端配置）。
     boxBackgroundColor: theme.value === 'heritage' ? '#fae7c9' : undefined,
+    // ⚠️ 2026-09-29 同上：给**页面底色**也加一个固定值，避免被后端 `l.backgroundColor`
+    // 覆盖成与盒子相同的颜色（那会让米黄容器的圆角彻底看不出来）。
+    // heritage 取 #f9e7e1 —— 即「品牌栏实际显示色」（#fff 底 + 头图 78% 叠加后的近似色）。
+    pageBackgroundColor: theme.value === 'heritage' ? '#f9e7e1' : undefined,
     // 商品分类：优先用落地页配置的分类（后台「分类」字段），未配置才用主题默认。
     categoryNames: (l.categoryNames?.filter(Boolean).length ? l.categoryNames.filter(Boolean) : base.categoryNames),
   }
@@ -365,7 +369,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <view class="category-page" :class="themeConfig.className" :style="{ backgroundColor: themeConfig.backgroundColor || '' }">
+  <view class="category-page" :class="themeConfig.className" :style="{ backgroundColor: themeConfig.pageBackgroundColor || themeConfig.backgroundColor || '' }">
     <!--
       头图（2026-09-22 优化：用户反馈「头图被裁减」）
       原来是「固定高度 + mode="aspectFill"」：容器高度写死（默认 696rpx、国家地标 476rpx，或用后端 headImageHeight），
@@ -486,7 +490,7 @@ onMounted(() => {
    ⇒ padding-top 由 358rpx 降为 24rpx：让位给 fixed 头部的活现在由 margin-top 承担，
      padding-top 只保留"商品卡片与盒子顶部"的那点间距。
    注：background 那行实际被模板内联的 themeConfig.backgroundColor 覆盖（heritage 为 #F6E7C8）。 */
-.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; background: #fae7c9; }
+.theme-heritage .category-products { z-index: 1; margin-top: 374rpx; padding: 24rpx 23rpx 23rpx; border-radius: 24rpx 24rpx 0 0; overflow: hidden; background: #fae7c9; }
 .category-products-list { display: flex; flex-direction: column; gap: 16rpx; }
 .category-products-waterfall { display: flex; align-items: flex-start; gap: 15rpx; }
 /* 列内卡片间距 46rpx -> 24rpx（2026-09-22「像首页一样」：首页 waterfall-column 就是 24rpx，
