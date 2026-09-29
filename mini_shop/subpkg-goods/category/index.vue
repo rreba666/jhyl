@@ -481,9 +481,9 @@ onMounted(() => {
 /* 品牌项：图标圆 92rpx + 名称 38rpx，inline-flex 保证图标与名称竖排 */
 .brand-item { display: inline-flex; flex-shrink: 0; min-width: 92rpx; margin-right: 31rpx; flex-direction: column; align-items: center; gap: 12rpx; color: #1d2129; font-size: 21rpx; line-height: 38rpx; text-align: center; white-space: nowrap; vertical-align: top; }
 .brand-icon { position: relative; display: flex; width: 92rpx; height: 92rpx; align-items: center; justify-content: center; border-radius: 50%; background: transparent; }
-.brand-logo { position: relative; z-index: 1; display: block; width: 67rpx; height: 67rpx; }
-/* 圆形边框图：叠在 logo 之上（中心透明，不遮挡品牌图） */
-.brand-ring { position: absolute; top: 0; left: 0; z-index: 2; display: block; width: 92rpx; height: 92rpx; }
+.brand-logo { position: relative; z-index: 2; display: block; width: 67rpx; height: 67rpx; }
+/* 圆形边框图：位于 logo **下层**（品牌 icon 必须完整显示、不被圆环压住边缘；圆环中心透明，隔在下面照样能看到外圈） */
+.brand-ring { position: absolute; top: 0; left: 0; z-index: 1; display: block; width: 92rpx; height: 92rpx; }
 .brand-name { padding: 0 10rpx; border-radius: 999rpx; }
 /* 选中态：名称橙色胶囊白字（图标已不铺白底，选中高亮由圆形边框图 border.png 体现） */
 .brand-item.selected .brand-icon { background: transparent; }
