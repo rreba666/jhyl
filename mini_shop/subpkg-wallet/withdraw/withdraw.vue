@@ -87,17 +87,20 @@ const bodyStyle = computed(() => ({ paddingTop: `${menuTop.value + menuHeight.va
  *
  * ⚠️ 2026-09-29：优先采用后端新字段 `wallet.availableBalance`
  *    （后端《设计草案-提现按金额锁定》第十批上线；语义 = 账面总额扣掉**仍在提现锁定期内**的部分）。
- *    **后端提现校验用的就是它** ⇒ 上限必须按它算，否则会出现
+ *    **后端提现校验用的就是它** ⇒ 上限按它算才对，否则会出现
  *    「页面允许输入、提交却被拒」（用户感知就是"余额明明有钱却提不出来"）。
- * ⚠️ 兼容旧后端：该字段缺失或非数值时**回退到 `balance`** ——
- *    宁可比实际可提**宽松**（提交时后端会给准确文案），
- *    也不能因为字段没上线就把上限算成 0 而**完全无法提现**。
+ *
+ * ⚠️⚠️ **必须防一个后端 P0**：设计草案 §一 实查生产 `wallet` 表，
+ *    **5 个用户的 `available_balance` 全部为 0**（而 `balance` 有钱）。
+ *    若直接采信，提现页会显示「可转账余额 ¥0.00」，且此时 `frozenBalance` 也是 0
+ *    ⇒ **用户看不到任何锁定说明，只会以为平台吞了钱** —— 比现状（"看着有钱、点了被拒"）更糟。
+ *    ⇒ **保护：只有该字段为「正数」时才采用**；`0` / 缺失 / 非数值一律**回退到 `balance`**，
+ *      即保持"页面允许输入、最终由后端判定"的既有行为。
+ *    ⇒ 后端修好 P0（`available_balance` 正确落库）后，这里**无需改动**即可自动生效。
  */
 const availableBalance = computed(() => {
-  const available = wallet.value?.availableBalance
-  if (available !== null && available !== undefined && Number.isFinite(Number(available))) {
-    return Number(available)
-  }
+  const available = Number(wallet.value?.availableBalance)
+  if (Number.isFinite(available) && available > 0) return available
   return Number(wallet.value?.balance ?? 0)
 })
 /** 提现规则本地兜底费率：后台 `GET /api/wallet/withdraw-rules` 请求失败或字段缺失时使用（页面不留空白）。 */
