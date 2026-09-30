@@ -3,21 +3,19 @@ import { onError, onLaunch, onShow } from '@dcloudio/uni-app'
 import { bindStoredPromotionIfLoggedIn, capturePromotionContext } from '@/utils/promotion'
 
 /**
- * ⚠️ 2026-09-30 临时诊断：支付完成后出现
- * `Cannot read properties of undefined (reading 'index')` 并**卡在确认订单页**。
+ * 全局错误钩子：把**完整堆栈**打到控制台，并落一份本地缓存便于真机事后取回。
  *
- * 已完成的静态排查（结论：**不在业务源码里**）：
- *   1. 全量搜过 `mini_shop` 源码，**没有任何 `X.index` 形式的属性访问** ——
- *      `index` 只作为 `map((item, index))` 的回调参数、`findIndex`、`z-index` 等出现；
- *   2. 编译产物（`unpackage/dist/build/mp-weixin`）里共 **695 处** `X.index`，
- *      **全部是 `uni.xxx` 的编译形态**（`uni` → `vendor.index`）⇒ 报错来自
- *      **框架/基础库层面**，或某个**在极早时机**取 `uni` 对象的地方；
- *   3. `payment.vue` 的支付流程、`onShow` / `onMounted` / `refreshDeliveryQuote`
- *      **均有 try/catch**，不会把异常抛到全局。
+ * ⚠️ 2026-09-30 定位「支付完成后 `Cannot read properties of undefined (reading 'index')` /
+ *    `ReferenceError: currentOrderId is not defined` 卡在确认订单页」时加的；根因已修（见
+ *    `subpkg-order/payment/payment.vue` 的 `onUnload` 与 `selectPayMethod`）。
  *
- * ⇒ 因此挂一个**全局错误钩子**，把**完整堆栈**打到控制台、**落到本地缓存**（真机没有控制台时
- *   可事后取回），并在诊断期直接弹窗显示 —— 便于复现时一眼拿到出错位置。
- * ⚠️ 它**只记录、不改变任何行为**；定位完成后应把本段整体删除。
+ * ⚠️ **刻意不弹窗**（用户明确要求）：这类运行时错误应留给开发者看控制台，
+ *    弹给用户既看不懂、又会打断正常操作。因此这里**只记录**：
+ *    · `console.error` —— 开发者工具 / 真机调试可见；
+ *    · `setStorageSync` —— 真机没连控制台时可事后用
+ *      `uni.getStorageSync('__last_app_error__')` 取回完整堆栈。
+ *
+ * ⚠️ 它**只记录、不改变任何行为**，也不做任何用户可见的提示。
  */
 onError((error) => {
   const message = error instanceof Error ? error.message : String(error)
@@ -28,19 +26,10 @@ onError((error) => {
       return pages[pages.length - 1]?.route || ''
     } catch { return '' }
   })()
-  console.error('[app-error]', message, '\n', stack)
+  console.error('[app-error]', message, '\n页面:', route, '\n', stack)
   try {
     uni.setStorageSync('__last_app_error__', { message, stack, route, at: new Date().toISOString() })
   } catch { /* 记录失败不影响主流程 */ }
-  // ⚠️ 诊断期直接弹窗：真机上不方便连控制台，弹出来即可截图/复制给开发。
-  try {
-    uni.showModal({
-      title: '运行时错误（诊断）',
-      content: `${message}\n\n页面：${route}\n\n${stack}`.slice(0, 900),
-      showCancel: false,
-      confirmText: '知道了',
-    })
-  } catch { /* 弹窗失败也不影响 */ }
 })
 
 let redirectingToHome = false
