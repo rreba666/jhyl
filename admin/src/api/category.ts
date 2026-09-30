@@ -9,7 +9,12 @@ function unwrapResponse<T>(response: { data: CategoryResponse<T> }, fallbackMess
   return result.data as T
 }
 
-/** 兼容后台分类列表直接返回数组或分页包装结构。 */
+/**
+ * 兼容后台分类列表直接返回数组或分页包装结构。
+ *
+ * ⚠️ **2026-09-30 扁平化**：不再重建 `parentId` / `children` ——
+ *    后端「分类是扁平一层、实测无 `parent_id`」，那两个字段是前端臆造的（填了也不生效）。
+ */
 function normalizeList(value: unknown): AdminCategory[] {
   const source = Array.isArray(value)
     ? value
@@ -20,12 +25,10 @@ function normalizeList(value: unknown): AdminCategory[] {
     const raw = item as Partial<AdminCategory> & { status?: number | string }
     return {
       id: String(raw.id ?? ''),
-      parentId: String(raw.parentId ?? '0'),
       name: String(raw.name ?? ''),
       icon: resolveMediaUrl(raw.icon),
       sortOrder: Number(raw.sortOrder) || 0,
       enabled: String(raw.enabled ?? raw.status) === '1' ? 1 : 0,
-      children: Array.isArray(raw.children) ? normalizeList(raw.children) : [],
     }
   })
 }

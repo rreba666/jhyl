@@ -196,12 +196,14 @@ function syncDefaultFunds(): void {
   if (dividendUseDefault.value) form.dividendFund = getDefaultDividendFundForSku()
 }
 
-/** 将分类树转换为下拉选项。 */
-function flattenCategories(nodes: CategoryNode[], parent = ''): Array<{ id: string; label: string }> {
-  return nodes.flatMap((node) => {
-    const label = parent ? `${parent} / ${node.name}` : node.name
-    return [{ id: String(node.id), label }, ...flattenCategories(node.children || [], label)]
-  })
+/**
+ * 将分类列表转换为下拉选项。
+ *
+ * ⚠️ **2026-09-30 扁平化**：分类是**扁平一层**（后端实测无 `parent_id`）⇒
+ *    去掉了原先的递归展开与 `parent` 前缀拼接（那种"一级 / 二级"的展示永远不会出现）。
+ */
+function flattenCategories(nodes: CategoryNode[]): Array<{ id: string; label: string }> {
+  return nodes.map((node) => ({ id: String(node.id), label: node.name }))
 }
 
 /**

@@ -38,11 +38,13 @@ const activeHelp = ref<string[]>([])
 /** 分类选项（下拉选择用：id + 名称；落地页按 id 取数，分类改名不受影响）。 */
 const categoryOptions = ref<Array<{ id: number; name: string }>>([])
 
-/** 递归收集分类（id + 名称，含子分类）。 */
+/**
+ * 收集分类（id + 名称）。
+ * ⚠️ **2026-09-30 扁平化**：分类为**扁平一层**（后端实测无 `parent_id`）⇒ 去掉递归。
+ */
 function collectOptions(list: AdminCategory[], acc: Array<{ id: number; name: string }>): void {
   list.forEach((item) => {
     if (item.name) acc.push({ id: Number(item.id), name: item.name })
-    if (item.children?.length) collectOptions(item.children, acc)
   })
 }
 async function loadCategories(): Promise<void> {

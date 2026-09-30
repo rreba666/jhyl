@@ -209,39 +209,36 @@ export async function deleteAdminProduct(productId: string): Promise<void> {
   unwrapResponse(response, '商品删除失败')
 }
 
-/** 将后台分类接口返回的平铺数据转换为商品表单使用的树结构。 */
-function normalizeCategoryTree(value: unknown): CategoryNode[] {
+/**
+ * 将后台分类接口返回的数据转换为商品表单使用的**平级列表**。
+ *
+ * ⚠️ **2026-09-30 扁平化**：原实现是 `normalizeCategoryTree()` ——
+ *    不仅重建了 `parentId` / `children`，还在前端**手动建树**
+ *    （`nodeMap` + `parent.children.push`）。但后端已确认
+ *    「分类是**扁平一层**、**实测无 `parent_id`**」⇒ 那些字段纯属前端臆造、
+ *    建树逻辑也永远不会命中（`parentId` 全为 `'0'`，所有节点都成了根）。
+ * ⇒ 现简化为**直接平级映射**，并改名以反映真实语义。
+ */
+function normalizeCategoryList(value: unknown): CategoryNode[] {
   const source = Array.isArray(value)
     ? value
     : Array.isArray((value as { list?: unknown } | null)?.list)
       ? (value as { list: unknown[] }).list
       : []
-  const nodes = source.map((item) => {
-    const raw = item as { id?: unknown; parentId?: unknown; name?: unknown; icon?: unknown; children?: unknown[] }
+  return source.map((item) => {
+    const raw = item as { id?: unknown; name?: unknown; icon?: unknown }
     return {
       id: String(raw.id ?? ''),
-      parentId: String(raw.parentId ?? '0'),
       name: String(raw.name ?? ''),
       icon: String(raw.icon ?? ''),
-      children: Array.isArray(raw.children) ? raw.children as CategoryNode[] : [],
     }
   })
-  if (nodes.some((node) => node.children.length)) return nodes as CategoryNode[]
-
-  const nodeMap = new Map(nodes.map((node) => [node.id, node as CategoryNode & { parentId: string }]))
-  const roots: CategoryNode[] = []
-  nodes.forEach((node) => {
-    const parent = nodeMap.get((node as CategoryNode & { parentId: string }).parentId)
-    if (parent && parent.id !== node.id) parent.children.push(node)
-    else roots.push(node)
-  })
-  return roots
 }
 
-/** 查询后台分类列表。B 端使用平铺分类接口，不能复用 C 端 Token 接口。 */
+/** 查询后台分类列表（**扁平一层**）。B 端使用平铺分类接口，不能复用 C 端 Token 接口。 */
 export async function getProductCategories(): Promise<CategoryNode[]> {
   const response = await request.get<ProductResponse<unknown>>('/api/admin/category/list')
-  return normalizeCategoryTree(unwrapResponse(response, '商品分类查询失败'))
+  return normalizeCategoryList(unwrapResponse(response, '商品分类查询失败'))
 }
 
 /** 上传商品媒体文件并返回 OSS 地址。 */

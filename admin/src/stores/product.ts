@@ -63,7 +63,7 @@ export const useProductStore = defineStore('product', () => {
     }
   }
 
-  /** 加载商品分类树并缓存当前结果。 */
+  /** 加载商品分类列表（**扁平一层**，2026-09-30 起不再是树）并缓存当前结果。 */
   async function fetchCategories(): Promise<void> {
     if (categories.value.length) return
     categoriesLoading.value = true

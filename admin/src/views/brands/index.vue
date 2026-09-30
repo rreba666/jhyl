@@ -61,12 +61,15 @@ const form = reactive<AdminGoodsBrandSaveDTO>({
 /** 校验规则：品牌名称必填（后端全局唯一，重复会返回错误信息）。 */
 const rules = { name: [{ required: true, message: '请输入品牌名称', trigger: 'blur' }] }
 
-/** 递归收集分类选项（含子分类）。 */
-function collectCategories(nodes: AdminCategory[], acc: Array<{ id: number; name: string }>, parent = ''): void {
+/**
+ * 收集分类选项。
+ * ⚠️ **2026-09-30 扁平化**：分类为**扁平一层**（后端实测无 `parent_id`）
+ *    ⇒ 去掉了递归与「父级 / 子级」前缀拼接。
+ */
+function collectCategories(nodes: AdminCategory[], acc: Array<{ id: number; name: string }>): void {
   nodes.forEach((node) => {
     const id = Number(node.id)
-    if (Number.isFinite(id) && node.name) acc.push({ id, name: parent ? `${parent} / ${node.name}` : node.name })
-    if (node.children?.length) collectCategories(node.children, acc, node.name)
+    if (Number.isFinite(id) && node.name) acc.push({ id, name: node.name })
   })
 }
 

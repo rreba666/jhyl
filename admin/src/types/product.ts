@@ -182,11 +182,16 @@ export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'cate
   sameCityEnabled?: ProductStatus
 }
 
+/**
+ * 商品表单用的分类节点（**扁平一层**）。
+ *
+ * ⚠️ **2026-09-30 扁平化**：删除了原先的 `children` ——
+ *    后端已确认「分类是扁平一层、实测无 `parent_id`」（《前端统一报告-2026-09-30》§五-8）。
+ */
 export interface CategoryNode {
   id: string
   name: string
   icon: string
-  children: CategoryNode[]
 }
 
 export type ProductSortBy = 'sold_desc' | 'price_asc' | 'price_desc' | 'new_desc' | 'sort_order'
