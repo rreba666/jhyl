@@ -14,19 +14,23 @@ const navStyle = computed(() => ({ top: menuTop.value + 'px', height: menuHeight
 /**
  * 右上角「管理 / 完成」按钮的位置：**相对 `.nav` 顶部**的偏移。
  *
- * ⚠️ 2026-09-29 用户反馈「购物车页右上角完成按钮距离小程序原生胶囊太近了」：
- *    原来是 `menuHeight + upx2px(8)` ⇒ 按钮距胶囊**只有 4px**，几乎贴着。
- *    ⇒ 改为 `upx2px(28)`（= 14px），与胶囊拉开距离。
+ * ⚠️ 2026-09-29 两轮调整（用户反馈「距原生胶囊太近」→「还可以再往下一点」）：
+ *    `upx2px(8)`（4px，几乎贴着）→ `upx2px(28)`（14px）→ **`upx2px(52)`（26px）**。
  * ⚠️ 该按钮是**绝对定位**、且 `.nav` 高度只够装胶囊 ⇒ 按钮实际浮在 `.nav` **下方**、
- *    压在内容之上 ⇒ 所以下面的 `bodyTop` **必须同步加大**，否则内容会钻到按钮底下。
+ *    压在内容之上 ⇒ 所以下面的 `bodyTop` **必须跟着算**，否则内容会钻到按钮底下。
+ * ⚠️ 按钮自身高度在 CSS 里定死了（`.nav-act { height: 52rpx }` = 26px）——
+ *    以后改按钮高度时，这里与 `bodyTop` 都要一起算。
  */
-const navActionStyle = computed(() => ({ top: `${menuHeight.value + uni.upx2px(28)}px` }))
+const navActionStyle = computed(() => ({ top: `${menuHeight.value + uni.upx2px(52)}px` }))
 /**
  * 内容区顶部留白（距页面顶部的绝对距离）。
- * ⚠️ 与 `navActionStyle` 联动：要同时容下「胶囊高度 + 按钮的下移量 + 按钮自身行高」，
- *    所以由 `upx2px(48)`（= 24px，装不下新的按钮位置）加大到 `upx2px(88)`（= 44px）。
+ *
+ * ⚠️ 与 `navActionStyle` **严格联动**，按下式算（统一换算成 px）：
+ *      内容顶 = 胶囊底 + 按钮下移量(26px) + 按钮高度(26px) + 安全余量
+ *    ⇒ 取 `upx2px(120)` = 60px（余量 8px），刚好把按钮完整让在内容之上。
+ *    ⚠️ 动上面那个下移量、或 `.nav-act` 的高度，**必须同步改这里**。
  */
-const bodyTop = computed(() => menuTop.value + menuHeight.value + uni.upx2px(88))
+const bodyTop = computed(() => menuTop.value + menuHeight.value + uni.upx2px(120))
 
 const items = ref<CartItem[]>([])
 const loading = ref(true)
@@ -136,7 +140,7 @@ onShow(() => { loading.value = true; void refreshList() })
 
     <view class="nav" :style="navStyle">
       <text class="nav-tit">购物车</text>
-      <text class="nav-act" :style="navActionStyle" @click="toggleEditMode">{{ editMode ? '完成' : '管理' }}</text>
+      <view class="nav-act" :class="{ on: editMode }" :style="navActionStyle" @click="toggleEditMode">{{ editMode ? '完成' : '管理' }}</view>
     </view>
 
     <view class="bd" :style="{ paddingTop: bodyTop + 'px' }">
@@ -213,7 +217,40 @@ onShow(() => { loading.value = true; void refreshList() })
 
 .nav { position: fixed; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: #fff; box-sizing: border-box; }
 .nav-tit { color: #232423; font-size: 32rpx; font-weight: 700; }
-.nav-act { position: absolute; right: 26rpx; color: #666; font-size: 28rpx; line-height: 1.2; white-space: nowrap; }
+/**
+ * 右上角「管理 / 完成」按钮（2026-09-29 加样式并再下移）。
+ *
+ * ⚠️ **改用 `<view>`**：原先是 `<text>` —— 内联元素的盒模型在小程序里受限，
+ *    背景 / 内边距 / 固定高度都不可靠（加了也未必生效）。
+ * ⚠️ 样式刻意贴合本页设计语言（**直角 + 黑灰白**：见 `.checkout-b { background:#222; border-radius:0 }`、
+ *    `.stp-b { background:#f4f4f4 }`）⇒ 所以这里**不用圆角彩色胶囊**，而是**直角浅灰块**。
+ * ⚠️ 语义区分（这也是"丰富购物页"的点）：
+ *      默认「管理」= **次要操作** ⇒ 浅灰底 + 深灰字；
+ *      编辑态「完成」= **确认动作** ⇒ 黑底白字（与结算按钮 `#222` 同色系）强调。
+ */
+.nav-act {
+  position: absolute;
+  right: 26rpx;
+  z-index: 101;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 104rpx;
+  height: 52rpx;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+  color: #333;
+  font-size: 26rpx;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  background: #f4f4f4;
+  border: 1rpx solid #e6e6e6;
+}
+/* 编辑态（「完成」）：与主操作按钮同色系，表示这是确认动作 */
+.nav-act.on { color: #fff; background: #222; border-color: #222; }
+/* 点击反馈（小程序支持 :active） */
+.nav-act:active { opacity: .72; }
 
 .bd { flex: 1; display: flex; flex-direction: column; min-height: 0; box-sizing: border-box; }
 
