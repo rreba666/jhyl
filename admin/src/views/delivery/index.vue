@@ -587,18 +587,100 @@ const feeCurrent = ref<Record<string, unknown> | null>(null)
 const feeHint = computed(() => String(feeCurrent.value?.hint || ''))
 const feeLoading = ref(false)
 const feeSaving = ref(false)
-const feeForm = reactive<{ merchantId: string; feeType: string; feeConfig: string; enabled: number; remark: string }>({
+const feeForm = reactive<{
+  merchantId: string
+  feeType: 'FIXED' | 'DISTANCE_STEP'
+  fixedFee: number
+  freeKm: number
+  perKmFee: number
+  enabled: number
+  remark: string
+}>({
   merchantId: '',
   feeType: 'FIXED',
-  feeConfig: '{"fixedFee":5.0}',
+  fixedFee: 5,
+  freeKm: 3,
+  perKmFee: 1,
   enabled: 1,
   remark: '',
 })
+/**
+ * 高级模式：直接编辑 JSON（默认**关**）。
+ *
+ * ⚠️ 2026-09-29 改版背景：本页原先只有一个 `feeConfig` 文本框，让运营手写
+ * `{"fixedFee":3.0,"distanceStep":{"freeKm":3,"perKmFee":1.0}}` ——
+ * 运营既不知道该填什么，漏一个引号/括号就保存失败；而它实际只承载**三个数字**。
+ * ⇒ 改成结构化表单、JSON 由前端生成；JSON 输入框收进「高级模式」，
+ *   只在后端将来扩展了本页没有的配置项时给技术兜底。
+ */
+const feeAdvanced = ref(false)
+/** 高级模式下的 JSON 文本；与结构化字段双向同步。 */
+const feeConfigRaw = ref('')
+
+/**
+ * 从后端下发对象里找出「最终生效」的配送费配置。
+ * 契约只说「传门店 ID 会额外返回覆盖与最终生效 effective」，未固定层级
+ * ⇒ 按 `effective` → `override` → `global` → 顶层 逐层兜底，取第一个带 `feeConfig` 的。
+ */
+function pickEffectiveFeeConfig(data: Record<string, unknown> | null): { feeType: string; feeConfig: unknown } | null {
+  if (!data) return null
+  const candidates: Array<Record<string, unknown> | undefined> = [
+    data.effective as Record<string, unknown> | undefined,
+    data.override as Record<string, unknown> | undefined,
+    data.global as Record<string, unknown> | undefined,
+    data,
+  ]
+  for (const row of candidates) {
+    if (row && row.feeConfig != null) return { feeType: String(row.feeType ?? ''), feeConfig: row.feeConfig }
+  }
+  return null
+}
+
+/** 由**结构化字段**生成 `feeConfig` JSON（忽略高级模式开关，供内部同步用）。 */
+function feeConfigFromFields(): string {
+  const fixedFee = Number(feeForm.fixedFee) || 0
+  if (feeForm.feeType === 'FIXED') return JSON.stringify({ fixedFee })
+  return JSON.stringify({
+    fixedFee,
+    distanceStep: { freeKm: Number(feeForm.freeKm) || 0, perKmFee: Number(feeForm.perKmFee) || 0 },
+  })
+}
+
+/**
+ * 把 `feeConfig` JSON 串解析进结构化字段（回显用）。
+ * ⚠️ 解析失败 ⇒ **自动打开高级模式**并保留原文：让运营看到真实内容，
+ *    而不是面对一个被清空的表单（那会让人以为"配置丢了"）。
+ */
+function parseFeeConfig(raw: unknown, feeType?: string): void {
+  const text = String(raw ?? '').trim()
+  feeConfigRaw.value = text
+  if (feeType === 'FIXED' || feeType === 'DISTANCE_STEP') feeForm.feeType = feeType
+  if (!text) return
+  try {
+    const obj = JSON.parse(text) as { fixedFee?: number; distanceStep?: { freeKm?: number; perKmFee?: number } }
+    if (typeof obj.fixedFee === 'number') feeForm.fixedFee = obj.fixedFee
+    if (obj.distanceStep) {
+      if (typeof obj.distanceStep.freeKm === 'number') feeForm.freeKm = obj.distanceStep.freeKm
+      if (typeof obj.distanceStep.perKmFee === 'number') feeForm.perKmFee = obj.distanceStep.perKmFee
+    }
+  } catch {
+    feeAdvanced.value = true
+  }
+}
+
+/** 提交用的 `feeConfig`：高级模式原样用文本，否则由结构化字段生成。 */
+function buildFeeConfig(): string {
+  return feeAdvanced.value ? feeConfigRaw.value.trim() : feeConfigFromFields()
+}
 
 async function loadFeeConfig(): Promise<void> {
   feeLoading.value = true
   try {
-    feeCurrent.value = await getFeeConfig(feeQuery.merchantId || undefined)
+    const data = await getFeeConfig(feeQuery.merchantId || undefined)
+    feeCurrent.value = data
+    // 2026-09-29：把后端下发的 feeConfig 解析进结构化表单，运营不用再读 JSON
+    const effective = pickEffectiveFeeConfig(data)
+    if (effective) parseFeeConfig(effective.feeConfig, effective.feeType)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '配送费配置查询失败')
   } finally {
@@ -606,17 +688,17 @@ async function loadFeeConfig(): Promise<void> {
   }
 }
 
-/** 按费类型填充 feeConfig 模板，减少手输 JSON 出错。 */
+/** 切换计费方式时，让高级模式的 JSON 立刻跟上结构化字段（否则两套值会不一致、提交的还是旧的）。 */
 function applyFeeTemplate(): void {
-  if (feeForm.feeType === 'FIXED') feeForm.feeConfig = '{"fixedFee":5.0}'
-  else feeForm.feeConfig = '{"fixedFee":3.0,"distanceStep":{"freeKm":3,"perKmFee":1.0}}'
+  feeConfigRaw.value = feeConfigFromFields()
 }
 
 async function submitFeeConfig(): Promise<void> {
+  const feeConfig = buildFeeConfig()
   try {
-    JSON.parse(feeForm.feeConfig)
+    JSON.parse(feeConfig)
   } catch {
-    ElMessage.error('feeConfig 必须是合法 JSON')
+    ElMessage.error('配送费配置格式不合法：请检查「高级模式」里的 JSON')
     return
   }
   feeSaving.value = true
@@ -624,7 +706,7 @@ async function submitFeeConfig(): Promise<void> {
     await saveFeeConfig({
       merchantId: feeForm.merchantId ? Number(feeForm.merchantId) : 0,
       feeType: feeForm.feeType,
-      feeConfig: feeForm.feeConfig,
+      feeConfig,
       enabled: feeForm.enabled,
       remark: feeForm.remark || undefined,
     })
@@ -1007,33 +1089,89 @@ onMounted(async () => {
         </el-card>
       </el-tab-pane>
 
-      <!-- 配送费配置 -->
+      <!-- 配送费配置（2026-09-29 改版：门店选择替代手填 ID；结构化表单替代手写 JSON） -->
       <el-tab-pane label="配送费配置" name="fee">
         <el-card shadow="never" class="content-card">
-          <el-alert title="配送费由平台统一设置：merchantId 留空或 0 = 全局默认；填门店 ID = 为该门店设置覆盖价。" type="info" :closable="false" show-icon class="tip" />
+          <el-alert
+            title="配送费由平台统一定价，商家不能改。不选门店 = 设置「全局默认价」；选了门店 = 给该门店设置「覆盖价」（只影响这一家）。改价只对之后新下的订单生效。"
+            type="info"
+            :closable="false"
+            show-icon
+            class="tip"
+          />
+
+          <el-divider content-position="left">查看当前配置</el-divider>
           <el-form label-width="130px" size="small" class="fee-form">
-            <el-form-item label="查询门店 ID">
+            <el-form-item label="门店">
               <div class="row-inline">
-                <el-input v-model="feeQuery.merchantId" placeholder="留空=全局默认" style="width: 200px" />
+                <el-select v-model="feeQuery.merchantId" clearable filterable placeholder="不选 = 查看全局默认价" style="width: 260px" @change="loadFeeConfig">
+                  <el-option v-for="shop in shops" :key="shop.id" :label="`${shop.name || '未命名门店'}（${shop.id}）`" :value="String(shop.id)" />
+                </el-select>
                 <el-button :loading="feeLoading" @click="loadFeeConfig">查询当前配置</el-button>
               </div>
+              <span class="form-hint">直接选门店即可，不用记门店 ID</span>
             </el-form-item>
           </el-form>
           <el-alert v-if="feeHint" :title="feeHint" type="info" :closable="false" show-icon class="tip" />
-          <pre v-if="feeCurrent" class="json-view">{{ JSON.stringify(feeCurrent, null, 2) }}</pre>
-          <el-divider />
+          <!-- 当前生效值改成**看得懂的结构化展示**（原先是把整个对象 JSON.stringify 甩给运营看） -->
+          <el-descriptions v-if="feeCurrent" :column="2" border size="small" class="fee-current">
+            <el-descriptions-item label="计费方式">{{ feeForm.feeType === 'FIXED' ? '固定运费' : '阶梯运费' }}</el-descriptions-item>
+            <el-descriptions-item :label="feeForm.feeType === 'FIXED' ? '配送费' : '基础配送费'">¥ {{ Number(feeForm.fixedFee || 0).toFixed(2) }}</el-descriptions-item>
+            <template v-if="feeForm.feeType === 'DISTANCE_STEP'">
+              <el-descriptions-item label="免费距离">{{ feeForm.freeKm }} 公里</el-descriptions-item>
+              <el-descriptions-item label="超出后每公里">¥ {{ Number(feeForm.perKmFee || 0).toFixed(2) }}</el-descriptions-item>
+            </template>
+          </el-descriptions>
+
+          <el-divider content-position="left">修改配置</el-divider>
           <el-form label-width="130px" size="small" class="fee-form">
-            <el-form-item label="生效门店 ID"><el-input v-model="feeForm.merchantId" placeholder="留空或 0 = 全局默认" style="width: 240px" /></el-form-item>
+            <el-form-item label="生效门店">
+              <el-select v-model="feeForm.merchantId" clearable filterable placeholder="不选 = 全局默认价" style="width: 260px">
+                <el-option v-for="shop in shops" :key="shop.id" :label="`${shop.name || '未命名门店'}（${shop.id}）`" :value="String(shop.id)" />
+              </el-select>
+              <span class="form-hint">不选 = 改全局默认价（所有门店）；选门店 = 只改这一家的覆盖价</span>
+            </el-form-item>
+
             <el-form-item label="计费方式">
-              <el-radio-group v-model="feeForm.feeType" @change="applyFeeTemplate">
+              <el-radio-group v-model="feeForm.feeType" :disabled="feeAdvanced" @change="applyFeeTemplate">
                 <el-radio-button value="FIXED">固定运费</el-radio-button>
                 <el-radio-button value="DISTANCE_STEP">阶梯运费</el-radio-button>
               </el-radio-group>
+              <span class="form-hint">固定运费 = 不论远近都收同一个价；阶梯运费 = 超出免费距离后按公里加价</span>
             </el-form-item>
-            <el-form-item label="feeConfig(JSON)"><el-input v-model="feeForm.feeConfig" type="textarea" :rows="3" style="max-width: 520px" /></el-form-item>
+
+            <el-form-item :label="feeForm.feeType === 'FIXED' ? '配送费' : '基础配送费'">
+              <el-input-number v-model="feeForm.fixedFee" :min="0" :max="999" :precision="2" :step="1" :disabled="feeAdvanced" />
+              <span class="form-hint">元</span>
+            </el-form-item>
+
+            <template v-if="feeForm.feeType === 'DISTANCE_STEP'">
+              <el-form-item label="免费距离">
+                <el-input-number v-model="feeForm.freeKm" :min="0" :max="100" :precision="1" :step="1" :disabled="feeAdvanced" />
+                <span class="form-hint">公里；这段距离内只收基础配送费</span>
+              </el-form-item>
+              <el-form-item label="超出后每公里">
+                <el-input-number v-model="feeForm.perKmFee" :min="0" :max="100" :precision="2" :step="0.5" :disabled="feeAdvanced" />
+                <span class="form-hint">元/公里；超出免费距离后每一公里加收</span>
+              </el-form-item>
+            </template>
+
             <el-form-item label="启用"><el-switch v-model="feeForm.enabled" :active-value="1" :inactive-value="0" /></el-form-item>
-            <el-form-item label="备注"><el-input v-model="feeForm.remark" placeholder="可选" style="max-width: 320px" /></el-form-item>
-            <el-form-item><el-button type="primary" :loading="feeSaving" @click="submitFeeConfig">保存配送费配置</el-button></el-form-item>
+            <el-form-item label="备注"><el-input v-model="feeForm.remark" placeholder="可选，例如「双十一活动价」" style="max-width: 320px" /></el-form-item>
+
+            <!-- 高级模式：给技术兜底 —— 后端将来扩展了本页没有的 feeConfig 结构时不用改前端 -->
+            <el-form-item label="高级模式">
+              <el-switch v-model="feeAdvanced" />
+              <span class="form-hint">开启后直接编辑 JSON；只有后端新增了本页没有的配置项时才需要用它</span>
+            </el-form-item>
+            <el-form-item v-if="feeAdvanced" label="配置 JSON">
+              <el-input v-model="feeConfigRaw" type="textarea" :rows="3" style="max-width: 520px" placeholder='{"fixedFee":5.0}' />
+            </el-form-item>
+
+            <el-form-item>
+              <el-button type="primary" :loading="feeSaving" @click="submitFeeConfig">保存配送费配置</el-button>
+              <span class="form-hint">本次将提交：{{ buildFeeConfig() || '（空）' }}</span>
+            </el-form-item>
           </el-form>
         </el-card>
       </el-tab-pane>
@@ -1090,6 +1228,9 @@ onMounted(async () => {
 .metric strong { font-size: 24px; font-weight: 700; }
 .row-inline { display: flex; align-items: center; gap: 10px; }
 .intervene-form, .fee-form { max-width: 720px; }
+/* 配送费改版（2026-09-29）新增：字段旁的小字说明与「当前生效配置」的结构化展示 */
+.form-hint { margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
+.fee-current { max-width: 720px; margin-bottom: 4px; }
 .json-view { max-height: 280px; overflow: auto; padding: 14px; border: 1px solid var(--vben-border); border-radius: 8px; background: var(--vben-surface); color: var(--vben-text); font-size: 13px; line-height: 20px; }
 @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>

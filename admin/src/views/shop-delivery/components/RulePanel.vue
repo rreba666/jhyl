@@ -42,6 +42,21 @@ const rule = ref<DeliveryRule | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 
+/**
+ * 「送达凭证类型」可选值（后端权威口径：`delivery_proofs.proof_type` = `PHOTO/SIGNATURE/RECEIVER_NAME/REMARK`）。
+ *
+ * ⚠️ **当前只有 `PHOTO` 有实际写入方**（骑手端送达照片必传），其余三种是**预留类型**。
+ *    所以下拉里如实标注「预留、暂不生效」，避免运营以为勾上就会生效。
+ *    2026-09-29 之前这里是个**纯文本输入框**，placeholder 写着「如 PHOTO（多个用逗号分隔）」——
+ *    运营既不知道合法值有哪些、也不知道分隔符格式，写错就是保存不生效。
+ */
+const PROOF_TYPE_OPTIONS: Array<{ value: string; label: string; reserved?: boolean }> = [
+  { value: 'PHOTO', label: '送达照片（当前唯一生效的类型，骑手必传）' },
+  { value: 'SIGNATURE', label: '收件人签名（预留，暂不生效）', reserved: true },
+  { value: 'RECEIVER_NAME', label: '收件人姓名（预留，暂不生效）', reserved: true },
+  { value: 'REMARK', label: '备注说明（预留，暂不生效）', reserved: true },
+]
+
 /** 表单模型：只放**可编辑**字段（配送费与两个占位开关不进表单）。 */
 interface RuleForm {
   enabled: number
@@ -50,7 +65,8 @@ interface RuleForm {
   estimatedPrepareMinutes: number
   estimatedDeliveryMinutes: number
   pickupCodeEnabled: number
-  proofTypes: string
+  /** ⚠️ 数组（多选）；提交时才 `join(',')` —— 后端存的是逗号分隔字符串。 */
+  proofTypes: string[]
   cancelFeePolicy: string
 }
 
@@ -61,12 +77,52 @@ const form = ref<RuleForm>({
   estimatedPrepareMinutes: 10,
   estimatedDeliveryMinutes: 20,
   pickupCodeEnabled: 0,
-  proofTypes: 'PHOTO',
+  proofTypes: ['PHOTO'],
   cancelFeePolicy: '',
 })
 
+/** 把后端下发的逗号分隔 `proofTypes` 拆成数组（空值按契约默认 `PHOTO`）。 */
+function splitProofTypes(raw: unknown): string[] {
+  const list = String(raw ?? '')
+    .split(',')
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)
+  return list.length ? list : ['PHOTO']
+}
+
 /** 营业时段（`el-time-picker is-range` + `value-format="HH:mm"` → `['09:00','22:00']`）。 */
 const timeRange = ref<[string, string] | null>(null)
+
+/**
+ * 是否展开「取消扣费政策」的高级 JSON 输入（默认**收起**）。
+ * ⚠️ 后端该字段是 JSON 列、且**契约没有给出结构定义** ⇒ 无法做结构化表单，
+ *    只能收起来 + 说明清楚，避免运营面对一个不知道填什么的文本框。
+ */
+const advancedCancelPolicy = ref(false)
+
+/**
+ * 把平台下发的 `feeConfig` JSON 转成**一句运营看得懂的话**（本面板只读展示）。
+ * 例：`{"fixedFee":3.0,"distanceStep":{"freeKm":3,"perKmFee":1.0}}`
+ *  → 「基础配送费 ¥3.00；3 公里内不加价，超出后每公里 ¥1.00」
+ * ⚠️ 结构超出已知形态时**原样展示**，不要藏起来（否则运营以为没配置）。
+ */
+function formatFeeConfigText(raw?: string | null): string {
+  const text = String(raw ?? '').trim()
+  if (!text) return '—（未配置，按平台默认）'
+  try {
+    const obj = JSON.parse(text) as { fixedFee?: number; distanceStep?: { freeKm?: number; perKmFee?: number } }
+    const parts: string[] = []
+    if (typeof obj.fixedFee === 'number') parts.push(`基础配送费 ¥${obj.fixedFee.toFixed(2)}`)
+    if (obj.distanceStep) {
+      const freeKm = Number(obj.distanceStep.freeKm ?? 0)
+      const perKmFee = Number(obj.distanceStep.perKmFee ?? 0)
+      parts.push(`${freeKm} 公里内不加价，超出后每公里 ¥${perKmFee.toFixed(2)}`)
+    }
+    return parts.length ? parts.join('；') : text
+  } catch {
+    return text
+  }
+}
 
 /** 开关类字段（0/1）转文案（只读展示用）。 */
 function onOff(value?: number | null): string {
@@ -117,7 +173,8 @@ function fillForm(data: DeliveryRule | null): void {
     estimatedPrepareMinutes: Number(data.estimatedPrepareMinutes ?? 10),
     estimatedDeliveryMinutes: Number(data.estimatedDeliveryMinutes ?? 20),
     pickupCodeEnabled: Number(data.pickupCodeEnabled) === 1 ? 1 : 0,
-    proofTypes: String(data.proofTypes ?? 'PHOTO'),
+    // 后端是逗号分隔字符串 ⇒ 拆成数组供多选（空值按契约默认 PHOTO）
+    proofTypes: splitProofTypes(data.proofTypes),
     cancelFeePolicy: String(data.cancelFeePolicy ?? ''),
   }
   timeRange.value = parseBusinessHours(data.businessHours)
@@ -178,7 +235,8 @@ async function submit(): Promise<void> {
     estimatedPrepareMinutes: form.value.estimatedPrepareMinutes,
     estimatedDeliveryMinutes: form.value.estimatedDeliveryMinutes,
     pickupCodeEnabled: form.value.pickupCodeEnabled,
-    proofTypes: form.value.proofTypes.trim(),
+    // 多选数组 ⇒ 后端要的逗号分隔字符串
+    proofTypes: form.value.proofTypes.join(','),
     // 营业时段按契约推荐写法交 **JSON 串**；整个清空时交空串（表示"不设置时段"）
     businessHours: timeRange.value ? JSON.stringify({ start: timeRange.value[0], end: timeRange.value[1] }) : '',
     // 留空交空串（而不是不传）——"不传"的语义是"保持不变"，会把旧值留在库里
@@ -259,19 +317,35 @@ defineExpose({ loadRule })
         <el-divider content-position="left">收货码与凭证</el-divider>
         <el-form-item label="收货码">
           <el-switch v-model="form.pickupCodeEnabled" :active-value="1" :inactive-value="0" active-text="开启" inactive-text="关闭" />
-          <span class="form-hint">开启后：用户下单拿到收货码，骑手送达前**必须核销**该码</span>
+          <span class="form-hint">开启后：用户下单会拿到一个收货码，骑手送达前<strong>必须核销</strong>该码才能完成订单</span>
         </el-form-item>
         <el-form-item label="送达凭证类型">
-          <el-input v-model="form.proofTypes" placeholder="如 PHOTO（多个用逗号分隔）" style="width: 260px" />
-          <span class="form-hint">骑手送达时需上传的凭证类型</span>
+          <el-select v-model="form.proofTypes" multiple collapse-tags collapse-tags-tooltip style="width: 360px" placeholder="请选择骑手送达时需要上传的凭证">
+            <el-option v-for="option in PROOF_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+          <div class="form-hint block">
+            ⚠️ 目前只有「送达照片」真正生效（骑手端必传）；标了「预留」的选项后端尚未接入，勾选不会产生实际要求。
+          </div>
         </el-form-item>
+        <!-- 取消扣费政策：后端是 JSON 列且契约未定义结构 ⇒ 只给技术用，默认收起并说明清楚 -->
         <el-form-item label="取消扣费政策">
-          <el-input v-model="form.cancelFeePolicy" type="textarea" :rows="2" placeholder="JSON 串，留空表示不设置" />
+          <div>
+            <el-button link type="primary" @click="advancedCancelPolicy = !advancedCancelPolicy">
+              {{ advancedCancelPolicy ? '收起「取消扣费政策」' : '展开「取消扣费政策」（高级，一般不用填）' }}
+            </el-button>
+            <div v-if="advancedCancelPolicy" class="cancel-policy-box">
+              <el-input v-model="form.cancelFeePolicy" type="textarea" :rows="3" placeholder='JSON；留空 = 不设置' />
+              <div class="form-hint block">
+                后端存的是 JSON 列。⚠️ 该字段的结构后端尚未给出正式定义，一般<strong>留空即可</strong>；
+                只有在需要「按取消场景扣费」时才填，填错会保存失败。
+              </div>
+            </div>
+          </div>
         </el-form-item>
 
         <el-divider content-position="left">以下由平台统一设置（本面板只读）</el-divider>
         <el-form-item label="计费方式">{{ feeTypeLabel(rule?.feeType) }}</el-form-item>
-        <el-form-item label="运费配置(feeConfig)">{{ rule?.feeConfig || '—' }}</el-form-item>
+        <el-form-item label="配送费配置">{{ formatFeeConfigText(rule?.feeConfig) }}</el-form-item>
         <el-form-item label="优惠券">{{ onOff(rule?.couponEnabled) }}<span class="form-hint">V1 占位开关，暂不支持开启</span></el-form-item>
         <el-form-item label="平台补贴">{{ onOff(rule?.subsidyEnabled) }}<span class="form-hint">V1 占位开关，暂不支持开启</span></el-form-item>
 
@@ -290,4 +364,7 @@ defineExpose({ loadRule })
 .tip { margin-bottom: 12px; }
 .rule-form { max-width: 760px; }
 .form-hint { margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
+/* 2026-09-29：需要独占一行的小字说明（放在输入框下方时用） */
+.form-hint.block { display: block; margin: 6px 0 0; }
+.cancel-policy-box { margin-top: 8px; max-width: 560px; }
 </style>

@@ -386,7 +386,7 @@ watch(() => route.query.shopId, (value) => {
 <template>
   <section class="page-container page-enter">
     <div class="page-heading">
-      <div><h1>店员管理（人员台账）</h1><p>身份由「档案 + 叠加身份」构成，**可多选**（店长 + 骑手、骑手 + 核销店员…）；店长含 H5 核销账号密码、骑手无密码、核销店员不绑微信；店长 / 骑手必须绑定微信。</p></div>
+      <div><h1>店员管理（人员台账）</h1><p>身份由「档案 + 叠加身份」构成，<strong>可多选</strong>（店长 + 骑手、骑手 + 核销店员…）；店长含 H5 核销账号密码、骑手无密码、核销店员不绑微信；店长 / 骑手必须绑定微信。</p></div>
       <el-button type="primary" @click="openCreate">新增人员</el-button>
     </div>
 
