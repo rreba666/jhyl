@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { MerchantCreateDTO, MerchantFilters, MerchantPageResult, MerchantResponse, MerchantVO } from '@/types/merchant'
+import type { MerchantCreateDTO, MerchantFilters, MerchantPageResult, MerchantResponse, MerchantUpdateDTO, MerchantVO } from '@/types/merchant'
 
 /** 校验商户接口响应，返回业务数据。 */
 function unwrapResponse<T>(response: { data: MerchantResponse<T> }, fallbackMessage: string): T {
@@ -57,8 +57,15 @@ export async function createMerchant(payload: MerchantCreateDTO): Promise<void> 
   unwrapResponse(response, '商户创建失败')
 }
 
-/** 编辑商户。 */
-export async function updateMerchant(id: string, payload: MerchantCreateDTO): Promise<void> {
+/**
+ * 编辑商户。
+ *
+ * ⚠️ 2026-09-30：payload 类型由 `MerchantCreateDTO` 更正为 **`MerchantUpdateDTO`** ——
+ *    契约里 `PUT /api/admin/merchants/{id}` 的 body 本来就是后者（只含 brandName/contactName/
+ *    contactPhone/remark/**commissionRate**），前者还带着注册专用字段（brandId 等）。
+ *    只有改用正确类型，`commissionRate` 才在类型层面被允许传入。
+ */
+export async function updateMerchant(id: string, payload: MerchantUpdateDTO): Promise<void> {
   const response = await request.put<MerchantResponse<null>>(`/api/admin/merchants/${String(id)}`, payload)
   unwrapResponse(response, '商户更新失败')
 }

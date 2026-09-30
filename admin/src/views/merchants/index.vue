@@ -2,10 +2,10 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { getMerchants, toggleMerchantStatus } from '@/api/merchant'
+import { getMerchants, toggleMerchantStatus, updateMerchant } from '@/api/merchant'
 import { useTodoStore } from '@/stores/todo'
 import type { MerchantFilters, MerchantVO } from '@/types/merchant'
-import { Refresh, Search, Shop, Warning } from '@element-plus/icons-vue'
+import { Edit, Refresh, Search, Shop, Warning } from '@element-plus/icons-vue'
 const route = useRoute()
 const todoStore = useTodoStore()
 const list = ref<MerchantVO[]>([])
@@ -17,6 +17,60 @@ const filters = reactive<MerchantFilters>({ keyword: '', status: '' })
 
 const statusText: Record<number, string> = { 0: '待审核', 1: '启用', 2: '禁用' }
 const statusType: Record<number, 'warning' | 'success' | 'info'> = { 0: 'warning', 1: 'success', 2: 'info' }
+
+/**
+ * 「设置让利比例」弹窗（2026-09-30 新增）。
+ *
+ * 后端已部署：`MerchantVO.commissionRate` 可读、`MerchantUpdateDTO.commissionRate` 可写；
+ * 区间 **3~20**（⚠️ 不是 5~20，越界返回 `13018`），**不传 = 不修改**。
+ * 该比例是**商户级**、对商户下所有门店生效，且**参与结算**（按订单快照）。
+ */
+const commissionDialogVisible = ref(false)
+const commissionSaving = ref(false)
+/** 当前正在编辑的商户（用于弹窗标题回显品牌名）。 */
+const commissionTarget = ref<MerchantVO | null>(null)
+/** 弹窗里的比例值；`null` = 保持不修改（提交时不带该字段）。 */
+const commissionInput = ref<number | null>(null)
+
+/** 打开让利比例弹窗，回显该商户当前值（`null` = 未设置）。 */
+function openCommissionDialog(row: MerchantVO): void {
+  commissionTarget.value = row
+  commissionInput.value = typeof row.commissionRate === 'number' ? row.commissionRate : null
+  commissionDialogVisible.value = true
+}
+
+/**
+ * 保存让利比例。
+ *
+ * ⚠️ 必须**带上 `brandName`** —— 契约里它是 `MerchantUpdateDTO` 的**必填**项，
+ *    只传 `commissionRate` 会参数校验不过。
+ * ⚠️ 输入框清空时**故意不带 `commissionRate`**（而不是传 0 / null）：
+ *    后端语义是"不传 = 不修改"，而传值就要过 3~20 的区间校验 —— 传 0 会被拒。
+ */
+async function saveCommission(): Promise<void> {
+  const row = commissionTarget.value
+  if (!row) return
+  const value = commissionInput.value
+  // 前端先拦一次，给出更快的反馈（后端强校验仍是最终把关，越界返回 13018）
+  if (value != null && (value < 3 || value > 20)) {
+    ElMessage.warning('让利比例需在 3~20 之间')
+    return
+  }
+  commissionSaving.value = true
+  try {
+    await updateMerchant(row.id, {
+      brandName: row.brandName,
+      ...(value == null ? {} : { commissionRate: value }),
+    })
+    ElMessage.success(value == null ? '已提交（让利比例未修改）' : `让利比例已设为 ${value}%`)
+    commissionDialogVisible.value = false
+    await loadList()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '让利比例保存失败')
+  } finally {
+    commissionSaving.value = false
+  }
+}
 
 async function loadList(): Promise<void> {
   loading.value = true
@@ -139,14 +193,24 @@ onMounted(() => {
         <el-table-column prop="contactName" label="联系人" min-width="110" />
         <el-table-column prop="contactPhone" label="联系电话" min-width="130" />
         <el-table-column label="门店数" width="90"><template #default="{ row }">{{ row.shopCount ?? 0 }}</template></el-table-column>
+        <!-- ⚠️ 2026-09-30 新增：让利比例（商户级、参与结算）。
+             后端约定 null = 未设置 ⇒ 显示「未设置」而不是 0（避免运营误读成"让利 0%"）。 -->
+        <el-table-column label="让利比例" width="110">
+          <template #default="{ row }">
+            <span v-if="typeof row.commissionRate === 'number'">{{ row.commissionRate }}%</span>
+            <span v-else class="cell-muted">未设置</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }"><el-tag :type="statusType[row.status || 0]">{{ statusText[row.status || 0] }}</el-tag></template>
         </el-table-column>
         <el-table-column prop="createTime" label="创建时间" min-width="170" />
-        <el-table-column label="操作" fixed="right" width="240">
+        <el-table-column label="操作" fixed="right" width="330">
           <template #default="{ row }">
             <div class="operator-actions">
               <el-button size="small" @click="goShops(row)"><el-icon><Shop /></el-icon>门店</el-button>
+              <!-- ⚠️ 2026-09-30 新增：设置让利比例（后端已部署，区间 3~20） -->
+              <el-button size="small" @click="openCommissionDialog(row)"><el-icon><Edit /></el-icon>让利</el-button>
               <el-button size="small" :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)"><el-icon><Warning /></el-icon>{{ row.status === 1 ? '停用' : '启用' }}</el-button>
             </div>
           </template>
@@ -157,6 +221,31 @@ onMounted(() => {
         <el-pagination background layout="total, sizes, prev, pager, next" :current-page="page" :page-size="pageSize" :total="total" @current-change="page = $event; void loadList()" @size-change="pageSize = $event; page = 1; void loadList()" />
       </div>
     </el-card>
+
+    <!-- ⚠️ 2026-09-30 新增：设置商户让利比例（后端已部署）。
+         契约：`MerchantVO.commissionRate` 读、`MerchantUpdateDTO.commissionRate` 写，
+         区间 **3~20**（越界 13018），**不传 = 不修改**。 -->
+    <el-dialog v-model="commissionDialogVisible" title="设置商户让利比例" width="440px">
+      <div v-if="commissionTarget" class="commission-body">
+        <p class="commission-brand">商户：<strong>{{ commissionTarget.brandName }}</strong></p>
+        <el-form label-width="96px">
+          <el-form-item label="让利比例">
+            <el-input-number v-model="commissionInput" :min="3" :max="20" :precision="2" :step="0.5" />
+            <span class="commission-unit">%</span>
+          </el-form-item>
+        </el-form>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="区间 3~20。该比例是商户级的，对商户下所有门店生效，并参与结算（按订单快照，只影响之后新下的订单）。留空 / 清空表示不修改。"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="commissionDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="commissionSaving" @click="saveCommission">保存</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -168,6 +257,11 @@ onMounted(() => {
 .status-select { width: 110px; }
 .operator-actions { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .operator-actions :deep(.el-button) { margin-left: 0; padding: 5px 8px; }
+/* ⚠️ 2026-09-30：让利比例相关的样式（列表里的"未设置"灰字 + 弹窗内的排版） */
+.cell-muted { color: #909399; }
+.commission-body { display: flex; flex-direction: column; gap: 12px; }
+.commission-brand { margin: 0; color: #303133; font-size: 14px; }
+.commission-unit { margin-left: 8px; color: #606266; }
 .operator-actions :deep(.el-icon) { margin-right: 4px; }
 .table-pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>
