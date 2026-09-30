@@ -32,6 +32,26 @@ const FALLBACK_CATS: CategoryNode[] = [
 const cats = ref<CategoryNode[]>([...FALLBACK_CATS])
 const active = ref(0)
 const goods = ref<CategoryProduct[]>([])
+
+/**
+ * 主图是否「加载结束」（成功或失败都算），按商品 id 分别记录。
+ *
+ * ⚠️ 2026-09-29 新增：本页原先**没有任何图片加载反馈** —— 图片异步加载期间图区是一片空白，
+ *    加载完又**硬切**出现；而首页卡片（`HomeProductCard`）与非遗老号卡片（`CategoryProductCard`）
+ *    都是「骨架 + 扫光 + 淡入」⇒ 三处观感不一致。这里补齐成同款。
+ *
+ * ⚠️ 必须**按 id 分别记录**，不能用一个全局布尔量：商品列表是**分页追加**的（切换分类后 concat），
+ *    全局量会导致「第一张图加载完就以为全都加载完了」。
+ * ⚠️ `@error` 也必须算「结束」—— 否则骨架的扫光会一直转，看起来像卡死。
+ * ⚠️ 用**替换 Set** 的方式触发响应式：小程序端对 Set 的原地变更（`add`）不保证能触发视图更新，
+ *    每次 `new` 一个新实例最稳（商品详情页的 `gallerySettled` / `detailSettled` 用的是同一模式）。
+ */
+const imageSettled = ref<Set<string | number>>(new Set())
+/** 标记某张主图「已加载结束」（成功、失败都调用）。 */
+function onImageSettled(id: string | number): void {
+  if (imageSettled.value.has(id)) return
+  imageSettled.value = new Set(imageSettled.value).add(id)
+}
 const categoryGoodsCache = new Map<string, CategoryProduct[]>()
 let goodsRequestToken = 0
 const loading = ref(true)
@@ -198,10 +218,22 @@ onShow(() => { void refreshCategories() })
         <!-- 右侧商品 -->
         <scroll-view class="prod" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="scrollHeightStyle">
           <view v-show="!busy" class="prod-grid">
-            <view v-for="it in goods" :key="it.id" class="card" @click="goDetail(it.id)">
+            <view v-for="it in goods" :key="it.id" class="card motion-card-in" @click="goDetail(it.id)">
               <view class="card-img">
-                <image v-show="it.mainImage" class="c-img" :src="it.mainImage" mode="aspectFill" />
-                <view v-show="!it.mainImage" class="c-img-ph" />
+                <!-- ⚠️ 2026-09-29 图片加载优化（与首页 `HomeProductCard`、非遗老号 `CategoryProductCard` 同款）：
+                     加载期间用**骨架 + 扫光**占位，加载结束后收起骨架、实图**淡入**。
+                     原来这里什么都没有 ⇒ 图片加载时是一块空白，加载完又硬切出现。 -->
+                <view v-if="it.mainImage && !imageSettled.has(it.id)" class="c-img-skeleton skeleton-shimmer" />
+                <image
+                  v-if="it.mainImage"
+                  class="c-img motion-image-in"
+                  :class="{ 'motion-image-loaded': imageSettled.has(it.id) }"
+                  :src="it.mainImage"
+                  mode="aspectFill"
+                  @load="onImageSettled(it.id)"
+                  @error="onImageSettled(it.id)"
+                />
+                <view v-else class="c-img-ph" />
               </view>
               <text class="c-name">{{ it.name }}</text>
               <!-- 价格 + 加购：放在商品名下方，价格在左、加购在右，两端对齐 -->
@@ -254,6 +286,9 @@ onShow(() => { void refreshCategories() })
    原来写死 270rpx×270rpx：卡片宽度一被收缩，图片就跟着大小不一。 */
 .card-img { position: relative; width: 100%; padding-top: 100%; background: #e9e7dd; overflow: hidden; border-radius: 8rpx; }
 .c-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+/* 骨架层铺满图区（底色与扫光由全局 `skeleton-shimmer` 提供，见 styles/motion.wxss）。
+   ⚠️ 2026-09-29 新增：图区原来只有 `.card-img` 的纯色底，图片异步加载期间没有任何"正在加载"的反馈。 */
+.c-img-skeleton { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; }
 .c-img-ph { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.05); }
 /* 价格 + 加购：商品名下方，价格在左、加购在右，两端对齐 */
 .c-bot { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: 8rpx; }
