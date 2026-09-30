@@ -1,6 +1,47 @@
 <script setup lang="ts">
-import { onLaunch, onShow } from '@dcloudio/uni-app'
+import { onError, onLaunch, onShow } from '@dcloudio/uni-app'
 import { bindStoredPromotionIfLoggedIn, capturePromotionContext } from '@/utils/promotion'
+
+/**
+ * ⚠️ 2026-09-30 临时诊断：支付完成后出现
+ * `Cannot read properties of undefined (reading 'index')` 并**卡在确认订单页**。
+ *
+ * 已完成的静态排查（结论：**不在业务源码里**）：
+ *   1. 全量搜过 `mini_shop` 源码，**没有任何 `X.index` 形式的属性访问** ——
+ *      `index` 只作为 `map((item, index))` 的回调参数、`findIndex`、`z-index` 等出现；
+ *   2. 编译产物（`unpackage/dist/build/mp-weixin`）里共 **695 处** `X.index`，
+ *      **全部是 `uni.xxx` 的编译形态**（`uni` → `vendor.index`）⇒ 报错来自
+ *      **框架/基础库层面**，或某个**在极早时机**取 `uni` 对象的地方；
+ *   3. `payment.vue` 的支付流程、`onShow` / `onMounted` / `refreshDeliveryQuote`
+ *      **均有 try/catch**，不会把异常抛到全局。
+ *
+ * ⇒ 因此挂一个**全局错误钩子**，把**完整堆栈**打到控制台、**落到本地缓存**（真机没有控制台时
+ *   可事后取回），并在诊断期直接弹窗显示 —— 便于复现时一眼拿到出错位置。
+ * ⚠️ 它**只记录、不改变任何行为**；定位完成后应把本段整体删除。
+ */
+onError((error) => {
+  const message = error instanceof Error ? error.message : String(error)
+  const stack = error instanceof Error ? (error.stack || '(无 stack)') : '(非 Error 对象)'
+  const route = (() => {
+    try {
+      const pages = getCurrentPages()
+      return pages[pages.length - 1]?.route || ''
+    } catch { return '' }
+  })()
+  console.error('[app-error]', message, '\n', stack)
+  try {
+    uni.setStorageSync('__last_app_error__', { message, stack, route, at: new Date().toISOString() })
+  } catch { /* 记录失败不影响主流程 */ }
+  // ⚠️ 诊断期直接弹窗：真机上不方便连控制台，弹出来即可截图/复制给开发。
+  try {
+    uni.showModal({
+      title: '运行时错误（诊断）',
+      content: `${message}\n\n页面：${route}\n\n${stack}`.slice(0, 900),
+      showCancel: false,
+      confirmText: '知道了',
+    })
+  } catch { /* 弹窗失败也不影响 */ }
+})
 
 let redirectingToHome = false
 

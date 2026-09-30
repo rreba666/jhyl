@@ -1413,7 +1413,36 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
   paymentSucceeded.value = stayOnPage
   uni.showToast({ title: invoiceError ? '支付成功，发票申请失败' : '支付成功', icon: invoiceError ? 'none' : 'success' })
   if (!stayOnPage) {
-    setTimeout(() => { uni.redirectTo({ url: `/subpkg-order/orders/detail?orderId=${currentOrderId}` }) }, 500)
+    const detailUrl = `/subpkg-order/orders/detail?orderId=${currentOrderId}`
+    // ⚠️ 2026-09-30 加固（用户反馈「付完款后卡在确认订单页、连下三单都退款了」）：
+    //   原实现是 `uni.redirectTo(...)` **没有任何 fail 回调** ——
+    //   而 `uni.redirectTo` 在**页面栈已满**（小程序最多 10 层）或路径异常时会**静默失败**，
+    //   用户便永远停在确认订单页。此时**钱已经扣了**，页面却还停留在"可支付"的结算页
+    //   ⇒ 用户以为没付成功 ⇒ **重复下单**（本次事故正是连下三单）。
+    // ⇒ 修复两点：
+    //   1. 跳转失败时**降级 reLaunch**（会清空页面栈，一定能到）；
+    //   2. 跳转失败时**立刻把页面切到「支付成功」态** —— 这是最关键的一步：
+    //      否则结算页仍可再次点击支付，必然导致重复下单。
+    setTimeout(() => {
+      uni.redirectTo({
+        url: detailUrl,
+        fail: () => {
+          paymentSucceeded.value = true
+          uni.reLaunch({
+            url: detailUrl,
+            fail: () => {
+              // 连 reLaunch 都失败（理论上不会）：至少明确告知钱已付，防止重复支付
+              uni.showModal({
+                title: '支付已完成',
+                content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
+                showCancel: false,
+                confirmText: '知道了',
+              })
+            },
+          })
+        },
+      })
+    }, 500)
     return
   }
 
