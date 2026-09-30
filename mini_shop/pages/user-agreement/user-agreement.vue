@@ -253,11 +253,12 @@ onMounted(() => {
       <view class="agreement-content">
         <text class="agreement-title">江西今华有品牌管理有限公司小程序商城用户协议</text>
         <text class="agreement-subtitle">今华有礼，礼传万家用户服务协议</text>
-        <!-- ⚠️ 2026-09-29：协议内容实质变更（品牌名更正 + 删除原第六大类「平台红包补贴规则」并重排全部编号）
-             ⇒ 版本号 V1.0 → V1.1、更新日期同步为 2026-09-29。协议编号不变（JHY-2026-001 仍是本协议编号）。 -->
+        <!-- ⚠️ 2026-09-30：协议内容实质变更（品牌名更正 + 删除原第六大类「平台红包补贴规则」并重排全部编号）
+             ⇒ 版本号 V1.0 → V1.1、更新日期同步为 2026-09-30。协议编号不变（JHY-2026-001 仍是本协议编号）。
+             ⚠️ 注：本次修订的提交时间是 2026-09-30 10:16（此前一度误记为 09-29 —— 该会话从 09-29 跨到了 09-30）。 -->
         <text class="agreement-meta">协议编号：JHY-2026-001</text>
         <text class="agreement-meta">版本号：V1.1</text>
-        <text class="agreement-meta">最后更新：2026年9月29日</text>
+        <text class="agreement-meta">最后更新：2026年9月30日</text>
 
         <view v-for="section in agreementSections" :key="section.heading" class="agreement-section">
           <text class="agreement-heading">{{ section.heading }}</text>
