@@ -102,7 +102,16 @@ html.dark .admin-header .el-breadcrumb__inner { color: var(--vben-text); }
 html.dark .admin-header .el-breadcrumb__separator { color: var(--vben-muted); }
 
 .admin-main { min-width: 0; padding: 24px; background: var(--vben-bg); transition: background-color .25s ease; }
-.page-container { max-width: 1600px; margin: 0 auto; animation: page-fade-in .22s ease both; }
+/* ⚠️⚠️ 2026-09-30 关键修复（「弹窗遮罩没有根据视口大小」的**真正根因**）：
+   原先写的是 `animation: page-fade-in .22s ease both` —— `both` = `animation-fill-mode: both`
+   ⇒ 动画结束后会**永久保留** `to` 帧的 `transform: translateY(0)`。
+   而 CSS 规范规定：**祖先元素只要有非 `none` 的 `transform`，就会成为后代 `position: fixed` 的包含块**
+   ⇒ 页面里的 `el-dialog` 与遮罩（`position: fixed; inset: 0`）不再相对**视口**，而是相对本容器
+     （本容器还有 `max-width: 1600px; margin: 0 auto`）⇒ **遮罩盖不满、位置与尺寸全错**。
+   ⇒ 改成 `backwards`：动画**开始前**仍应用 `from`（不闪烁），**结束后不保留任何帧** ⇒ `transform` 回到 `none`。
+   ⚠️ 这条影响**所有**使用 `.page-container` 的页面（约 30 个），所以是"老问题"。
+   ⚠️ 以后给页面容器加动画时，**不要用 `both`/`forwards`**（会留下 transform），用 `backwards` 或不带 fill-mode。 */
+.page-container { max-width: 1600px; margin: 0 auto; animation: page-fade-in .22s ease backwards; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 58px; margin-bottom: 20px; }
 .page-heading h1 { margin: 0 0 6px; color: var(--vben-text); font-size: 22px; font-weight: 600; line-height: 1.35; }
 .page-heading p { margin: 0; color: var(--vben-muted); font-size: 14px; line-height: 1.5; }

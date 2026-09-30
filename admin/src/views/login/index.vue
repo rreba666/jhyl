@@ -106,7 +106,13 @@ async function submitLogin(): Promise<void> {
 .login-main { display: flex; flex: 1 1 45%; align-items: center; justify-content: center; padding: 24px; }
 /* 登录卡片固定深色毛玻璃背景，不随主题切换，确保浅色文字始终可读 */
 .login-card { width: 400px; padding: 44px 40px 40px; border-radius: 18px; background: rgba(26, 31, 40, 0.68); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(212,168,67,.25); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
-.login-card-enter { animation: login-card-in .6s cubic-bezier(.22,.8,.28,1) both; }
+/* ⚠️ 2026-09-30：`both` → `backwards`。
+   原因同 `style.css` 的 `.page-container`：`animation-fill-mode: both` 会在动画结束后**永久保留**
+   `to` 帧的 `transform: translateY(0)`，而**非 none 的 transform 会让后代 `position: fixed` 相对本元素定位**。
+   登录页当前没有弹窗，所以此前未暴露问题；改成 `backwards` 是**预防性**的（保持一致、避免将来加弹窗踩坑）。
+   ⚠️ 顺带记一笔：本元素的 `backdrop-filter: blur(16px)` **同样会创建包含块**（与 transform 同类后果），
+      如果将来要在登录卡片内部放 fixed 弹层，需要把它也一并考虑。 */
+.login-card-enter { animation: login-card-in .6s cubic-bezier(.22,.8,.28,1) backwards; }
 @keyframes login-card-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
 .login-heading { margin: 0 0 28px; }
 .login-heading h1 { margin: 0; color: #e7e9ee; font-size: 26px; }
