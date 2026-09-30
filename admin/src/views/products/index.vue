@@ -226,6 +226,18 @@ function fillForm(detail?: ProductDetail): void {
   const sameCityEcho = detail ? normalizeSwitchOrNull(detail.sameCityEnabled) : 1
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
   sameCitySwitchEchoed.value = sameCityEcho !== null
+  // ⚠️ 2026-09-30 诊断（多分类回显）：后端若**没有**返回 `categoryIds`，下面会**静默回退**到单个
+  //    `categoryId`，表现就是用户反馈的「保存后再次打开，新加的分类没了」。
+  //    这里在"有 categoryId 但没有 categoryIds"时打印一次 —— 用来区分两种根因：
+  //      · 后端**没写库**（保存请求的 payload 就不对）
+  //      · 后端**没返回**（存了，但详情 VO 没带 categoryIds）
+  if (detail && !(detail.categoryIds || []).length && detail.categoryId) {
+    console.warn(
+      '[Product] 商品详情未返回 categoryIds，已回退到单个 categoryId ——',
+      'categoryId =', detail.categoryId,
+      '；请核对 GET /api/admin/v2/product/detail/{id} 的响应里是否有 categoryIds',
+    )
+  }
   Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryIds: (detail.categoryIds?.length ? detail.categoryIds : (detail.categoryId ? [String(detail.categoryId)] : [])).map(String), merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, sameCityEnabled: sameCityEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 回填后按该商户加载门店选项（否则 shopIds 在选项里找不到，多选显示为空）
   // ⚠️ 第二参传 true：该商户只有**一个**门店、且本次没回填到 shopIds 时，自动选中它；
