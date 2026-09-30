@@ -895,21 +895,22 @@ async function handleRealnameVerified(status: RealnameStatus): Promise<void> {
   pendingAction.value = null
 
   if (action === 'withdraw' && pendingWithdrawAmount.value != null) {
-    // ⚠️⚠️ 这里**刻意只清状态、不续跑提现** —— 请勿"顺手修复"成 `executeWithdraw(...)`！
+    // ⚠️⚠️ 这里**刻意只清状态、不续跑提现** —— 请勿"顺手修复"成自动提交！
     //
     // 契约 `mini_shop/tests/realname-withdraw.contract.ps1:66-69` **明确规定**：
-    //   「`if (action === 'withdraw'` 与 `if (action === 'transfer'` 之间的代码
-    //     **不得包含 `executeWithdraw`**」—— 断言原文
-    //     `realname binding must not automatically submit the withdrawal`。
+    //   本分支（到下一个 `action === 'transfer'` 分支为止）的代码
+    //   **不得出现"提现执行函数"的调用**，断言原文
+    //   `realname binding must not automatically submit the withdrawal`。
+    //   ⚠️ 该检查是**朴素字符串匹配** ⇒ **连注释里都不要写出那个函数名**，
+    //      否则会被误判成"代码里调用了"（本次回滚时正因注释写了函数名而二次失败）。
     //
     // 设计意图：**提现是资金操作，必须由用户明确确认后提交**。
-    //   实名弹层只是"补齐认证"，关闭后若自动提交提现，用户可能根本没核对
+    //   实名弹层只是"补齐认证"，关闭后若自动提交，用户可能根本没核对
     //   金额 / 收款方式 / 手续费，风险远大于"少点一次"的便利。
-    //   （对比下方 transfer 分支可以续跑：它的 payload 里已含完整的收款人信息，
-    //     且走的是转账确认流程，语义不同。）
+    //   （对比下方转账分支可以续跑：它的 payload 里已含完整收款人信息，语义不同。）
     //
     // ⚠️ 2026-09-30 备注：前端隐藏缺陷审计曾把这里判为"提现动作被丢弃"的缺陷并补了续跑，
-    //    被上述契约测试拦下后已回滚。⇒ 该行为**是刻意的**，审计报告中的对应条目**作废**。
+    //    被上述契约测试拦下后已回滚。⇒ 该行为**是刻意的**，审计报告中对应条目**作废**。
     pendingWithdrawAmount.value = null
     return
   }
