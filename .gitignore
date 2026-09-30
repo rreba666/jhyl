@@ -32,7 +32,13 @@ temp/
 # ===== 文档与设计稿（与今华有肽口径一致，不入库）=====
 docs/
 CLAUDE.md
+# 契约快照（后端提供，前端只读）：
+#   · api_doc.json = 前端**主用**（各接口的权威口径，含保留的 /api/dev 调试接口）
+#   · api.json     = 后端本次交付的**原始快照**（prod 口径，用于与主用文件对比/合并）
+#   · *.bak-*      = 合并前的可回滚备份
 api_doc.json
+api.json
+api_doc.json.bak-*
 lanhu-design-*.json
 lanhu-sketch-*.json
 今华有礼_切图/
