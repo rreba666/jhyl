@@ -7,7 +7,7 @@
  * - startTime / endTime：下单时间范围（yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss）
  * 范围结论：订单只读，无任何操作按钮；卡片点进详情。
  */
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   finishPreparation,
@@ -40,6 +40,32 @@ type TabKey = (typeof TABS)[number]['key']
 const statusBarHeight = ref(0)
 /** 页头高度 = 状态栏 + 44px 标题栏 + 54px Tab 栏（px）。 */
 const contentTop = computed(() => statusBarHeight.value + 44 + 54)
+
+/**
+ * `nav-row` 右侧需要预留的安全区宽度（px）—— 用来**避开微信右上角胶囊**。
+ *
+ * ⚠️⚠️ 2026-09-30 修（用户反馈"胶囊下方是不是盖住了什么东西"）：
+ *    `nav-row` 高 44px，而微信胶囊的垂直范围约为 `[statusBar+5, statusBar+37]`
+ *    ⇒ **胶囊完全落在 `nav-row` 内部**，且它贴在右上角 —— 于是行尾的「**批量**」按钮
+ *    被胶囊整个盖住（真机上完全看不见、也点不到）。
+ * ⚠️ 项目里其它 17 处页面都用 `uni.getMenuButtonBoundingClientRect()` 取胶囊位置，
+ *    本页此前漏了。
+ * ⚠️ 这里取的是「**屏幕宽 − 胶囊左边界 + 8px 间距**」：`nav-row` 用 `padding-right`
+ *    预留出这段宽度后，行尾元素就落在胶囊左侧、不再被遮挡。
+ *    非微信环境（H5/App）取不到 rect 时保持 0，退回原有 `23rpx` 内边距。
+ */
+const menuSafeRight = ref(0)
+
+onMounted(() => {
+  try {
+    const rect = uni.getMenuButtonBoundingClientRect()
+    if (rect && rect.left) {
+      const windowWidth = uni.getSystemInfoSync().windowWidth || 0
+      const safe = windowWidth - rect.left + 8
+      if (safe > 0) menuSafeRight.value = safe
+    }
+  } catch { /* 非微信环境忽略 */ }
+})
 
 const activeTab = ref<TabKey>('all')
 const keyword = ref('')
@@ -332,7 +358,11 @@ async function runBatchPrepare(): Promise<void> {
   <view class="page" :style="{ paddingTop: contentTop + 'px' }">
     <!-- 页头（白底）：返回 + 搜索框 + Tab 栏 + 筛选 -->
     <view class="header" :style="{ paddingTop: statusBarHeight + 'px' }">
-      <view class="nav-row">
+      <!--
+        ⚠️ 2026-09-30：`paddingRight` 预留给微信胶囊的安全区，
+        否则行尾的「批量」会被胶囊盖住（详见 `menuSafeRight` 的注释）。
+      -->
+      <view class="nav-row" :style="menuSafeRight ? { paddingRight: menuSafeRight + 'px' } : {}">
         <text class="nav-back" @click="goBack">‹</text>
         <view class="search-box">
           <text class="rider-icon rider-icon-sousuo search-icon" />

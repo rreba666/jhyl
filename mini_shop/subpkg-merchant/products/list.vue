@@ -10,7 +10,7 @@
  * 范围结论（设计疑问清单）：商品核心是**上下架**；批量只做上/下架；订单只读不做。
  * 库存预警：后端无专用接口，取「已上架」商品在前端按阈值过滤（阈值待产品确认，暂 100）。
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   batchUpdateProducts,
@@ -48,6 +48,30 @@ const statusBarHeight = ref(0)
 const HEADER_TITLE_H = 44
 const HEADER_TAB_H = 46
 const contentTop = computed(() => statusBarHeight.value + HEADER_TITLE_H + HEADER_TAB_H)
+
+/**
+ * `nav-row` 右侧需要预留的安全区宽度（px）—— 用来**避开微信右上角胶囊**。
+ *
+ * ⚠️ 2026-09-30 修（与商家端订单页同批，用户反馈胶囊遮挡）：
+ *    本页 `nav-row` 里是「返回 + 搜索框」，而搜索框是 `flex: 1` ⇒ **会一直延伸到屏幕右边缘**，
+ *    于是被右上角的微信胶囊盖住 —— 尤其是搜索框**右端的「×」清除按钮**，
+ *    用户输入关键词后**根本点不到**（比视觉遮挡更严重）。
+ * ⚠️ 项目里其它页面都用 `uni.getMenuButtonBoundingClientRect()` 取胶囊位置，本页此前漏了。
+ * ⚠️ 取「屏幕宽 − 胶囊左边界 + 8px 间距」作为 `padding-right`；
+ *    非微信环境取不到 rect 时保持 0，退回样式表里原有的 `23rpx`。
+ */
+const menuSafeRight = ref(0)
+
+onMounted(() => {
+  try {
+    const rect = uni.getMenuButtonBoundingClientRect()
+    if (rect && rect.left) {
+      const windowWidth = uni.getSystemInfoSync().windowWidth || 0
+      const safe = windowWidth - rect.left + 8
+      if (safe > 0) menuSafeRight.value = safe
+    }
+  } catch { /* 非微信环境忽略 */ }
+})
 
 const activeTab = ref<TabKey>('onSale')
 const keyword = ref('')
@@ -458,7 +482,11 @@ function goBack(): void {
   <view class="page" :style="{ paddingTop: contentTop + 'px' }">
     <!-- 页头（白底）：返回 + 搜索框 + Tab -->
     <view class="header" :style="{ paddingTop: statusBarHeight + 'px' }">
-      <view class="nav-row">
+      <!--
+        ⚠️ 2026-09-30：`paddingRight` 预留给微信胶囊的安全区，
+        否则 `flex:1` 的搜索框（含右端「×」清除按钮）会被胶囊盖住、点不到。
+      -->
+      <view class="nav-row" :style="menuSafeRight ? { paddingRight: menuSafeRight + 'px' } : {}">
         <text class="nav-back" @click="goBack">‹</text>
         <view class="search-box">
           <text class="rider-icon rider-icon-sousuo search-icon" />
