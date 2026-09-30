@@ -98,7 +98,10 @@ const menuItems = [
   { key: 'service', label: '客服', icon: '/static/my/客服_slices/客服.png' },
   { key: 'favorite', label: '我的收藏', icon: '/static/my/收藏_slices/收藏.png' },
   { key: 'materials', label: '商品素材', icon: '/static/my/商品素材_slices/商品素材.png' },
-  { key: 'merchant-apply', label: '商家入驻', icon: '/static/my/商品素材_slices/商品素材.png' },
+  // ⚠️ 2026-09-29：原先这条与「商品素材」**共用同一个 PNG**（复制粘贴漏改），
+  //    现改用专门的门店图标 `static/my/store.svg`（24×24、fill=black 的线性图标）。
+  //    ⚠️ 小程序里 SVG 走 `<image src="...svg" mode="aspectFit">`（与 CategoryProductCard 的 location.svg 同一用法）。
+  { key: 'merchant-apply', label: '商家入驻', icon: '/static/my/store.svg' },
   // 2026-09-22 用户要求：「用户协议」「隐私保护指引」**不在个人中心显示**，入口已挪到「设置」页。
   // 协议页本身（pages/user-agreement、pages/privacy）保留不动 —— 必须仍然可达。
 ]
