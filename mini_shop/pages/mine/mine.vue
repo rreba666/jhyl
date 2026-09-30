@@ -729,7 +729,9 @@ onShow(() => { void refreshData() })
   <view class="pg">
     <scroll-view class="bd" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
       <view class="hero" :style="{ paddingTop: bodyTop + 'px' }">
-        <image class="hero-bg" src="/static/bg/个人bg.jpg" mode="aspectFill" />
+        <!-- ⚠️ 2026-09-29：`mode` 由 `aspectFill` 改 `widthFix` —— 详见 `.hero-bg` 的样式说明。
+             图片必须**按自身比例从顶部**显示，容器（`.hero` 已有 `overflow: hidden`）负责裁掉下方多余。 -->
+        <image class="hero-bg" src="/static/bg/个人bg.jpg" mode="widthFix" />
         <view class="profile-row">
           <view class="u-avatar" @click="handleProfileTap">
             <image v-if="user?.avatarUrl" class="u-avatar-image" :src="user.avatarUrl" mode="aspectFill" />
@@ -888,8 +890,29 @@ onShow(() => { void refreshData() })
 .pg { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #fff; color: #242526; }
 .bd { flex: 1; width: 100%; min-height: 0; margin-bottom: -50rpx; box-sizing: border-box; }
 
-.hero { position: relative; overflow: hidden; padding-right: 38.17rpx; padding-left: 38.17rpx; background: #0d0e0f; color: #fff; }
-.hero-bg { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; }
+/**
+ * 顶部背景区（个人页 hero）。
+ *
+ * ⚠️ 2026-09-29：`background` 由 `#0d0e0f`（深黑）改为 **`#F1471B`** ——
+ *    这是背景图 `个人bg.jpg` **底部 3 行的平均色**（脚本实测 336 个采样点）。
+ *    因为背景图改为按自身比例显示后，**内容更高时图片可能不够高**（750rpx 宽时图片自然高仅 631rpx），
+ *    露出的底色必须是图片的自然延续色；用深黑会像"下面断了一截"。
+ * ⚠️ `overflow: hidden` 是本次修复的关键：它负责把背景图**下方多余的部分裁掉**。
+ */
+.hero { position: relative; overflow: hidden; padding-right: 38.17rpx; padding-left: 38.17rpx; background: #F1471B; color: #fff; }
+/**
+ * 背景图（`个人bg.jpg`，780×656）。
+ *
+ * ⚠️ 2026-09-29 修「**游客身份时背景图会往上移**」：
+ *    原来是 `inset: 0; width: 100%; height: 100%` + `mode="aspectFill"` ——
+ *    图片高度被绑成**容器高度**，而 `aspectFill` 是**居中裁剪**
+ *    ⇒ 游客态内容少、`.hero` 变矮 ⇒ 显示的是图片**中间那一段** ⇒ 视觉上图片像"往上移了"✗。
+ *    ⇒ 改为「`top/left` 定位 + `width: 100%` + `height: auto`」配合 `mode="widthFix"`：
+ *      · 图片**按自身比例从顶部开始**显示（750rpx 宽时高 631rpx），**位置恒定、不随内容移动** ✔；
+ *      · 容器矮（游客态）时，由 `.hero` 的 `overflow: hidden` **裁掉图片下方多余部分** ✔。
+ *    ⚠️ 图片尺寸若更换，`mode="widthFix"` 会自动跟随，无需改这里。
+ */
+.hero-bg { position: absolute; top: 0; left: 0; z-index: 0; width: 100%; height: auto; }
 .profile-row { position: relative; z-index: 1; display: flex; align-items: center; padding: 16rpx 0 48rpx; }
 .u-avatar { width: 99.24rpx; height: 99.24rpx; flex-shrink: 0; overflow: hidden; border-radius: 50%; background: #819a7b; }
 .u-avatar-image { width: 100%; height: 100%; }
