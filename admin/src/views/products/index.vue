@@ -679,9 +679,11 @@ onMounted(() => {
         <el-form-item label="描述标题"><el-input v-model="form.descriptionTitle" placeholder="首页卡片商品描述文字" /></el-form-item>
         <!-- ⚠️ 2026-09-30 多分类：改为**多选**（后端 `categoryIds` 是 long[]；
              多个分类**平等、无主分类**；保存为**全量覆盖**；上限 10 个）。
-             `collapse-tags` 避免选多个时把表单撑高，`filterable` 便于分类多时快速定位。 -->
+             ⚠️ **刻意不加 `collapse-tags`** —— 分类本来就不多，选了几个就全部显示出来，
+                折叠成「+N」数字反而看不清到底选了哪些（用户 2026-09-30 明确要求）。
+             `filterable` 保留，便于分类变多时快速定位。 -->
         <el-form-item label="商品分类" prop="categoryIds">
-          <el-select v-model="form.categoryIds" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择分类（可多选）">
+          <el-select v-model="form.categoryIds" multiple filterable placeholder="请选择分类（可多选）">
             <el-option v-for="option in categoryOptions" :key="option.id" :label="option.label" :value="option.id" />
           </el-select>
         </el-form-item>

@@ -63,7 +63,8 @@ onMounted(() => {
     <div class="page-heading"><div><h1>分类管理</h1><p>维护商品分类（**扁平一层**，无父子层级）。</p></div><div><el-button @click="store.fetchList">刷新</el-button><el-button type="primary" @click="openForm()">新增分类</el-button></div></div>
     <el-card shadow="never" class="content-card">
       <el-table v-loading="store.loading" :data="store.list" row-key="id" border>
-        <el-table-column prop="id" label="分类 ID" width="180" />
+        <!-- ⚠️ 2026-09-30 删除「分类 ID」列：分类不多、运营看的是名称，
+             把数据库主键摆在第一列只会占位置、且容易被误当成"排序依据"之类的业务字段。 -->
         <el-table-column prop="name" label="分类名称" min-width="180" />
         <!-- ⚠️ 2026-09-30 删除「父级 ID」列：分类为扁平一层、后端无 parent_id，
              这一列的值恒为 '0' 且填了也不生效，只会误导运营。 -->

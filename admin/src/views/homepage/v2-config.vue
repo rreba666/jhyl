@@ -374,7 +374,9 @@ function linkTypeLabel(type: LinkType): string {
                   <div class="array-row"><el-upload :show-file-list="false" :http-request="(o: UploadRequestOptions) => uploadHeadImage(key, o)" accept="image/*"><el-button>上传</el-button></el-upload></div>
                 </el-form-item>
                 <el-form-item label="分类">
-                  <el-select v-model="landingMap[key].categoryIds" multiple filterable collapse-tags collapse-tags-tooltip :collapse-tags-limit="5" placeholder="选择分类（该落地页展示的商品）" style="width:100%" @change="syncCategoryNames(key)">
+                  <!-- ⚠️ 2026-09-30：去掉 `collapse-tags` / `collapse-tags-limit` ——
+                       分类本来就不多，选了几个就**全部显示**出来，不要折叠成「+N」数字。 -->
+                  <el-select v-model="landingMap[key].categoryIds" multiple filterable placeholder="选择分类（该落地页展示的商品）" style="width:100%" @change="syncCategoryNames(key)">
                     <el-option v-for="c in categoryOptions" :key="c.id" :label="c.name" :value="c.id" />
                   </el-select>
                 </el-form-item>
