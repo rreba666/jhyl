@@ -3,6 +3,8 @@ import { onLoad, onReachBottom } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
 import { getProductList, type ProductCard } from '@/api/product'
 import RequestState from '@/components/RequestState.vue'
+// ⚠️ 2026-09-29：商品卡片改为**复用首页的同一个组件**（用户要求「与首页商品卡片一致」）
+import HomeProductCard from '@/components/home/HomeProductCard.vue'
 import { cleanText } from '@/utils/input-validation'
 
 const SEARCH_KEYWORD_MAX_LENGTH = 50
@@ -135,19 +137,12 @@ onMounted(() => {
       <view v-show="loading && !products.length" class="state">加载中...</view>
       <RequestState v-if="!loading && !products.length && loadError" :error="loadError" @retry="retrySearch" />
       <view v-show="!loading && loaded && !loadError && !products.length" class="state">暂无相关商品</view>
+      <!-- ⚠️ 2026-09-29：卡片**复用首页的 `HomeProductCard`**（用户要求「与首页商品卡片一致」）。
+           好处：外观天然一致（白底渐变 + 24rpx 圆角 + 双层阴影），且自带**骨架扫光 + 加载完弹性渐入**；
+           原先这里是另写的一套简易卡片（无圆角无阴影、无加载反馈），两边容易漂移。
+           ⚠️ 列宽已通过下面的 `.content` padding 与 `.grid` gap 对齐首页（同为 351rpx）。 -->
       <view v-show="products.length" class="grid">
-        <view v-for="item in products" :key="String(item.id)" class="card" @click="goDetail(item.id)">
-          <image v-show="item.mainImage" class="image" :src="item.mainImage" mode="aspectFill" />
-          <view v-show="!item.mainImage" class="image-placeholder" />
-          <view class="card-body">
-            <text class="name">{{ item.name }}</text>
-            <text v-show="item.descriptionTitle" class="description">{{ item.descriptionTitle }}</text>
-            <view class="card-bottom">
-              <view class="price"><text class="currency">¥</text><text class="amount">{{ Number(item.originalPrice ?? item.minOriginalPrice ?? item.price ?? 0).toFixed(2) }}</text></view>
-              <text v-show="item.tag" class="tag">{{ item.tag }}</text>
-            </view>
-          </view>
-        </view>
+        <HomeProductCard v-for="item in products" :key="String(item.id)" :product="item" mode="grid" @select="goDetail" />
       </view>
       <view v-show="loadingMore" class="more">加载更多...</view>
       <view v-show="loaded && !loading && !loadingMore && products.length > 0 && products.length >= total" class="more">没有更多了</view>
@@ -162,22 +157,46 @@ onMounted(() => {
 .search-box { display: flex; flex: 1; align-items: center; height: 68rpx; margin-left: 12rpx; padding: 0 22rpx; background: #f5f5f5; border-radius: 34rpx; box-sizing: border-box; }
 .search-input { flex: 1; min-width: 0; color: #222; font-size: 26rpx; }
 .search-action { margin-left: 16rpx; color: #222; font-size: 25rpx; font-weight: 600; }
-.sort-row { display: flex; align-items: center; gap: 34rpx; height: 78rpx; padding: 0 28rpx; border-bottom: 1px solid #f2f2f2; box-sizing: border-box; white-space: nowrap; }
-.sort-item { color: #999; font-size: 24rpx; }
-.sort-item.active { color: #222; font-weight: 700; }
-.content { flex: 1; min-height: 0; padding: 24rpx 24rpx 40rpx; box-sizing: border-box; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28rpx 18rpx; }
-.card { min-width: 0; overflow: hidden; background: #fff; }
-.image, .image-placeholder { display: block; width: 100%; height: 328rpx; background: #f1f1f1; }
-.card-body { padding: 16rpx 4rpx 0; }
-.name, .description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.name { color: #222; font-size: 27rpx; font-weight: 600; }
-.description { margin-top: 8rpx; color: #999; font-size: 22rpx; }
-.card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10rpx; margin-top: 14rpx; }
-.price { display: flex; align-items: baseline; min-width: 0; }
-.currency { color: #222; font-size: 22rpx; }
-.amount { margin-left: 2rpx; color: #222; font-size: 30rpx; font-weight: 700; }
-.tag { flex-shrink: 0; color: #999; font-size: 21rpx; }
+/**
+ * 排序选项行。
+ * ⚠️ 2026-09-29：加 `margin-top` 与上方搜索框**拉开间距**（用户反馈「选项和搜索框挨太紧」）。
+ * ⚠️ `align-items: stretch` 是为了让 `.sort-item` 撑满整行高度 —— 选中态的**底部指示条**要贴行底才准。
+ */
+.sort-row { display: flex; align-items: stretch; gap: 44rpx; height: 88rpx; margin-top: 20rpx; padding: 0 28rpx; border-bottom: 1px solid #f2f2f2; box-sizing: border-box; white-space: nowrap; }
+/**
+ * 排序选项（**淘宝式两态**）。
+ * ⚠️ 2026-09-29 用户要求「选中的时候和选项可以来点样式，可以像淘宝那样」：
+ *    原来选中只是 `color:#222 + 加粗`，太弱、一眼看不出选的是哪个。
+ *    ⇒ 改为「未选中：灰字；选中：**主色 + 加粗 + 下方圆角短横条指示器**」。
+ * ⚠️ 主色取首页同一个 `#ff5500`（首页搜索框描边就是这个色），保持全站一致。
+ */
+.sort-item { position: relative; display: flex; align-items: center; color: #666; font-size: 26rpx; transition: color .15s ease; }
+.sort-item.active { color: #ff5500; font-weight: 700; }
+/* 选中指示条：居中的圆角短横条（淘宝筛选栏同款） */
+.sort-item.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 14rpx;
+  width: 36rpx;
+  height: 6rpx;
+  border-radius: 3rpx;
+  background: #ff5500;
+  transform: translateX(-50%);
+}
+/**
+ * 商品区：左右 padding 与列间距**对齐首页**
+ * （首页 `.product-section { padding: 0 16rpx }` + `.product-waterfall { gap: 16rpx }` ⇒ 列宽 351rpx）。
+ * 这样两页的卡片宽度一致，看起来才是"同一个卡片"。
+ */
+.content { flex: 1; min-height: 0; padding: 24rpx 16rpx 40rpx; box-sizing: border-box; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24rpx 16rpx; }
+/*
+ * ⚠️ 2026-09-29：原先这里有一整套自写的卡片样式（`.card` / `.image` / `.card-body` / `.name` /
+ * `.description` / `.card-bottom` / `.price` / `.currency` / `.amount` / `.tag`）——
+ * 现已改用首页的 `HomeProductCard` 组件（自带白底渐变 + 24rpx 圆角 + 双层阴影 + 骨架扫光 + 渐入），
+ * 这些样式**已全部删除**：留着会与组件自带的外框叠加成"双边框"。
+ */
 .state, .more { padding: 160rpx 0; color: #999; font-size: 26rpx; text-align: center; }
 .more { padding: 28rpx 0; }
 </style>
