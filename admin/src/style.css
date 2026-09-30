@@ -64,7 +64,11 @@ button, input { font-family: inherit; }
 .admin-aside { position: relative; overflow: hidden; background: var(--vben-sidebar-bg); border-right: 1px solid var(--vben-sidebar-border); color: var(--vben-sidebar-text); transition: width .2s ease, background-color .25s ease, border-color .25s ease; }
 .brand { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 20px; border-bottom: 1px solid var(--vben-sidebar-border); color: var(--vben-text); font-size: 17px; font-weight: 700; white-space: nowrap; }
 .brand--collapsed { justify-content: center; padding: 0; }
-.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #d4a843, #f0c96a); color: #fff; font-size: 20px; font-weight: 700; box-shadow: 0 4px 12px rgba(212, 168, 67, .30); }
+/* ⚠️ 2026-09-30：侧边栏品牌标由「金色方块 + 字母 E」换成**品牌 logo 图片**
+   （`src/assets/logo.png`，即今华有礼的绿色龙标，取自小程序 `static/logo.png`）。
+   ⇒ 原来的金色渐变背景、白色字体、字号/字重、金色投影**全部去掉**（那是给文字标用的），
+     改为图片适配：固定方形 + `object-fit: contain`（保留比例、不裁切）+ `flex: none`（避免被压缩）。 */
+.brand-mark { width: 34px; height: 34px; flex: none; object-fit: contain; }
 .admin-menu { height: calc(100vh - 65px); padding: 12px 10px; overflow-y: auto; scrollbar-gutter: stable; border-right: 0; background: transparent; }
 .admin-menu .el-sub-menu__title, .admin-menu .el-menu-item { height: 42px; margin: 4px 0; border-radius: 8px; color: var(--vben-sidebar-text); font-size: 14px; transition: color .2s ease, background-color .2s ease, box-shadow .2s ease; }
 .admin-menu .el-sub-menu__title { font-weight: 600; }

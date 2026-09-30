@@ -273,7 +273,7 @@ function currentRole(): AdminRole {
 
 /** 设置页面标题、拦截未登录访问，并按角色校验路由访问权限。 */
 router.beforeEach((to) => {
-  document.title = `${String(to.meta.title || '电商后台')} - E-Admin Pro`
+  document.title = `${String(to.meta.title || '电商后台')} - 今华有礼后台管理系统`
   const authStore = useAuthStore()
   authStore.restore()
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)

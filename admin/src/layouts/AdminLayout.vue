@@ -2,6 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+// ⚠️ 2026-09-30：品牌 logo（今华有礼绿色龙标），替换原先写死的字母「E」标。
+import logoUrl from '@/assets/logo.png'
 import {
   Bell,
   Box,
@@ -196,8 +198,8 @@ onUnmounted(() => {
   <el-container class="admin-shell">
     <el-aside :width="collapsed ? '72px' : '240px'" class="admin-aside">
       <div class="brand" :class="{ 'brand--collapsed': collapsed }">
-        <div class="brand-mark">E</div>
-        <span v-if="!collapsed">E-Admin Pro</span>
+        <img class="brand-mark" :src="logoUrl" alt="今华有礼" />
+        <span v-if="!collapsed">今华有礼后台管理系统</span>
       </div>
       <el-menu :default-active="route.path" :default-openeds="['/homepage', '/orders']" :collapse="collapsed" router class="admin-menu">
         <!-- 商户业务台：所有角色 -->
@@ -354,7 +356,7 @@ onUnmounted(() => {
             <el-icon size="20"><Expand v-if="collapsed" /><Fold v-else /></el-icon>
           </el-button>
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item>E-Admin Pro</el-breadcrumb-item>
+            <el-breadcrumb-item>今华有礼后台管理系统</el-breadcrumb-item>
             <el-breadcrumb-item>{{ pageTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
           <span v-if="isMerchantAdmin && authStore.merchantName" class="merchant-tag">当前商户：{{ authStore.merchantName }}</span>
