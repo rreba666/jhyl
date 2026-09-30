@@ -68,17 +68,28 @@ const descTouched = ref(false)
 // ===== 商品级「配送方式」开关（2026-09-22 新增，§7b②） =====
 /** 支持线下自提：1=支持, 0=不支持（新增态默认 1）。 */
 const pickupEnabled = ref<0 | 1>(1)
-/** 支持物流(0)/同城(2)配送：1=支持, 0=不支持（新增态默认 1）。 */
+/**
+ * 支持**物流**配送：1=支持, 0=不支持（新增态默认 1）。
+ * ⚠️ 2026-09-30 文案更正：第十二批起本开关**只管物流**，同城已独立为 `sameCityEnabled`。
+ */
 const deliveryEnabled = ref<0 | 1>(1)
 /**
- * 回显是否拿到了这两个开关（来源：列表项 `MerchantProductVO.pickupEnabled` / `deliveryEnabled`）。
+ * 支持**同城配送**：1=支持, 0=不支持（新增态默认 1）。
+ *
+ * ⚠️ 2026-09-30 新增：契约一直有该字段，C 端同城（`pickupType=2`）**只看它**，
+ * 但商家端此前从未读写 ⇒ 商家关掉"物流/同城"后同城仍可下单、且**永远无法关闭同城**。
+ */
+const sameCityEnabled = ref<0 | 1>(1)
+/**
+ * 回显是否拿到了这些开关（来源：列表项 `MerchantProductVO.pickupEnabled` / `deliveryEnabled` / `sameCityEnabled`）。
  *
  * ⚠️ 语义是「**不传 = 不修改**」（2026-09-22 上线）：编辑态**拿不到回显就不提交该字段** ——
- * 若提交默认值 1，会把商家已经关掉的自提/物流开关重新打开（下单侧会因此拦不住 13023/13024）。
+ * 若提交默认值 1，会把商家已经关掉的自提/物流/同城开关重新打开（下单侧会因此拦不住 13023/13024）。
  * 这与本页 `description` / `detailImages` 的防御原则同源（拿不到就不提交）。
  */
 const pickupEchoed = ref(false)
 const deliveryEchoed = ref(false)
+const sameCityEchoed = ref(false)
 
 const saving = ref(false)
 const uploading = ref(false)
@@ -143,6 +154,12 @@ function fillFromEditCache(): void {
   const delivery = normalizeSwitch(cached.deliveryEnabled)
   deliveryEchoed.value = delivery !== null
   if (delivery !== null) deliveryEnabled.value = delivery
+  // ⚠️ 2026-09-30 新增：**同城是独立字段**（第十二批从 `deliveryEnabled` 拆出），必须单独回填。
+  //    不回填的后果：`sameCityEchoed` 恒为 false ⇒ 编辑页那个开关**永远点不动**，
+  //    商家依旧关不掉同城（正是本次要修的缺陷）。
+  const sameCity = normalizeSwitch((cached as { sameCityEnabled?: unknown }).sameCityEnabled)
+  sameCityEchoed.value = sameCity !== null
+  if (sameCity !== null) sameCityEnabled.value = sameCity
 }
 
 /**
@@ -168,13 +185,25 @@ function togglePickup(): void {
   pickupEnabled.value = pickupEnabled.value === 1 ? 0 : 1
 }
 
-/** 点击切换「支持物流/同城配送」；拿不到回显时禁止切换。 */
+/** 点击切换「支持物流配送」；拿不到回显时禁止切换。 */
 function toggleDelivery(): void {
   if (!switchEditable(deliveryEchoed.value)) {
     uni.showToast({ title: '未读取到该项当前设置，本次保存不会修改它', icon: 'none' })
     return
   }
   deliveryEnabled.value = deliveryEnabled.value === 1 ? 0 : 1
+}
+
+/**
+ * 点击切换「支持同城配送」；拿不到回显时禁止切换。
+ * ⚠️ 2026-09-30 新增（同城是独立字段 `sameCityEnabled`，不能复用物流那个开关）。
+ */
+function toggleSameCity(): void {
+  if (!switchEditable(sameCityEchoed.value)) {
+    uni.showToast({ title: '未读取到该项当前设置，本次保存不会修改它', icon: 'none' })
+    return
+  }
+  sameCityEnabled.value = sameCityEnabled.value === 1 ? 0 : 1
 }
 
 /** 规格 chip 展示：前 2 个 + 共 N 个。 */
@@ -276,6 +305,8 @@ function buildPayload(): MerchantProductSaveDTO {
   // 否则提交 1 会把商家已关掉的自提/物流开关重新打开。
   if (!productId.value || pickupEchoed.value) payload.pickupEnabled = pickupEnabled.value
   if (!productId.value || deliveryEchoed.value) payload.deliveryEnabled = deliveryEnabled.value
+  // ⚠️ 2026-09-30 新增：同城独立字段，同样遵守「拿不到回显就不提交」
+  if (!productId.value || sameCityEchoed.value) payload.sameCityEnabled = sameCityEnabled.value
   return payload
 }
 
@@ -455,8 +486,9 @@ function goBack(): void {
         </view>
         <view class="switch-row">
           <view class="switch-copy">
-            <text class="label-text">支持物流/同城配送</text>
-            <text class="switch-hint">关闭后用户下单不能选择物流(0)/同城(2)</text>
+            <text class="label-text">支持物流配送</text>
+            <!-- ⚠️ 2026-09-30 文案更正：第十二批起本开关**只管物流**，同城已独立成下面那一项 -->
+            <text class="switch-hint">关闭后用户下单不能选择快递物流</text>
           </view>
           <view
             class="toggle"
@@ -466,9 +498,27 @@ function goBack(): void {
             <view class="toggle-knob" />
           </view>
         </view>
-        <!-- 诚实告知：列表接口没下发这两个字段时保存会跳过它们（后端语义「不传 = 不修改」） -->
-        <view v-if="productId && (!pickupEchoed || !deliveryEchoed)" class="switch-notice">
-          <text>本次未能读取到商品级配送方式，保存不会修改这两项设置</text>
+        <!--
+          ⚠️ 2026-09-30 新增：**同城配送**独立开关。
+          契约里 `sameCityEnabled` 一直存在，且 C 端同城（pickupType=2）**只看它**，
+          但商家端此前从未读写 ⇒ 商家关掉"物流/同城"后同城仍可下单、且**永远无法关闭同城**。
+        -->
+        <view class="switch-row">
+          <view class="switch-copy">
+            <text class="label-text">支持同城配送</text>
+            <text class="switch-hint">关闭后用户下单不能选择同城配送</text>
+          </view>
+          <view
+            class="toggle"
+            :class="{ on: sameCityEnabled === 1, disabled: !switchEditable(sameCityEchoed) }"
+            @click="toggleSameCity"
+          >
+            <view class="toggle-knob" />
+          </view>
+        </view>
+        <!-- 诚实告知：列表接口没下发这些字段时保存会跳过它们（后端语义「不传 = 不修改」） -->
+        <view v-if="productId && (!pickupEchoed || !deliveryEchoed || !sameCityEchoed)" class="switch-notice">
+          <text>本次未能读取到商品级配送方式，保存不会修改未读取到的项</text>
         </view>
       </view>
       <view class="content-pad" />

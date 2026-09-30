@@ -67,15 +67,30 @@ function directionParam(): number | undefined {
   return undefined
 }
 
+/**
+ * 请求竞态 token：切换筛选后，**在飞的旧请求作废**。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：原先无论 `reset` 与否都写
+ * `if (loading.value || loadingMore.value) return` —— 而 `reset=true` 正是**切换筛选**的入口，
+ * 于是「上一次请求还没回来时切筛选」会被**直接丢弃**：
+ * 表现为 **Tab 已经切了、列表还是旧筛选的数据**，且没有任何提示；
+ * 用户以为点了没反应，只能反复点。
+ * ⇒ 现在：**加载更多**仍需防重入（否则会重复请求同一页）；
+ *    **切换筛选**允许立即发起，靠 token 让旧响应作废。
+ */
+let flowsToken = 0
+
 /** 拉取资金明细；reset=true 用于切换筛选后重查首页。 */
 async function loadFlows(reset: boolean): Promise<void> {
-  if (loading.value || loadingMore.value) return
+  // ⚠️ 只有"加载更多"需要防重入；切换筛选必须放行（详见 flowsToken 的注释）
+  if (!reset && (loading.value || loadingMore.value)) return
   if (!reset && !hasMore.value) return
   if (reset) {
     loading.value = true
   } else {
     loadingMore.value = true
   }
+  const token = ++flowsToken
   const targetPage = reset ? 1 : page.value + 1
   try {
     const result = await getFinanceFlows({
@@ -84,14 +99,20 @@ async function loadFlows(reset: boolean): Promise<void> {
       page: targetPage,
       pageSize: 10,
     })
+    // ⚠️ 过期响应丢弃：否则旧筛选的结果会盖掉新筛选的列表
+    if (token !== flowsToken) return
     list.value = reset ? (result.list || []) : list.value.concat(result.list || [])
     page.value = result.page || targetPage
     total.value = result.total || 0
   } catch (error) {
+    if (token !== flowsToken) return
     uni.showToast({ title: error instanceof Error ? error.message : '资金明细加载失败', icon: 'none' })
   } finally {
-    loading.value = false
-    loadingMore.value = false
+    // ⚠️ 只有最新请求能关 loading
+    if (token === flowsToken) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
 }
 

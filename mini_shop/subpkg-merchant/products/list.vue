@@ -64,8 +64,35 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const acting = ref(false)
 
-/** 各 Tab 商品数（在售中/仓库中取接口 total；库存预警取本地过滤计数）。 */
+/** 各 Tab 商品数（在售中/仓库中取接口 total；库存预警取**全量扫描**计数）。 */
 const tabCounts = reactive<Record<TabKey, number>>({ onSale: 0, warning: 0, offSale: 0 })
+
+/**
+ * 刷新「库存预警」计数（**全量口径**）。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：原先预警计数是
+ * `products.value.filter(...)` —— 而 `products` **只含已加载的页**（pageSize = 10）
+ * ⇒ **商品超过 10 件的店会漏报**，而且角标数字会随"用户上拉加载了几页"变化，
+ * 与商家工作台的 `lowStockCount`（后端全量）对不上，商家会以为数据错了。
+ *
+ * ⚠️ 契约 `/api/merchant/products` **只返回分页列表、没有低库存计数字段**，
+ * 所以这里沿用项目既有模式（见 `api/merchant.ts` 的 `countMerchantProducts`）：
+ * **扫描最多 `PRODUCT_COUNT_SCAN_LIMIT` 条**自己统计。
+ * ⚠️ 局限与 `countMerchantProducts` 一致：商品数 >100 时仍会偏小
+ * （等后端修好 `total` 的过滤后，这里可改回读 `total`，已登记 `后端需求汇总-2026-09-19.md` §十三）。
+ */
+async function refreshLowStockCount(): Promise<void> {
+  try {
+    // ⚠️ 「在售中」是 **status=1**（对照同文件 `refreshTabCounts` 的 `countMerchantProducts(1)`）；
+    //    仓库中（status=0）的商品不需要库存预警，故只扫在售中的。
+    const result = await getMerchantProducts({ status: 1, page: 1, pageSize: PRODUCT_COUNT_SCAN_LIMIT })
+    const list = Array.isArray(result?.list) ? result.list : []
+    tabCounts.warning = list.filter((p) => effectiveStock(p) <= LOW_STOCK_THRESHOLD).length
+  } catch (error) {
+    // ⚠️ 计数失败不影响主流程（列表照常展示），只记日志不打扰用户
+    console.error('库存预警计数刷新失败', error)
+  }
+}
 
 /** 批量模式：勾选集合（productId）。 */
 const batchMode = ref(false)
@@ -137,12 +164,26 @@ async function refreshTabCounts(): Promise<void> {
     const [onSale, offSale] = await Promise.all([countMerchantProducts(1), countMerchantProducts(0)])
     tabCounts.onSale = onSale
     tabCounts.offSale = offSale
+    // ⚠️ 2026-09-30：「库存预警」角标也必须用**全量扫描**口径 ——
+    //    原先它只在 `loadList` 里按"已加载页"统计，商品 >10 件时漏报且数字随翻页变化。
+    //    放在这里（而不是 `loadList`）是因为 `onShow` 与增删改后都会调用本函数，
+    //    既覆盖了所有该刷新的时机，又不会每翻一页都多发一次请求。
+    await refreshLowStockCount()
   } catch {
     // 忽略：Tab 数字不影响主流程
   }
 }
 
 /** 加载当前 Tab 列表。reset=true 重置到第一页。 */
+/**
+ * 请求竞态 token：快速连点 Tab / 改关键词时，**丢弃过期响应**。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：原先 `loadList` **完全没有请求归属校验**，
+ * 先发后到的旧响应会直接覆盖新结果 ⇒ **Tab 已切、列表却是旧 Tab 的数据**，且无任何提示。
+ * ⚠️ 本项目已有成熟写法（`subpkg-wallet/favorite/list.vue:18/55/62/68/71`），此处对齐即可。
+ */
+let listToken = 0
+
 async function loadList(reset = false): Promise<void> {
   if (reset) {
     page.value = 1
@@ -151,6 +192,8 @@ async function loadList(reset = false): Promise<void> {
   const isFirst = page.value === 1
   if (isFirst) loading.value = true
   else loadingMore.value = true
+  // ⚠️ 发起前"占号"：此后所有 `token !== listToken` 的响应都是过期的
+  const token = ++listToken
 
   try {
     const tab = TABS.find((t) => t.key === activeTab.value)!
@@ -160,6 +203,8 @@ async function loadList(reset = false): Promise<void> {
       page: page.value,
       pageSize,
     })
+    // ⚠️ 过期响应一律丢弃（含 total / tabCounts，避免用旧数据污染计数）
+    if (token !== listToken) return
     const list = Array.isArray(result?.list) ? result.list : []
     products.value = isFirst ? list : [...products.value, ...list]
     total.value = Number(result?.total || 0)
@@ -170,12 +215,19 @@ async function loadList(reset = false): Promise<void> {
       tabCounts[activeTab.value] = 0
     }
     if (isWarningTab.value) tabCounts.warning = products.value.filter((p) => effectiveStock(p) <= LOW_STOCK_THRESHOLD).length
+    // ⚠️ 2026-09-30：上面这行只是"当前已加载页"的即时反馈；角标的**权威口径**由
+    //    `refreshTabCounts()` → `refreshLowStockCount()` 全量扫描给出（见其注释），
+    //    这里**不再**附带调用，避免每翻一页都多发一次请求。
   } catch (error) {
+    if (token !== listToken) return
     if (isFirst) products.value = []
     uni.showToast({ title: error instanceof Error ? error.message : '加载失败', icon: 'none' })
   } finally {
-    loading.value = false
-    loadingMore.value = false
+    // ⚠️ 只有**最新**请求才能关 loading：否则旧请求结束时会提前关掉新请求的加载态
+    if (token === listToken) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
 }
 

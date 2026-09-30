@@ -129,6 +129,19 @@ export interface MerchantProductVO {
    * ⚠️ 老后端可能不下发 ⇒ 消费方需保留回退链。
    */
   effectiveStock?: number | null
+  /**
+   * 商品级配送方式开关（契约 `MerchantProductVO`，1=支持 / 0=不支持）。
+   *
+   * ⚠️ 2026-09-30 补录：商家端编辑页的开关**回填来源就是列表项**（`edit.vue` 的
+   * `uni.getStorageSync(EDIT_STORAGE_KEY) as MerchantProductVO`），但此前本类型**没有声明**
+   * 这三个字段 ⇒ 回填时只能靠弱类型绕过。
+   * ⚠️ 三者语义**互不重叠**（第十二批拆分后）：
+   *   `pickupEnabled` = 线下自提；`deliveryEnabled` = **仅物流**；`sameCityEnabled` = **同城配送**。
+   *   下单侧：`pickupType=0` 看 `deliveryEnabled`、`1` 看 `pickupEnabled`、`2` 看 `sameCityEnabled`。
+   */
+  pickupEnabled?: 0 | 1 | number | null
+  deliveryEnabled?: 0 | 1 | number | null
+  sameCityEnabled?: 0 | 1 | number | null
   /** 启用规格数（=1 单规格；>1 多规格商品，改门店价会统一作用于全部规格）。 */
   skuCount?: number
   /** 启用规格明细（编辑页回填；size 恒等于 skuCount）。 */
@@ -534,9 +547,24 @@ export interface MerchantProductSaveDTO {
    */
   pickupEnabled?: 0 | 1
   /**
-   * 商品级「支持物流(0)/同城(2)配送」：1=支持, 0=不支持。同 `pickupEnabled`：不传 = 不修改。
+   * 商品级「支持**物流**配送」：1=支持, 0=不支持。同 `pickupEnabled`：不传 = 不修改。
+   *
+   * ⚠️ 2026-09-30 更正文案：第十二批把「同城」从本字段**拆成了独立的 `sameCityEnabled`**，
+   * 本字段语义**已收窄为「仅物流」**（C 端 `pickupType=0` 看它）。
+   * 旧描述写的是「支持物流(0)/同城(2)配送」，会让维护者误以为它能控制同城。
    */
   deliveryEnabled?: 0 | 1
+  /**
+   * 商品级「支持**同城配送**」：1=支持, 0=不支持。同 `pickupEnabled`：不传 = 不修改。
+   *
+   * ⚠️ 2026-09-30 新增（审计发现的**功能性缺陷**）：契约 `MerchantProductSaveDTO`
+   * 与 `MerchantProductVO` **一直都有**该字段，且 C 端 `pickupType=2`（同城）**只看它**
+   * （`subpkg-order/payment/payment.vue` 明确注释「同城(2) 用 `sameCityEnabled`，不再看 `deliveryEnabled`」），
+   * 但商家端**从未读写过它** ⇒
+   *   ① 商家关掉「支持物流/同城配送」后，**同城仍然可以下单**（开关文案在骗人）；
+   *   ② 商家**永远无法关闭同城**。
+   */
+  sameCityEnabled?: 0 | 1
 }
 
 /** 新增商品。 */

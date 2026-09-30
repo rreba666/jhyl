@@ -518,6 +518,17 @@ const deliverableSettled = ref(false)
 /** 已按哪批 skuId 拉过，避免 `items` 多次变动时重复请求。 */
 let deliverableQueryKey = ''
 
+/**
+ * 门店筛选的请求竞态 token：后发请求作废先发请求的响应。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：`loadDeliverableShops` 原先**没有请求归属校验**，
+ * 而它的触发入口（`watch(items)` 与「重新加载」）**都没有并发闸门**
+ * ⇒ 慢网下 items 先后被赋值两批、或用户连点「重新加载」时，
+ * **先发后到的旧响应会覆盖新结果** ⇒ 门店列表与当前商品不匹配，
+ * 用户选中后下单会被后端拒（13023 / 13024 / 超范围）。
+ */
+let deliverableToken = 0
+
 /** 当前订单商品的 skuId 列表（仅 >0）；历史订单详情路径拿不到 skuId，返回空数组。 */
 function itemSkuIds(): number[] {
   return items.value
@@ -533,8 +544,11 @@ async function loadDeliverableShops(): Promise<void> {
     deliverableSettled.value = true
     return
   }
+  const token = ++deliverableToken
   try {
     const list = await getDeliverableShops(skuIds)
+    // ⚠️ 过期响应丢弃：否则旧商品的筛选结果会盖掉新商品的结果，导致门店与商品不匹配
+    if (token !== deliverableToken) return
     const shopsOfProduct = Array.isArray(list) ? list : []
     deliverableShops.value = shopsOfProduct
     // 可观测性：真机 / 开发者工具 Console 里一眼看出这一层到底筛没筛
@@ -543,10 +557,12 @@ async function loadDeliverableShops(): Promise<void> {
       console.warn('[shop] 「按商品筛选」的结果 ≥ 全量启用门店数 —— 请确认后端 /api/shop/deliverable 是否真的按 skuIds 过滤，或该商品确实被所有门店上架')
     }
   } catch (error) {
+    if (token !== deliverableToken) return
     deliverableShops.value = null
     console.error('按商品筛选可配送门店失败，退回全量门店', error)
   } finally {
-    deliverableSettled.value = true
+    // ⚠️ 只有最新请求能置"已得出结论"，否则旧请求结束会让新请求在做筛选时就被当成已完成
+    if (token === deliverableToken) deliverableSettled.value = true
   }
 }
 

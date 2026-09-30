@@ -54,6 +54,15 @@ const page = ref(1)
 const pageSize = 10
 const loading = ref(false)
 const loadingMore = ref(false)
+/**
+ * 上一页**实际返回**的条数（用于判断"没有更多"）。
+ *
+ * ⚠️ 2026-09-30 新增：`loadMore` 原先只看 `orders.length >= total`，而**本项目已知后端
+ * `/api/merchant/orders` 的 `total` 不可信**（商品页早已为此专门兜底，订单页没有）。
+ * 实测 `tab=ALL` 时 `total` 返回 **0** ⇒ 商家**只能看到前 10 条**、上拉完全无效且无任何提示。
+ * ⇒ 用"本页条数 < pageSize"作为主判据，不依赖 total。
+ */
+const lastPageSize = ref(0)
 
 /** 已生效的筛选时间（空 = 未筛选）。 */
 const activeStartTime = ref('')
@@ -100,6 +109,8 @@ async function loadList(reset = false): Promise<void> {
     const list = Array.isArray(result?.list) ? result.list : []
     orders.value = page.value === 1 ? list : [...orders.value, ...list]
     total.value = Number(result?.total || 0)
+    // ⚠️ 记录本页实际条数：`loadMore` 用它判断"没有更多"（不依赖不可信的 total）
+    lastPageSize.value = list.length
   } catch (error) {
     if (page.value === 1) orders.value = []
     uni.showToast({ title: error instanceof Error ? error.message : '加载失败', icon: 'none' })
@@ -111,7 +122,14 @@ async function loadList(reset = false): Promise<void> {
 
 function loadMore(): void {
   if (loading.value || loadingMore.value) return
-  if (orders.value.length >= total.value) return
+  // ⚠️ 2026-09-30 修（审计发现）：原先只写 `orders.value.length >= total.value`。
+  //    而后端 `/api/merchant/orders` 的 `total` **不可信**（商品页早已为此兜底，订单页没有）：
+  //    实测 `tab=ALL` 返回 `total: 0` ⇒ 商家**只能看到前 10 条**，上拉无效且**没有任何提示**。
+  //    ⇒ 改为双判据：
+  //      ① `total` 缺失/为 0 时**不阻止**继续加载（把判断权交给下一页的实际返回）；
+  //      ② 上一页实际返回条数 < 一页大小 ⇒ 才是真正的"没有更多"（完全不依赖 total）。
+  if (total.value > 0 && orders.value.length >= total.value) return
+  if (lastPageSize.value < pageSize) return
   page.value += 1
   void loadList()
 }
