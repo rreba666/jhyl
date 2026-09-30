@@ -149,19 +149,12 @@ function goBankCards(): void {
         </view>
       </view>
 
-      <!-- 协议入口（2026-09-22 从个人中心挪来）：
-           个人中心不再显示这两项，但协议页必须仍然可达（小程序审核要求有隐私协议入口）。
-           本页已有在模板里直接调 uni API 的先例（见返回按钮），这里沿用同样写法。 -->
-      <view class="card">
-        <view class="row" @click="uni.navigateTo({ url: '/pages/user-agreement/user-agreement' })">
-          <text class="row-label">用户协议</text>
-          <text class="row-arrow">›</text>
-        </view>
-        <view class="row" @click="uni.navigateTo({ url: '/pages/privacy/privacy' })">
-          <text class="row-label">隐私保护指引</text>
-          <text class="row-arrow">›</text>
-        </view>
-      </view>
+      <!-- ⚠️ 2026-09-30 用户要求：**移除设置页的协议入口** ——
+           「用户协议」「隐私保护指引」的唯一入口改为**登录页**（`pages/login/login.vue` 的
+           《用户协议》/《隐私保护指引》链接 + 勾选校验处）。
+           ⚠️ 历史遗留说明：这两项 2026-09-22 从**个人中心**挪到了本页（当时个人中心不再显示）；
+              现在按新要求从本页也移除 ⇒ 协议页本身**保留**（`pages/user-agreement`、`pages/privacy`
+              仍在主包注册、可直接 navigateTo），只是不再从设置页暴露入口。 -->
     </scroll-view>
 
     <RealnameVerifySheet v-model="realnameVisible" @verified="onRealnameVerified" />

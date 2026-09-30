@@ -424,9 +424,9 @@ function openStaticPage(url: string, label: string): void {
 }
 
 function goMenu(key: string): void {
-  // 静态主包页面放在节流之前：它们没有任何写副作用，被 500ms 节流吞掉只会让人以为"点不开"
-  if (key === 'agreement') { openStaticPage('/pages/user-agreement/user-agreement', '用户协议'); return }
-  if (key === 'privacy') { openStaticPage('/pages/privacy/privacy', '隐私保护指引'); return }
+  // ⚠️ 2026-09-30：原先这里有两行 `if (key === 'agreement' / 'privacy')` 的分支，
+  //    但菜单项早在 2026-09-22 就从这个页面移除了 ⇒ 那两个 key **永远不会传进来**，属死代码。
+  //    协议入口现已统一收敛到**登录页**（`pages/login/login.vue`）⇒ 一并删除，避免误以为这里还有入口。
   if (!navigationThrottle()) return
   if (['invoice', 'favorite'].includes(key) && !isLoggedIn()) {
     showLoginGuide()
