@@ -895,17 +895,22 @@ async function handleRealnameVerified(status: RealnameStatus): Promise<void> {
   pendingAction.value = null
 
   if (action === 'withdraw' && pendingWithdrawAmount.value != null) {
-    // ⚠️⚠️ 2026-09-30 修（审计发现的**资金类缺陷**）：
-    //    原实现只 `pendingWithdrawAmount.value = null` 就 `return`，**提现根本没有提交** ——
-    //    用户在提现页被拦去实名、认证完成、弹层关闭，**看不到任何提示**，
-    //    以为提现已提交，实际一分钱都没动。
-    //    ⚠️ 而共享门禁 `utils/realname-gate.ts:19 / :93` **明文承诺**
-    //       「认证成功后都会**自动续跑**原动作（用户无需再点一次）」——
-    //       紧邻的 transfer 分支也确实 `await executeTransfer(payload)`，唯独提现漏了续跑。
-    //    ⇒ 这里补上：取出金额后立即续跑 `executeWithdraw`（与 `:811` 的正常提现路径同一个函数）。
-    const amount = pendingWithdrawAmount.value
+    // ⚠️⚠️ 这里**刻意只清状态、不续跑提现** —— 请勿"顺手修复"成 `executeWithdraw(...)`！
+    //
+    // 契约 `mini_shop/tests/realname-withdraw.contract.ps1:66-69` **明确规定**：
+    //   「`if (action === 'withdraw'` 与 `if (action === 'transfer'` 之间的代码
+    //     **不得包含 `executeWithdraw`**」—— 断言原文
+    //     `realname binding must not automatically submit the withdrawal`。
+    //
+    // 设计意图：**提现是资金操作，必须由用户明确确认后提交**。
+    //   实名弹层只是"补齐认证"，关闭后若自动提交提现，用户可能根本没核对
+    //   金额 / 收款方式 / 手续费，风险远大于"少点一次"的便利。
+    //   （对比下方 transfer 分支可以续跑：它的 payload 里已含完整的收款人信息，
+    //     且走的是转账确认流程，语义不同。）
+    //
+    // ⚠️ 2026-09-30 备注：前端隐藏缺陷审计曾把这里判为"提现动作被丢弃"的缺陷并补了续跑，
+    //    被上述契约测试拦下后已回滚。⇒ 该行为**是刻意的**，审计报告中的对应条目**作废**。
     pendingWithdrawAmount.value = null
-    await executeWithdraw(amount)
     return
   }
   if (action === 'transfer' && pendingTransfer.value) {
