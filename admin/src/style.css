@@ -127,10 +127,20 @@ html.dark .admin-header .el-breadcrumb__separator { color: var(--vben-muted); }
 .table-pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; }
 .table-total { color: var(--vben-muted); font-size: 13px; white-space: nowrap; }
 
-.el-dialog { max-width: calc(100vw - 32px); border-radius: 14px; overflow: hidden; }
+/* ⚠️ 2026-09-30 修「弹窗超出视口 / 遮罩盖不住」的老问题（商户管理等表单反馈）：
+   原先只给 `.el-dialog` 限了宽、给 `__body` 限了高，但漏了两件事：
+     ① `top` 仍是 Element 默认的 **15vh** ⇒ 弹窗一高就顶出屏幕下半部分；
+     ② **遮罩层 `.el-overlay-dialog` 没有滚动能力** ⇒ 弹窗总高超过视口时，
+        **底部按钮被裁掉且完全滚不动**（这就是「遮罩问题 / 没根据视口大小」的成因）。
+   ⇒ 现在把**遮罩层变成可滚动容器**、顶部留白压到 `2vh`，弹窗本身 `margin: 0 auto`
+     （垂直位置改由遮罩层的 padding 控制），内容区内部滚动见下面的 `__body`。
+   ⚠️ 这样无论视口多小、内容多长，弹窗都完整可见、且始终能滚到底部的操作按钮。
+   ⚠️ `margin: 0 auto !important` 是为了覆盖 Element 内联的 `--el-dialog-margin-top`（默认 15vh）。 */
+.el-overlay-dialog { overflow: auto; padding: 2vh 0; }
+.el-dialog { margin: 0 auto !important; max-width: calc(100vw - 32px); border-radius: 14px; overflow: hidden; }
 .el-dialog__header { margin: 0; padding: 20px 24px 16px; border-bottom: 1px solid var(--vben-border); }
 .el-dialog__title { color: var(--vben-text); font-size: 16px; font-weight: 600; }
-.el-dialog__body { max-height: min(70vh, 760px); overflow-y: auto; padding: 24px; }
+.el-dialog__body { max-height: min(72vh, 760px); overflow-y: auto; padding: 24px; }
 .el-dialog__footer { padding: 14px 24px; border-top: 1px solid var(--vben-border); }
 .el-form-item { margin-bottom: 18px; }
 /* 表单聚焦金色描边 */
