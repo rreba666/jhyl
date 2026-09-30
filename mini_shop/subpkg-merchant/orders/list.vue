@@ -155,7 +155,16 @@ function closeFilter(): void {
   filterVisible.value = false
 }
 
-function pickQuick(key: 'week' | 'month' | 'threeMonths'): void {
+/**
+ * 快捷选择时间范围。
+ *
+ * ⚠️ 2026-09-30：参数**由字面量联合放宽为 `string`**，并在函数内校验 —— 原模板写的是
+ * `pickQuick(q.key as 'week' | 'month' | 'threeMonths')`，**模板里写 TS 断言违反本项目自定规范**
+ * （`CLAUDE.md`：模板禁复杂表达式/TS 断言）。放宽后模板只需 `pickQuick(q.key)`，
+ * 而非法值在这里被静默忽略 ⇒ **类型安全性与原来等价**。
+ */
+function pickQuick(key: string): void {
+  if (key !== 'week' && key !== 'month' && key !== 'threeMonths') return
   quickRange.value = key
   draftStart.value = ''
   draftEnd.value = ''
@@ -394,7 +403,7 @@ async function runBatchPrepare(): Promise<void> {
               :key="q.key"
               class="quick-item"
               :class="{ 'is-active': quickRange === q.key }"
-              @click="pickQuick(q.key as 'week' | 'month' | 'threeMonths')"
+              @click="pickQuick(q.key)"
             >{{ q.label }}</view>
           </view>
           <view class="range-row">

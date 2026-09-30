@@ -96,7 +96,10 @@ async function onToggle(item: CartItem): Promise<void> {
 }
 async function onCheckAll(): Promise<void> {
   if (busy.value) return; busy.value = true
-  try { const t = !isAllChecked.value; await checkAll(t); items.value.forEach((i) => { i.checked = t }) } catch (e) { /* */ } finally { busy.value = false }
+  // ⚠️ 2026-09-30 修「静默失败」：原为空 catch（`{ /* */ }`），全选失败时
+  // 复选框纹丝不动、也不给任何提示 ⇒ 用户反复点、以为页面卡死。
+  // 与同文件 `:95` / `:115` 保持一致，把后端/网络错误如实提示出来。
+  try { const t = !isAllChecked.value; await checkAll(t); items.value.forEach((i) => { i.checked = t }) } catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '操作失败，请重试', icon: 'none' }) } finally { busy.value = false }
 }
 async function onChangeQty(item: CartItem, delta: number): Promise<void> {
   const currentQuantity = Number(item.quantity)
@@ -116,13 +119,15 @@ async function onChangeQty(item: CartItem, delta: number): Promise<void> {
 }
 async function onRemove(cartId: number): Promise<void> {
   if (busy.value) return; busy.value = true
-  try { await removeCartItem(cartId); items.value = items.value.filter((i) => i.cartId !== cartId); uni.showToast({ title: '已删除', icon: 'success' }) } catch (e) { /* */ } finally { busy.value = false }
+  // ⚠️ 2026-09-30 同上：原为空 catch ⇒ 删除失败时界面毫无反应（连「已删除」都不弹）
+  try { await removeCartItem(cartId); items.value = items.value.filter((i) => i.cartId !== cartId); uni.showToast({ title: '已删除', icon: 'success' }) } catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '删除失败，请重试', icon: 'none' }) } finally { busy.value = false }
 }
 async function onRemoveSelected(): Promise<void> {
   if (busy.value) return
   const sel = items.value.filter((i) => i.checked)
   if (!sel.length) return; busy.value = true
-  try { await removeCartBatch(sel.map((i) => i.cartId)); items.value = items.value.filter((i) => !i.checked); editMode.value = false } catch (e) { /* */ } finally { busy.value = false }
+  // ⚠️ 2026-09-30 同上：原为空 catch ⇒ 批量删除失败时列表不变且无提示
+  try { await removeCartBatch(sel.map((i) => i.cartId)); items.value = items.value.filter((i) => !i.checked); editMode.value = false } catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '批量删除失败，请重试', icon: 'none' }) } finally { busy.value = false }
 }
 function toggleEditMode(): void {
   if (!navigationThrottle()) return

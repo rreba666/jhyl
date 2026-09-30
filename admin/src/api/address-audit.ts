@@ -37,7 +37,22 @@ function normalizeRequest(value: unknown): OrderAddressChangeRequest {
     reviewedBy: String(row.reviewedBy ?? ''),
     reviewedAt: String(row.reviewedAt ?? ''),
     createTime: String(row.createTime ?? ''),
+    // ⚠️ 2026-09-30 补：契约 `OrderAddressChangeRequestVO` 一直有 `pickupType` / `pickupTypeText`，
+    // 但这个逐字段重建漏掉了 ⇒ 审核员**无法识别自提单 / 同城单**（两者地址含义不同，会影响审核判断）。
+    // ⚠️ 只补数据、不改界面；`pickupType` 为 null 表示订单不存在或已删除。
+    // ⚠️ 注意 `Number(null) === 0`（不是 NaN）⇒ 必须先判 `null`/空串 再 `Number()`。
+    pickupType: normalizeNullableNumber(row.pickupType),
+    pickupTypeText: row.pickupTypeText === null || row.pickupTypeText === undefined || row.pickupTypeText === ''
+      ? null
+      : String(row.pickupTypeText),
   }
+}
+
+/** 可空数字归一化：`null` / `undefined` / 空串 → `null`；非法数字 → `null`（不塞 0，避免把"未知"当"物流"）。 */
+function normalizeNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
 }
 
 function normalizePage(value: unknown, page: number, pageSize: number): AddressAuditPageResult {

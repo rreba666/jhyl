@@ -27,7 +27,26 @@ export interface LedgerCategoryOption {
 export type LedgerOption = LedgerCategoryOption
 
 /**
- * 留痕记录（`AuditRecordView`，17 字段，`/ledger` `/unified` `/timeline` `/by-request` 共用）。
+ * 留痕作用域（契约 `AuditScope`）—— 说明这条留痕**作用于哪个门店 / 品牌 / 商品 / SKU**。
+ *
+ * ⚠️ 2026-09-30 补录：契约 `AuditRecordView` 一直有 `scope`，但前端归一化把它整个丢掉了
+ * （8 个子字段），导致超管在「留痕台账」只能看到 `targetType` + `targetId`
+ * （例如只显示"商品#123"），**看不出是哪个门店/品牌的商品**，跨店追溯只能手工猜 ID。
+ * ⚠️ 本次**只补类型与归一化**（不改界面）：页面要展示时可直接取用，无需再动 api 层。
+ */
+export interface AuditScope {
+  shopId?: number | null
+  shopName?: string | null
+  brandId?: number | null
+  brandName?: string | null
+  productId?: number | null
+  productName?: string | null
+  skuId?: number | null
+  skuName?: string | null
+}
+
+/**
+ * 留痕记录（`AuditRecordView`，**18 字段**，`/ledger` `/unified` `/timeline` `/by-request` 共用）。
  * ⚠️ 金额行沿用 `finance_flow` 的 id，**与台账 id 可能重号**，不要当跨表唯一键。
  * 这里把 `id` / `operatorId` / `targetId` 统一按字符串处理，避免 JS 大整数精度丢失。
  */
@@ -63,6 +82,12 @@ export interface LedgerRecord {
   afterJson: string | null
   targetType: string | null
   targetId: string | null
+  /**
+   * 作用域（门店 / 品牌 / 商品 / SKU）。
+   * ⚠️ 2026-09-30 补：此前归一化把它整个丢了（8 个子字段）⇒ 台账看不出这条留痕作用于哪个门店/商品。
+   * 后端未下发时为 `null`。
+   */
+  scope: AuditScope | null
   /** 人话摘要（**动作类事件的唯一内容**）。 */
   detail: string | null
   /** 来源 IP；⚠️ 埋点普遍未传（多数为 null），不要用于风控展示。 */

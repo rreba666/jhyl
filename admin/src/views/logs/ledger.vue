@@ -87,7 +87,7 @@ const activeViewTitle = computed(() => {
 
 /** 详情抽屉展示的记录（用空白对象兜底，避免模板里到处判空）。 */
 function createEmptyRecord(): LedgerRecord {
-  return { id: '', operatorType: '', operatorId: '', operatorName: null, operation: '', operationDesc: null, category: null, block: null, result: null, requestId: null, beforeJson: null, afterJson: null, targetType: null, targetId: null, detail: null, ipAddress: null, createTime: null, rowKey: '' }
+  return { id: '', operatorType: '', operatorId: '', operatorName: null, operation: '', operationDesc: null, category: null, block: null, result: null, requestId: null, beforeJson: null, afterJson: null, targetType: null, targetId: null, /* ⚠️ 2026-09-30 新增：作用域（门店/品牌/商品/SKU），空对象兜底为 null */ scope: null, detail: null, ipAddress: null, createTime: null, rowKey: '' }
 }
 const detail = ref<LedgerRecord>(createEmptyRecord())
 const detailVisible = ref(false)

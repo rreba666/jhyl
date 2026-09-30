@@ -1,5 +1,6 @@
 import { request } from './request'
 import type {
+  AuditScope,
   LedgerOption,
   LedgerPageResult,
   LedgerQueryParams,
@@ -45,6 +46,34 @@ function toNullableString(value: unknown): string | null {
 }
 
 /**
+ * 归一化「留痕作用域」（契约 `AuditScope`）。
+ * ⚠️ 2026-09-30 新增：契约一直有该字段，但此前归一化把 8 个子字段整体丢弃。
+ * ⚠️ 后端未下发 / 全为空时返回 `null`（保持与其它可空字段一致的"空 vs 有值"语义）；
+ *    只有一个子字段有值也照常返回，不做"必须有值才算"的判断。
+ */
+function normalizeScope(value: unknown): AuditScope | null {
+  if (value === null || value === undefined || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const toNullableNumber = (input: unknown): number | null => {
+    if (input === null || input === undefined || input === '') return null
+    const num = Number(input)
+    return Number.isFinite(num) ? num : null
+  }
+  const scope: AuditScope = {
+    shopId: toNullableNumber(raw.shopId),
+    shopName: toNullableString(raw.shopName),
+    brandId: toNullableNumber(raw.brandId),
+    brandName: toNullableString(raw.brandName),
+    productId: toNullableNumber(raw.productId),
+    productName: toNullableString(raw.productName),
+    skuId: toNullableNumber(raw.skuId),
+    skuName: toNullableString(raw.skuName),
+  }
+  // 8 个子字段全空 ⇒ 视为"无作用域"，返回 null 而不是一堆 null 的对象
+  return Object.values(scope).some((item) => item !== null) ? scope : null
+}
+
+/**
  * 归一化单条留痕记录。
  * ⚠️ `id`/`operatorId` 是 BIGINT，统一转字符串避免大整数精度丢失（与 `api/log.ts` 同策略）；
  * 其余可空字段**保留 null**，不要塞空串 —— 页面要区分"空"和"有值"（如 `operatorName` 为空时回退展示 `类型#ID`）。
@@ -69,6 +98,10 @@ function normalizeRecord(item: unknown): LedgerRecord {
     afterJson: toNullableString(raw.afterJson),
     targetType: toNullableString(raw.targetType),
     targetId: toNullableString(raw.targetId),
+    // ⚠️ 2026-09-30 补：契约 `AuditRecordView.scope`（作用域：门店/品牌/商品/SKU）此前被整个丢弃
+    // （白名单式重建漏字段，本项目已踩过多次）⇒ 台账看不出这条留痕作用于哪个门店/商品，
+    // 跨店追溯只能手工猜 ID。这里补上映射；⚠️ 只补数据、不改界面。
+    scope: normalizeScope(raw.scope),
     detail: toNullableString(raw.detail),
     ipAddress: toNullableString(raw.ipAddress),
     createTime: toNullableString(raw.createTime),

@@ -298,7 +298,10 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
   cartAdding.value = true
   try {
     const detail = await getProductDetail(String(product.id))
-    const sku = detail.skuList.find((item) => item.enabled !== 0) || detail.skuList[0]
+    // ⚠️ 2026-09-30 加固：`detail.skuList` 可能为 `null`（后端惯用 null 表"无数据"），
+    // 原先直接 `.find` 会抛 TypeError ⇒ 用户点加购只会看到「加购失败」，无法定位原因。
+    // 这里加可选链；真正的"无 SKU / 库存不足"由下一行的显式判断给出可读提示。
+    const sku = detail.skuList?.find((item) => item.enabled !== 0) || detail.skuList?.[0]
     const stock = Number(sku?.stock ?? 0)
     if (!sku || !Number.isFinite(stock) || stock <= 0) throw new ApiRequestError('库存不足', 3001)
     await addSkuToCartWithStock({

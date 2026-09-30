@@ -108,8 +108,15 @@ function previewDetailImage(index: number): void {
   uni.previewImage({ urls, current: urls[index] })
 }
 
-/** 默认选择第一个可用 SKU，详情页暂按该 SKU 进行加购和立即支付。 */
-const selectedSku = computed(() => product.value?.skuList.find((sku) => sku.enabled !== 0) || product.value?.skuList[0])
+/**
+ * 默认选择第一个可用 SKU，详情页暂按该 SKU 进行加购和立即支付。
+ *
+ * ⚠️ 2026-09-30 加固：`?.` 原先只护到 `product.value`，**没有护 `skuList`** ——
+ * 后端惯用 `null` 表示"无数据"，一旦 `skuList` 为 `null`，`.find` 会抛 TypeError，
+ * 而这里是 `computed` ⇒ **整个商品详情页渲染崩溃（白屏）**。
+ * 同项目 `api/cart.ts` 早已用 `skuList?.`，此处属漏网。
+ */
+const selectedSku = computed(() => product.value?.skuList?.find((sku) => sku.enabled !== 0) || product.value?.skuList?.[0])
 
 /** 展示价格：从「SKU 划线价 → SKU 售价 → 商品最低价」中取第一个大于 0 的值（0 视为未设置，不能当价格用）。 */
 const displayPrice = computed(() => {

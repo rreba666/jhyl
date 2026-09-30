@@ -1,7 +1,14 @@
 import { request } from '@/utils/request'
 
 export type InvoiceType = 1 | 2
-export type InvoiceStatus = 0 | 1 | 2 | 4
+/**
+ * 发票处理状态（对齐后端：0 待处理 / 1 已发送 / 2 待红冲 / **3 已驳回** / 4 已作废）。
+ *
+ * ⚠️ 2026-09-30：补上 **`3`（已驳回）** —— 后端本次新增该状态，`admin` 侧已同步
+ * （见 `admin/src/types/invoice.ts`），C 端此前漏改 ⇒ 状态标签配色会走错分支
+ * （文案本身靠 `statusDesc` 尚正确，故此前未被发现）。
+ */
+export type InvoiceStatus = 0 | 1 | 2 | 3 | 4
 
 export interface InvoiceSubmitDTO {
   type: InvoiceType

@@ -101,7 +101,24 @@ onShow(() => { void refreshData(); void loadOwnerIdentityFlag() })
 
 // ===== 金额与状态展示 =====
 
-const availableBalance = computed(() => Number(account.value?.availableBalance || 0))
+/**
+ * 可提现余额。
+ *
+ * ⚠️ 2026-09-30 加固：原先写 `Number(account.value?.availableBalance || 0)`，
+ * 会把「**字段缺失 / 为 null**」也变成 `0`，而该值同时又用于**本地 13011 校验**
+ * （`:492` 的 `amount > balance`）⇒ 一旦后端没下发该字段，商家不但看到
+ * 「可提现 ¥0.00」（以为钱没了），而且**任意金额都会被本地拦成「可提现金额不足」**，
+ * **完全无法提交提现** —— 比单纯显示错误严重得多。
+ * ⇒ 改为严格判空：只有确实 `null` / `undefined` 才回退 0；
+ * ⚠️ `0` 本身是**合法值**（钱全在锁定期/已提完），必须原样保留。
+ * ⚠️ 注意 `Number(null) === 0`（**不是 NaN**），所以必须**先判 `== null`** 再 `Number()`。
+ */
+const availableBalance = computed(() => {
+  const raw = account.value?.availableBalance
+  if (raw == null) return 0
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : 0
+})
 const debtAmount = computed(() => Number(account.value?.debtAmount || 0))
 /** 发票图张数上下限：以后端规则为准，缺失时兜底 1~6（文档 §2.4）。 */
 const imageMin = computed(() => (Number(rules.value?.invoiceImageMin) > 0 ? Number(rules.value?.invoiceImageMin) : 1))

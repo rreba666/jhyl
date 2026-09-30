@@ -10,6 +10,12 @@ function unwrap<T>(response: { data: WalletResponse<T> }, fallback: string): T {
 function normalizeRecord(value: unknown): WalletRecord {
   const row = (value || {}) as Record<string, unknown>
   // 「可转账余额」对应后端 balance 字段（余额）；availableBalance 是累计到账收入，勿混用。
+  // ⚠️ 2026-09-30 加固：`?? 0` 会把「字段缺失 / 为 null」与「真的是 0」混为一谈，
+  // 运营会看到**假的 ¥0.00** 并据此核对账务（与 emergencyPool `|| 0` 事故同型）。
+  // 这里保留 0 兜底（避免 NaN 上屏），但**字段确实缺失时打一条告警**，便于发现契约漂移。
+  if (row.balance === null || row.balance === undefined) {
+    console.warn('[admin/wallet] 记录缺少 balance 字段，已按 0 兜底（请核对契约/后端）:', row.id ?? '(无 id)')
+  }
   const balance = Number(row.balance ?? 0)
   return {
     id: String(row.id ?? ''),

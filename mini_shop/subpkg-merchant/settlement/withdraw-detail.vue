@@ -41,7 +41,12 @@ onLoad((options) => {
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
   uni.setNavigationBarTitle({ title: '提现详情' })
   // withdrawNo 由列表页 encodeURIComponent 后带过来，这里解码还原
-  withdrawNo.value = decodeURIComponent(String((options as Record<string, string>)?.withdrawNo || ''))
+  // ⚠️ 2026-09-30 加固：非法 `%` 序列会让 `decodeURIComponent` 抛 `URIError`，
+  //    而它位于 `onLoad` 内 ⇒ 后面 `loadDetail()` 不会执行 ⇒ **页面白屏且无任何提示**。
+  //    写法对齐 `subpkg-goods/category/index.vue`（那里已防护）：解码失败时保持原值。
+  let rawWithdrawNo = String((options as Record<string, string>)?.withdrawNo || '')
+  try { rawWithdrawNo = decodeURIComponent(rawWithdrawNo) } catch { /* 非法编码时保持原值 */ }
+  withdrawNo.value = rawWithdrawNo
   void loadDetail()
 })
 

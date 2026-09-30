@@ -76,8 +76,25 @@ function normalizeLimit(value: unknown): UserDividendLimit {
   return { ...row, id: String(row.id ?? ''), userId: String(row.userId ?? ''), availablePurchase: Number(row.availablePurchase ?? 0), totalPurchases: Number(row.totalPurchases ?? 0), createTime: String(row.createTime ?? ''), updateTime: String(row.updateTime ?? '') }
 }
 
+/**
+ * 钱包自测结果的字段缺失告警。
+ *
+ * ⚠️ 2026-09-30 加固：本函数 4 个金额字段此前一律 `?? 0`，会把「**字段缺失 / 为 null**」
+ * 与「**真的是 0**」在界面上混为一谈（运营看到假 ¥0.00 并据此核对账务）——
+ * 与 emergencyPool 的 `totalDeducted` 被读错后 `|| 0` 静默变 0 的事故**同型**。
+ * ⇒ 保留 0 兜底（避免 NaN 上屏），但**字段确实缺失时打一条告警**，便于及早发现契约漂移。
+ */
+function warnMissingWalletTestFields(row: Partial<WalletTestResult>): void {
+  const missing = (['balance', 'pendingPromotion', 'pendingBonus', 'totalIncome'] as const)
+    .filter((key) => row[key] === null || row[key] === undefined)
+  if (missing.length) {
+    console.warn('[admin/profit] 钱包自测结果缺少字段，已按 0 兜底（请核对契约/后端）:', missing.join(', '))
+  }
+}
+
 function normalizeWalletTest(value: unknown): WalletTestResult {
   const row = (value || {}) as Partial<WalletTestResult>
+  warnMissingWalletTestFields(row)
   return {
     balance: Number(row.balance ?? 0),
     pendingPromotion: Number(row.pendingPromotion ?? 0),

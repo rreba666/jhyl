@@ -208,6 +208,20 @@ function exitBatchMode(): void {
   selectedIds.value = new Set()
 }
 
+/**
+ * 批量模式下该商品是否被勾选。
+ *
+ * ⚠️ 2026-09-30：原模板写的是 `selectedIds.has(product.productId as number)` ——
+ * **模板里写 TS 断言违反本项目自定规范**（`CLAUDE.md`：模板禁复杂表达式 / TS 断言，
+ * 小程序端模板编译对复杂表达式支持有限）。类型收敛挪到这里，模板只留一次函数调用。
+ * ⚠️ `productId` 可能是可选值（同文件多处用 `as number` 断言），故先 `Number()` 再判 `isFinite`，
+ * 非法值一律视为"未勾选"，不会误命中集合。
+ */
+function isSelected(product: MerchantProductVO): boolean {
+  const id = Number(product.productId)
+  return Number.isFinite(id) && selectedIds.value.has(id)
+}
+
 function toggleSelect(product: MerchantProductVO): void {
   const id = product.productId as number
   const next = new Set(selectedIds.value)
@@ -389,7 +403,7 @@ function goBack(): void {
           <ProductCard
             :product="product"
             :mode="batchMode ? 'batch' : 'normal'"
-            :selected="selectedIds.has(product.productId as number)"
+            :selected="isSelected(product)"
             :left-btn="leftBtnText"
             @select="toggleSelect"
             @action="onCardAction"
