@@ -1045,8 +1045,17 @@ onLoad(async (options?: Record<string, string | undefined>) => {
  *    而 `switch-to-balance` 自己会先释放微信占位再扣余额 —— 提前释放反而会让"改用余额"失效。
  */
 onUnload(() => {
-  if (!currentOrderId || paymentSucceeded.value) return
-  void releasePayChannel(currentOrderId).catch(() => { /* 静默：释放失败最坏只是多等一次自动清理 */ })
+  // ⚠️⚠️ 2026-09-30 修 **ReferenceError（用户报障根因）**：
+  //    此处原先直接引用 `currentOrderId`，但它只是 `completePayment` / `submitPay` /
+  //    `refreshPaymentStatus` 等函数的**局部参数**，**不是页面级变量**
+  //    ⇒ 每次离开本页都抛 `ReferenceError: currentOrderId is not defined`（真机堆栈指向本行）。
+  //    后果：`onUnload` 在抛错处**中断** ⇒ 支付成功后 `redirectTo` 的卸载/跳转流程异常
+  //    ⇒ 用户表现为「**付完款卡在确认订单页**」，进而**重复下单**（本次事故连下三单）。
+  //    页面级保存订单号的是 `orderId`（ref）⇒ 这里必须取 `orderId.value`。
+  //    ⚠️ 同类误用本文件共 **2 处**（另一处见 `selectPayMethod` 的 switchToWechat 分支），已一并修正。
+  const unloadingOrderId = orderId.value
+  if (!unloadingOrderId || paymentSucceeded.value) return
+  void releasePayChannel(unloadingOrderId).catch(() => { /* 静默：释放失败最坏只是多等一次自动清理 */ })
 })
 
 /** 页面重新显示时关闭残留的发票抽屉；并从「配送地址」页读回刚保存的地址草稿。 */
@@ -1150,9 +1159,15 @@ function selectPayMethod(method: PayMethod): void {
   }
   const previous = payMethod.value
   payMethod.value = method
-  if (previous === 'balance' && method === 'wechat' && currentOrderId && !paymentSucceeded.value) {
+  // ⚠️ 2026-09-30 修 **ReferenceError（与 onUnload 同一类作用域误用）**：
+  //    此处原先也引用了不存在的 `currentOrderId` ⇒ 每次从「余额」切回「微信」都抛错，
+  //    导致 `switchToWechat` **永远不会被调用** ——
+  //    也就是说「切回微信时通知后端释放余额占位」这件事**从接入起就没生效过**，
+  //    只能依赖后端每分钟的自动清理（第十二批加这个调用正是为了主动释放）。
+  const switchingOrderId = orderId.value
+  if (previous === 'balance' && method === 'wechat' && switchingOrderId && !paymentSucceeded.value) {
     // 切换失败**不阻断**：用户仍可直接走微信支付，后端会自行清理残留占用
-    void switchToWechat(currentOrderId).catch(() => { /* 静默：释放/切换失败最坏只是多等一次自动清理 */ })
+    void switchToWechat(switchingOrderId).catch(() => { /* 静默：释放/切换失败最坏只是多等一次自动清理 */ })
   }
 }
 
