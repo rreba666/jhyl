@@ -14,6 +14,14 @@ interface CanvasImageNode {
 interface PosterCanvasContext {
   clearRect(x: number, y: number, width: number, height: number): void
   drawImage(image: CanvasImageNode, x: number, y: number, width: number, height: number): void
+  /* ⚠️ 2026-09-29 新增：圆角裁剪所需的方法（见 clipRoundedRect）。均为小程序 Canvas 2D 标准 API。 */
+  save(): void
+  restore(): void
+  beginPath(): void
+  moveTo(x: number, y: number): void
+  arcTo(x1: number, y1: number, x2: number, y2: number, radius: number): void
+  closePath(): void
+  clip(): void
 }
 
 interface PosterCanvasNode {
@@ -45,6 +53,42 @@ const PROMOTION_BACKGROUND_PATHS = [
  */
 const POSTER_WIDTH = 1000
 const POSTER_HEIGHT = 1600
+
+/**
+ * 海报圆角半径（画布坐标，单位 = 背景切图原始像素）。
+ *
+ * ⚠️ 2026-09-29 用户要求「商品详情页的分享海报要圆角」。
+ *    ⚠️ 圆角**必须在 canvas 绘制阶段裁剪**：CSS 的 `border-radius` 只影响**屏幕预览**，
+ *    `canvasToTempFilePath` 导出的图片**不会**带圆角 ⇒ 用户保存到相册看到的仍是直角。
+ *    预览侧 `.promotion-code-sheet` 的 `border-radius: 22.4rpx` 与这里对应（40 × 0.56 ≈ 22.4）。
+ */
+const POSTER_RADIUS = 40
+
+/**
+ * 把 canvas 当前路径裁成圆角矩形 —— 调用之后，所有绘制内容都会被裁到这个区域内。
+ *
+ * ⚠️ 调用方**必须自己配对** `save()` / `restore()`，否则裁剪会一直生效、影响后续绘制。
+ * ⚠️ 半径做了**上限保护**（不超过短边一半）：否则相邻的弧会互相穿插、四角反而出现尖角。
+ * ⚠️ 用标准 `arcTo` 画四角（小程序 Canvas 2D 支持），比四段 `arc` 更简洁、且四角不留接缝。
+ */
+function clipRoundedRect(
+  context: PosterCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2))
+  context.beginPath()
+  context.moveTo(x + r, y)
+  context.arcTo(x + width, y, x + width, y + height, r)
+  context.arcTo(x + width, y + height, x, y + height, r)
+  context.arcTo(x, y + height, x, y, r)
+  context.arcTo(x, y, x + width, y, r)
+  context.closePath()
+  context.clip()
+}
 
 /**
  * 二维码落位（画布坐标，单位 = 背景切图原始像素），与 `HomeSharePoster.vue` 严格一致。
@@ -229,8 +273,16 @@ async function createPosterFile(): Promise<string> {
 
   const context = canvasNode.getContext('2d')
   context.clearRect(0, 0, canvasWidth, canvasHeight)
+  // ⚠️ 圆角裁剪（2026-09-29 用户要求「分享海报要圆角」）：
+  //    CSS 的 border-radius 只影响**屏幕预览**，`canvasToTempFilePath` 导出的图片**不会**带圆角
+  //    ⇒ 必须先把画布裁成圆角矩形，之后画上去的内容四角自然被裁掉，导出的图才真的是圆角。
+  //    ⚠️ 顺序不能变：`save()` → `clip()` → `drawImage()` → `restore()`；
+  //       且 `clearRect` 要留在 `clip` **之前**（它清的是整块画布）。
+  context.save()
+  clipRoundedRect(context, 0, 0, canvasWidth, canvasHeight, POSTER_RADIUS)
   context.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight)
   context.drawImage(codeImage, QR_X, QR_Y, QR_SIZE, QR_SIZE)
+  context.restore()
   await waitForCanvasPaint(canvasNode)
   console.log('[Poster] 绘制完成，开始导出')
 
@@ -367,12 +419,19 @@ async function shareToFriend(): Promise<void> {
 <style>
 .promotion-code-mask { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 20rpx; box-sizing: border-box; background: rgba(0, 0, 0, .62); }
 .promotion-code-dialog { display: flex; flex-shrink: 0; flex-direction: column; align-items: center; }
-.promotion-code-sheet { position: relative; width: 560rpx; height: 896rpx; padding: 0; box-sizing: border-box; background: transparent; }
+/* ⚠️ 2026-09-29：加圆角（用户要求「分享海报要圆角」）。
+   半径与 canvas 导出的 POSTER_RADIUS 对应：canvas 1000px 宽、这里预览 560rpx 宽
+   ⇒ 换算系数 0.56（本文件二维码落点用的也是这个系数）⇒ 40 × 0.56 ≈ 22.4rpx。
+   ⚠️ 必须配 `overflow: hidden` 才能真正裁掉四角（`border-radius` 本身不裁子元素）。 */
+.promotion-code-sheet { position: relative; width: 560rpx; height: 896rpx; padding: 0; box-sizing: border-box; background: transparent; border-radius: 22.4rpx; overflow: hidden; }
 .promotion-code-bg { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; }
 /* 关闭按钮：换新海报后此处回归修复 —— 旧底图是绿色调（close 区均值 RGB≈115,186,128，白字可见），
    新切图右上角是米白照片区（均值 RGB≈244,242,232），纯白 × 几乎不可见，
    故加一层半透明深色圆底保证对比度（形态与首页分享海报的白色 close 图标区分开：那个在海报外）。 */
-.promotion-code-close { position: absolute; top: 20rpx; right: 24rpx; z-index: 3; display: inline-block; width: 52rpx; height: 52rpx; border-radius: 50%; color: #fff; font-size: 40rpx; font-weight: 300; line-height: 50rpx; text-align: center; background: rgba(0, 0, 0, .38); }
+/* ⚠️ 2026-09-29：位置由 `top: 20rpx; right: 24rpx` 调整为 `28rpx / 32rpx` ——
+   因为 `.promotion-code-sheet` 新加了 `border-radius: 22.4rpx` + `overflow: hidden`，
+   原位置（top 20 < 圆角半径 22.4）会让按钮**顶部被圆角裁掉一小块**。挪开后四角都不会碰到裁剪区。 */
+.promotion-code-close { position: absolute; top: 28rpx; right: 32rpx; z-index: 3; display: inline-block; width: 52rpx; height: 52rpx; border-radius: 50%; color: #fff; font-size: 40rpx; font-weight: 300; line-height: 50rpx; text-align: center; background: rgba(0, 0, 0, .38); }
 /* 预览态二维码落点：与 createPosterFile() 的 QR_X/QR_Y/QR_SIZE 严格一致（换算系数 0.56，见上方常量注释）。
    top = 1211 × 0.56 ≈ 678.2rpx、left = 375 × 0.56 = 210rpx、边长 = 258 × 0.56 = 144.5rpx。 */
 .promotion-code-image { position: absolute; top: 678.2rpx; left: 210rpx; z-index: 1; width: 144.5rpx; height: 144.5rpx; }
