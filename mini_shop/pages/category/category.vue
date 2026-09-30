@@ -42,7 +42,17 @@ const cartAdding = ref(false)
 const loginGuideVisible = ref(false)
 const navigationThrottle = createThrottle(500)
 const categorySwitchThrottle = createThrottle(250)
-const bodyTop = computed(() => menuTop.value + menuH.value + 12)
+/**
+ * 内容区顶部留白：胶囊底边之下的间距。
+ *
+ * ⚠️ 2026-09-29 用户反馈「分类页下方的分类与商品卡片距离上方的页面标题和搜索框太近了」：
+ *    原来是 `+ 12`（px）—— 而 `.nav` 的高度正好是胶囊高度 `menuH`，
+ *    所以内容距「标题 + 搜索框」**只有 12px**，视觉上贴着。
+ *    ⇒ 加大到 **24px**（下移 12px），与购物车页的留白观感对齐。
+ * ⚠️ 下面的 `scrollHeightStyle` 用 `bodyTop + 64` 计算内容可视高度（64 = 底部 tabBar 占位）
+ *    ⇒ 这里改大后可视高度会**自动相应变小**，不会把内容顶出屏幕外。
+ */
+const bodyTop = computed(() => menuTop.value + menuH.value + 24)
 /** 为左右内容区计算固定可视高度，避免页面整体滚动造成顶部导航穿透。 */
 const scrollHeightStyle = computed(() => ({
   height: `calc(100vh - ${bodyTop.value + 64}px)`,

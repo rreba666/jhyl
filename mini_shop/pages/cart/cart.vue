@@ -11,8 +11,22 @@ import { isLoggedIn } from '@/utils/auth'
 const menuTop = ref(0)
 const menuHeight = ref(32)
 const navStyle = computed(() => ({ top: menuTop.value + 'px', height: menuHeight.value + 'px' }))
-const navActionStyle = computed(() => ({ top: `${menuHeight.value + uni.upx2px(8)}px` }))
-const bodyTop = computed(() => menuTop.value + menuHeight.value + uni.upx2px(48))
+/**
+ * 右上角「管理 / 完成」按钮的位置：**相对 `.nav` 顶部**的偏移。
+ *
+ * ⚠️ 2026-09-29 用户反馈「购物车页右上角完成按钮距离小程序原生胶囊太近了」：
+ *    原来是 `menuHeight + upx2px(8)` ⇒ 按钮距胶囊**只有 4px**，几乎贴着。
+ *    ⇒ 改为 `upx2px(28)`（= 14px），与胶囊拉开距离。
+ * ⚠️ 该按钮是**绝对定位**、且 `.nav` 高度只够装胶囊 ⇒ 按钮实际浮在 `.nav` **下方**、
+ *    压在内容之上 ⇒ 所以下面的 `bodyTop` **必须同步加大**，否则内容会钻到按钮底下。
+ */
+const navActionStyle = computed(() => ({ top: `${menuHeight.value + uni.upx2px(28)}px` }))
+/**
+ * 内容区顶部留白（距页面顶部的绝对距离）。
+ * ⚠️ 与 `navActionStyle` 联动：要同时容下「胶囊高度 + 按钮的下移量 + 按钮自身行高」，
+ *    所以由 `upx2px(48)`（= 24px，装不下新的按钮位置）加大到 `upx2px(88)`（= 44px）。
+ */
+const bodyTop = computed(() => menuTop.value + menuHeight.value + uni.upx2px(88))
 
 const items = ref<CartItem[]>([])
 const loading = ref(true)
