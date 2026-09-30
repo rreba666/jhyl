@@ -203,23 +203,34 @@ export function updateProductStatus(productId: number, status: 0 | 1): Promise<v
   return request<void>({ url: `/api/merchant/products/${productId}/status?status=${status}`, method: 'PUT' })
 }
 
-/** 前端自算商品数量时一次最多统计多少条（见 `countMerchantProducts` 的口径说明）。 */
+/**
+ * 前端自算**低库存商品数**时一次最多扫描多少条（见 `products/list.vue` 的 `refreshLowStockCount`）。
+ *
+ * ⚠️ 2026-09-30 调整用途：它**不再**用于统计「已上架 / 待上架」商品数
+ * —— 那个已改回读接口的 `total`（后端已修，见 `countMerchantProducts`）。
+ * 现在只剩「库存预警」在用（契约**没有**低库存计数字段，只能扫列表自己数）。
+ */
 export const PRODUCT_COUNT_SCAN_LIMIT = 100
 
 /**
  * 统计本店「已上架 / 待上架」商品数。
  *
- * ⚠️ **不能直接用接口返回的 `total`**：2026-09-19 实测后端 `total` **未按 `status` 过滤**
- * （门店只有 1 个上架商品时，`status=0` 仍返回 `total=1` 而 `list` 为空），
- * 表现就是工作台「新增商品」卡与商品管理页 Tab **同时虚高**：明明没有待上架商品却显示 1。
- * 所以这里按返回的 `list` 条数统计。
+ * ✅ 2026-09-30 **改回读接口的 `total`**：后端已修（提交 `4639d1b1`，谓词下推 SQL、
+ * 移除内存二次过滤），`total` 与 `list` 口径已一致 —— 见后端答复
+ * 《后端答复-商家端4项问题与附录-2026-09-30》§二/Q6 与契约 `GET /api/merchant/products` 最新描述：
+ * 「status 过滤已在 SQL 层完成，**total 与 list 口径一致**（2026-09-30 修复）」。
  *
- * 局限：商品数超过 `PRODUCT_COUNT_SCAN_LIMIT` 时会偏小 —— 等后端修好 `total` 的过滤
- * （已登记 `后端需求汇总-2026-09-19.md` §十三）后，这里改回读 `total` 即可。
+ * ⚠️ **历史（不要再改回去）**：2026-09-19 实测 `total` **未按 `status` 过滤**
+ * （门店只有 1 个上架商品时，`status=0` 仍返回 `total=1` 而 `list` 为空），
+ * 当时改为「按 `list` 条数统计」绕过；但该绕过在**商品超过 `PRODUCT_COUNT_SCAN_LIMIT` 条时会偏小**
+ * （只扫第一页）⇒ 后端修好后**必须改回读 `total`**（后端也明确要求前端放弃该绕过）。
+ *
+ * ⚠️ `pageSize` 传 `1`：这里**只需要 `total`**，不必把整页商品拉回来。
  */
 export async function countMerchantProducts(status: 0 | 1): Promise<number> {
-  const result = await getMerchantProducts({ status, page: 1, pageSize: PRODUCT_COUNT_SCAN_LIMIT })
-  return Array.isArray(result?.list) ? result.list.length : 0
+  const result = await getMerchantProducts({ status, page: 1, pageSize: 1 })
+  const total = Number(result?.total)
+  return Number.isFinite(total) && total > 0 ? total : 0
 }
 
 /** 设置门店库存。stock 传数值即单独控库存。 */

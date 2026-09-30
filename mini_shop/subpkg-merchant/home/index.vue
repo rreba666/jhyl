@@ -100,8 +100,11 @@ async function loadOverview(): Promise<void> {
 
 /**
  * 商品计数（四宫格「新增商品」卡：已上架 / 待上架）。
- * 用 `countMerchantProducts()` 按**返回条数**统计，而不是接口的 `total`
- * —— 后端 `total` 未按 `status` 过滤，直接读会让「待上架」虚高（门店明明没有未上架商品却显示 1）。
+ *
+ * ✅ 2026-09-30：后端已修 `total` 的 `status` 过滤（提交 `4639d1b1`，谓词下推 SQL、
+ * 移除内存二次过滤）⇒ `countMerchantProducts()` **已改回读接口的 `total`**
+ * （见 `api/merchant.ts` 的口径说明），不再用"按返回条数统计"的绕过
+ * —— 那个绕过在商品超过 100 条时会**偏小**。
  */
 async function loadProductCounts(): Promise<void> {
   try {
@@ -436,6 +439,13 @@ function goBack(): void {
                 <text class="stat-label">已完成</text>
               </view>
             </view>
+            <!--
+              ⚠️ 2026-09-30 新增口径说明（后端答复《后端答复-商家端4项问题与附录-2026-09-30》§二/Q7）：
+              这三个数字全部取自 `order.delivery_status`（**同城履约状态**）⇒
+              **只卖物流的商户这里会全为 0**，那是**口径**而不是故障。
+              不加这行小字的话，只卖物流的商户会以为"平台把我的订单弄丢了"。
+            -->
+            <text class="grid-note">同城履约口径，只卖物流的商户此三项为 0</text>
           </view>
           <view class="grid-card" @click="goAddProduct">
             <image class="grid-bg" src="/subpkg-merchant/static/card-add-product.png" mode="aspectFill" />
@@ -855,6 +865,24 @@ function goBack(): void {
 }
 .grid-stat-full {
   align-items: center;
+}
+/**
+ * 四宫格订单卡的口径说明小字。
+ *
+ * ⚠️ 2026-09-30 新增（后端答复 §二/Q7 的建议）：待配送/配送中/已完成取自
+ * `order.delivery_status`（**同城履约口径**）⇒ 只卖物流的商户三项恒为 0。
+ * 不加这行说明会被误读成"平台把我的订单弄丢了"。
+ * ⚠️ `.grid-stats` 是白底固定高度块，故本行需要 `position: relative` + `z-index: 1`
+ *    才能压在卡片插画（`.grid-bg`）之上。
+ */
+.grid-note {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 0 24rpx 16rpx;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  color: #8a8f99;
 }
 /* 统计项之间的竖直分隔线（设计稿 0×32，颜色未标注，取与其它分隔线一致的 #E6E7EB） */
 .stat-divider {

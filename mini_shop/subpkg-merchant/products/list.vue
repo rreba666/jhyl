@@ -109,12 +109,18 @@ const renderList = computed<MerchantProductVO[]>(() => {
   return products.value.filter((p) => effectiveStock(p) <= LOW_STOCK_THRESHOLD)
 })
 
-/** 当前 Tab 左侧按钮文案：在售中/预警=「更多」（下架），仓库中=「上架商品」。 */
-const leftBtnText = computed(() => (activeTab.value === 'offSale' ? '上架商品' : '更多'))
+/**
+ * 当前 Tab 左侧按钮文案：在售中/预警 = 「更多」（进详情做本店停售），仓库中 = 「恢复销售」。
+ *
+ * ⚠️ 2026-09-30 文案按后端答复调整：接口是**门店级**上下架（本店 `shop_product.status`），
+ *    不是"从商城下架"，故不再用「上架商品」这种会引起误解的说法。
+ */
+const leftBtnText = computed(() => (activeTab.value === 'offSale' ? '恢复销售' : '更多'))
 
-/** 批量操作方向：在售中/预警 → 下架(0)，仓库中 → 上架(1)。 */
+/** 批量操作方向：在售中/预警 → 本店停售(0)，仓库中 → 恢复销售(1)。 */
 const batchTargetStatus = computed<0 | 1>(() => (activeTab.value === 'offSale' ? 1 : 0))
-const batchActionLabel = computed(() => (batchTargetStatus.value === 1 ? '上架' : '下架'))
+/** 批量按钮文案（⚠️ 判断一律用 `batchTargetStatus`，不要拿文案字符串比较）。 */
+const batchActionLabel = computed(() => (batchTargetStatus.value === 1 ? '恢复销售' : '本店停售'))
 
 /**
  * 本店有效库存（**优先用契约字段 `effectiveStock`**）。
@@ -156,8 +162,11 @@ onShow(() => {
 
 /**
  * 拉取在售中 / 仓库中的数量（用于 Tab 数字），失败静默置 0。
- * ⚠️ 走 `countMerchantProducts()` 按**返回条数**统计，不能信接口的 `total`
- * （后端 `total` 未按 `status` 过滤，会让 Tab 显示「仓库中 1」而点进去是空的）。
+ *
+ * ✅ 2026-09-30：`countMerchantProducts()` 已**改回读接口的 `total`** ——
+ * 后端已修 `status` 过滤（`total` 与 `list` 口径一致，见 `api/merchant.ts` 的口径说明）。
+ * ⚠️ 历史：此前因 `total` 未按 `status` 过滤而改为"按返回条数统计"，
+ *    该绕过在商品 >100 条时偏小，后端修复后已弃用。
  */
 async function refreshTabCounts(): Promise<void> {
   try {
@@ -209,7 +218,8 @@ async function loadList(reset = false): Promise<void> {
     products.value = isFirst ? list : [...products.value, ...list]
     total.value = Number(result?.total || 0)
     // 第一页为空 ⇒ 当前 Tab 确实没有商品：把 total 与 Tab 数字一起归零
-    // （后端 total 未按 status 过滤，见 countMerchantProducts 的口径说明；列表数据本身是正确的）
+    // ⚠️ 2026-09-30：后端已修 `total` 的 `status` 过滤（`total` 与 `list` 口径一致），
+    //    所以这不再是"修正虚高"的必需动作，而是**防御异常数据**的兜底（列表空却 total 非 0）。
     if (isFirst && list.length === 0) {
       total.value = 0
       tabCounts[activeTab.value] = 0
@@ -306,7 +316,14 @@ function onBatchAction(): void {
     uni.showToast({ title: '请先选择商品', icon: 'none' })
     return
   }
-  openConfirm(`即将${batchActionLabel.value} ${selectedCount.value} 件商品，${batchActionLabel.value === '下架' ? '下架后用户无法购买，历史订单正常保留' : '上架后用户即可购买'}`, async () => {
+  // ⚠️ 2026-09-30 确认文案按**新的 C 端可见性口径**订正（后端答复 §八）：
+  //    原文案写「下架后用户无法购买」是**错的** —— 这是**门店级**停售，
+  //    C 端是否可见取决于「是否还有**其他门店**在售」：
+  //    单门店停售 ⇒ 商城不再展示；多门店且仍有门店在售 ⇒ 仍然可见。
+  const tip = batchTargetStatus.value === 1
+    ? '恢复销售后，只要商品本体仍上架，该商品会重新在商城可见'
+    : '本店停售后：若没有其他门店在售，该商品将从商城隐藏；历史订单正常保留'
+  openConfirm(`即将${batchActionLabel.value} ${selectedCount.value} 件商品，${tip}`, async () => {
     await batchUpdateProducts([...selectedIds.value], batchTargetStatus.value)
     exitBatchMode()
     await refreshTabCounts()
@@ -322,10 +339,16 @@ function onCardAction(payload: { type: 'left' | 'price' | 'stock' | 'edit'; prod
   else onLeftAction(payload.product)
 }
 
-/** 左侧按钮：在售中/预警=下架，仓库中=上架。 */
+/**
+ * 左侧按钮：在售中/预警 = **本店停售**，仓库中 = **恢复销售**。
+ *
+ * ⚠️ 2026-09-30 文案按后端答复调整（《后端答复-商家端4项问题与附录-2026-09-30》§二/Q3）：
+ *    该接口是**门店级**上下架（只改本店 `shop_product.status`，不动商品本体），
+ *    原文案「上架/下架」会让商户误以为是**从商城下架**。
+ */
 function onLeftAction(product: MerchantProductVO): void {
   const target: 0 | 1 = activeTab.value === 'offSale' ? 1 : 0
-  const label = target === 1 ? '上架' : '下架'
+  const label = target === 1 ? '恢复销售' : '本店停售'
   openConfirm(`确定${label}「${product.name || ''}」吗？`, async () => {
     await updateProductStatus(product.productId as number, target)
     await refreshTabCounts()
@@ -498,7 +521,7 @@ function goBack(): void {
           :class="{ 'is-disabled': selectedCount === 0 }"
           :disabled="selectedCount === 0 || acting"
           @click="onBatchAction"
-        >{{ batchActionLabel === '上架' ? '上架商品' : '下架商品' }}</button>
+        >{{ batchTargetStatus === 1 ? '恢复销售' : '本店停售' }}</button>
       </view>
     </view>
 
@@ -540,10 +563,12 @@ function goBack(): void {
       </view>
     </view>
 
-    <!-- 上/下架确认对话框 -->
+    <!-- 本店停售/恢复销售 确认对话框 -->
     <view v-if="confirmVisible" class="mask mask-center" @click="closeConfirm">
       <view class="dialog" @click.stop>
-        <text class="dialog-title">{{ batchActionLabel === '上架' ? '上架商品' : '下架商品' }}</text>
+        <!-- ⚠️ 2026-09-30：原判断是 `batchActionLabel === '上架'` —— **拿文案当逻辑用**，
+             改文案后它会恒为 false（标题永远显示"下架商品"）⇒ 改用状态值判断。 -->
+        <text class="dialog-title">{{ batchTargetStatus === 1 ? '恢复销售' : '本店停售' }}</text>
         <text class="dialog-body">{{ confirmText }}</text>
         <view class="dialog-actions">
           <button class="dialog-btn" @click="closeConfirm">取消</button>

@@ -367,6 +367,17 @@ async function runBatchPrepare(): Promise<void> {
       </view>
     </view>
 
+    <!--
+      ⚠️ 2026-09-30 新增物流单说明（后端答复《后端答复-商家端4项问题与附录-2026-09-30》§五）：
+      物流单（`pickupType=0`）下单时用户**不选门店**，而 `order.merchant_id` 的语义是**履约门店**，
+      一个商品的物流单可能被多个门店同时上架 ⇒ **不存在唯一的履约门店**，后端本次**未修**。
+      ⇒ 结果是本列表**只有自提单与同城单、没有物流单**。
+      不加说明的话商家会以为"物流订单丢了"。归属规则确定前以平台后台为准。
+    -->
+    <view class="list-note">
+      <text>物流单暂不在此列表展示（其归属门店规则待定），请以平台后台为准</text>
+    </view>
+
     <!-- 列表 -->
     <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" @scrolltolower="loadMore">
       <view v-if="loading" class="state">加载中…</view>
@@ -568,6 +579,17 @@ async function runBatchPrepare(): Promise<void> {
 }
 
 /* 列表 */
+/**
+ * 物流单缺失的口径说明（见模板中的注释）。
+ * ⚠️ 2026-09-30 新增：后端本次未修物流单的门店归属 ⇒ 本列表只有自提单与同城单。
+ * 用浅灰小字说明，避免商家以为"物流订单丢了"。
+ */
+.list-note {
+  padding: 12rpx 23rpx 0;
+  color: #86909c;
+  font-size: 22rpx;
+  line-height: 30rpx;
+}
 .list {
   flex: 1;
   min-height: 0;
