@@ -17,6 +17,22 @@ const loginGuideVisible = ref(false)
 /** 请求竞态 token，快速操作时丢弃过期响应。 */
 let requestToken = 0
 
+/**
+ * 主图是否「加载结束」（成功或失败都算），按商品 id 分别记录。
+ *
+ * ⚠️ 2026-09-29 图片加载优化（与首页卡片、分类页同款）：原来图区在图片加载期间只有一块纯色底，
+ *    加载完**硬切**出现。现在改为「骨架 + 扫光」占位、实图淡入。
+ * ⚠️ 必须按 id 记录：收藏列表是**分页追加**的 ⇒ 全局布尔量会「第一张加载完就以为全都加载完了」。
+ * ⚠️ `@error` 也算「结束」—— 否则扫光一直转，看起来像卡死。
+ * ⚠️ 用**替换 Set** 触发响应式（小程序端对 Set 原地 add 不保证触发更新）。
+ */
+const imageSettled = ref<Set<string | number>>(new Set())
+/** 标记某张主图「已加载结束」（成功、失败都调用）。 */
+function onImageSettled(id: string | number): void {
+  if (imageSettled.value.has(id)) return
+  imageSettled.value = new Set(imageSettled.value).add(id)
+}
+
 /** 微信胶囊按钮位置，用于自定义导航栏精确定位。 */
 const menuTop = ref(0)
 const menuHeight = ref(32)
@@ -98,8 +114,21 @@ onShow(() => { if (loaded.value) void load(true) })
     <scroll-view class="list" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ marginTop: bodyTop + 'px' }" @scrolltolower="load(false)">
       <view v-show="loading && !list.length" class="state">加载中...</view>
       <view v-for="item in list" :key="item.id" class="fav-card" @click="openDetail(item)">
-        <image v-if="item.mainImage" class="fav-image" :src="item.mainImage" mode="aspectFill" />
-        <view v-else class="fav-image placeholder" />
+        <!-- ⚠️ 2026-09-29 图片加载优化：图区改为「定位容器 + 骨架层 + 实图层」，
+             加载期间显示骨架扫光，加载结束骨架消失、实图淡入。 -->
+        <view class="fav-image-wrap">
+          <view v-if="item.mainImage && !imageSettled.has(item.id)" class="fav-image-skeleton skeleton-shimmer" />
+          <image
+            v-if="item.mainImage"
+            class="fav-image motion-image-in"
+            :class="{ 'motion-image-loaded': imageSettled.has(item.id) }"
+            :src="item.mainImage"
+            mode="aspectFill"
+            @load="onImageSettled(item.id)"
+            @error="onImageSettled(item.id)"
+          />
+          <view v-else class="fav-image placeholder" />
+        </view>
         <view class="fav-info">
           <text class="fav-name">{{ item.name }}</text>
           <view class="fav-bottom">
@@ -126,8 +155,12 @@ onShow(() => { if (loaded.value) void load(true) })
 .title { font-size: 32rpx; font-weight: 700; }
 .list { flex: 1; min-height: 0; padding: 20rpx 24rpx; box-sizing: border-box; }
 .fav-card { display: flex; align-items: center; margin-bottom: 20rpx; padding: 24rpx; background: #fff; border-radius: 16rpx; }
-.fav-image { width: 180rpx; height: 180rpx; flex-shrink: 0; background: #d8d8d8; border-radius: 12rpx; }
+/* ⚠️ 2026-09-29：图区改为定位容器，骨架层与实图层都绝对定位铺满它（骨架才叠得上去）。 */
+.fav-image-wrap { position: relative; width: 180rpx; height: 180rpx; flex-shrink: 0; }
+.fav-image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #d8d8d8; border-radius: 12rpx; }
 .fav-image.placeholder { background: #d8d8d8; }
+/* 骨架层铺满图区（底色与扫光由全局 `skeleton-shimmer` 提供，见 styles/motion.wxss） */
+.fav-image-skeleton { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; border-radius: 12rpx; }
 .fav-info { display: flex; flex: 1; min-width: 0; flex-direction: column; align-self: stretch; margin-left: 24rpx; }
 .fav-name { color: #0a0a0a; font-size: 28rpx; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .fav-bottom { display: flex; align-items: baseline; justify-content: space-between; margin-top: 16rpx; }

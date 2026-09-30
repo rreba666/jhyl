@@ -34,6 +34,24 @@ const AFTER_SALE_TAB_INDEX = tabs.findIndex((tab) => tab.key === 'aftersale')
 /** 当前选中的 tab 索引。 */
 const activeIndex = ref(0)
 const list = ref<OrderSummary[]>([])
+
+/**
+ * 订单首图是否「加载结束」（成功或失败都算），按订单 id 分别记录。
+ *
+ * ⚠️ 2026-09-29 图片加载优化（与首页卡片、分类页同款）：原来 `.goods-img` 只有一块纯色底，
+ *    图片加载完**硬切**出现。现在改为「骨架 + 扫光」占位、实图淡入。
+ * ⚠️ 必须按 id 记录：订单列表是**分页追加**的，且切换页签会重建列表
+ *    ⇒ 用全局布尔量会「第一张加载完就以为全都加载完了」。
+ * ⚠️ `@error` 也算「结束」—— 否则扫光一直转，看起来像卡死。
+ * ⚠️ 用**替换 Set** 触发响应式（小程序端对 Set 原地 add 不保证触发更新；
+ *    本文件 `processingOrderIds` 也是 Set，但那处是直接读 `.has()` 判断按钮态，二者用途不同）。
+ */
+const imageSettled = ref<Set<number>>(new Set())
+/** 标记某张首图「已加载结束」（成功、失败都调用）。 */
+function onImageSettled(id: number): void {
+  if (imageSettled.value.has(id)) return
+  imageSettled.value = new Set(imageSettled.value).add(id)
+}
 /** 售后单列表（「退款售后」tab 专用）。 */
 const afterSales = ref<AfterSaleRecord[]>([])
 /** 有「处理中」售后单（0待审核/2退款中/4待寄回/5待收货）的订单 ID 集合，用于隐藏退款按钮。 */
@@ -468,8 +486,20 @@ onShow(() => {
           </view>
 
           <view class="card-goods">
-            <image v-if="order.firstProductImage" class="goods-img" :src="order.firstProductImage" mode="aspectFill" />
-            <view v-else class="goods-img placeholder" />
+            <!-- ⚠️ 2026-09-29 图片加载优化：图区改为「定位容器 + 骨架层 + 实图层」 -->
+            <view class="goods-img-wrap">
+              <view v-if="order.firstProductImage && !imageSettled.has(order.id)" class="goods-img-skeleton skeleton-shimmer" />
+              <image
+                v-if="order.firstProductImage"
+                class="goods-img motion-image-in"
+                :class="{ 'motion-image-loaded': imageSettled.has(order.id) }"
+                :src="order.firstProductImage"
+                mode="aspectFill"
+                @load="onImageSettled(order.id)"
+                @error="onImageSettled(order.id)"
+              />
+              <view v-else class="goods-img placeholder" />
+            </view>
             <view class="goods-info">
               <text class="goods-name">{{ order.firstProductName || '商品' }}</text>
               <text class="goods-meta">共{{ order.totalQuantity }}件</text>
@@ -559,7 +589,12 @@ onShow(() => {
 .logi-remark { flex: 1; min-width: 0; margin-left: 14rpx; color: #959595; font-size: 26rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logi-arrow { margin-left: 8rpx; color: #959595; font-size: 36rpx; line-height: 1; }
 .card-goods { display: flex; margin-top: 24rpx; }
-.goods-img { width: 196rpx; height: 264rpx; flex-shrink: 0; background: #d8d8d8; border-radius: 8rpx; }
+/* ⚠️ 2026-09-29：图区改为「定位容器 + 骨架层 + 实图层」，骨架才叠得上去。
+   尺寸与原来的 `.goods-img` 一致，只是从图本身挪到了外层容器上。 */
+.goods-img-wrap { position: relative; width: 196rpx; height: 264rpx; flex-shrink: 0; }
+.goods-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #d8d8d8; border-radius: 8rpx; }
+/* 骨架层铺满图区（底色与扫光由全局 `skeleton-shimmer` 提供，见 styles/motion.wxss） */
+.goods-img-skeleton { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; border-radius: 8rpx; }
 .goods-img.placeholder { background: #d8d8d8; }
 .goods-info { display: flex; flex: 1; min-width: 0; flex-direction: column; margin-left: 24rpx; }
 .goods-name { color: #0a0a0a; font-size: 28rpx; line-height: 1.4; }

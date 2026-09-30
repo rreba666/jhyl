@@ -33,6 +33,23 @@ const navActionStyle = computed(() => ({ top: `${menuHeight.value + uni.upx2px(5
 const bodyTop = computed(() => menuTop.value + menuHeight.value + uni.upx2px(120))
 
 const items = ref<CartItem[]>([])
+
+/**
+ * 商品主图是否「加载结束」（成功或失败都算），按 `cartId` 分别记录。
+ *
+ * ⚠️ 2026-09-29 图片加载优化（与首页卡片、分类页同款）：原来 `.rimg` 只有一块纯色底，
+ *    图片加载完**硬切**出现。现在改为「骨架 + 扫光」占位、实图淡入。
+ * ⚠️ 按 `cartId` 记录（购物车是**多行**，且增删改会重排）—— 用全局布尔量会导致
+ *    「第一张加载完就以为全都加载完了」。
+ * ⚠️ `@error` 也算「结束」—— 否则扫光一直转，看起来像卡死。
+ * ⚠️ 用**替换 Set** 触发响应式（小程序端对 Set 原地 add 不保证触发更新）。
+ */
+const imageSettled = ref<Set<string | number>>(new Set())
+/** 标记某张主图「已加载结束」（成功、失败都调用）。 */
+function onImageSettled(id: string | number): void {
+  if (imageSettled.value.has(id)) return
+  imageSettled.value = new Set(imageSettled.value).add(id)
+}
 const loading = ref(true)
 const loadError = ref('')
 const editMode = ref(false)
@@ -161,9 +178,20 @@ onShow(() => { loading.value = true; void refreshList() })
           <view class="chk" @click="onToggle(it)">
             <view class="chk-c" :class="{ on: it.checked }"><text v-if="it.checked" class="chk-m">✓</text></view>
           </view>
-          <!-- 商品图 -->
-          <image v-if="it.productImage" class="rimg" :src="it.productImage" mode="aspectFill" />
-          <view v-else class="rimg ph" />
+          <!-- 商品图（⚠️ 2026-09-29 加「骨架 + 淡入」，与首页卡片 / 分类页同款） -->
+          <view class="rimg-wrap">
+            <view v-if="it.productImage && !imageSettled.has(it.cartId)" class="rimg-skeleton skeleton-shimmer" />
+            <image
+              v-if="it.productImage"
+              class="rimg motion-image-in"
+              :class="{ 'motion-image-loaded': imageSettled.has(it.cartId) }"
+              :src="it.productImage"
+              mode="aspectFill"
+              @load="onImageSettled(it.cartId)"
+              @error="onImageSettled(it.cartId)"
+            />
+            <view v-else class="rimg ph" />
+          </view>
           <!-- 信息区 -->
           <view class="info">
             <view class="iname-row">
@@ -278,7 +306,12 @@ onShow(() => { loading.value = true; void refreshList() })
 .chk-m { color: #fff; font-size: 20rpx; font-weight: 700; }
 
 /* 商品图 */
-.rimg { width: 204rpx; height: 276rpx; border-radius: 0; flex-shrink: 0; margin-left: 8rpx; background: #E9E7DD; }
+/* ⚠️ 2026-09-29：图区改为「定位容器 + 骨架层 + 实图层」，骨架才叠得上去。
+   尺寸与原来的 `.rimg` 完全一致，只是从图本身挪到了外层容器上。 */
+.rimg-wrap { position: relative; width: 204rpx; height: 276rpx; flex-shrink: 0; margin-left: 8rpx; }
+.rimg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 0; background: #E9E7DD; }
+/* 骨架层铺满图区（底色与扫光由全局 `skeleton-shimmer` 提供，见 styles/motion.wxss） */
+.rimg-skeleton { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; }
 .rimg.ph { background: #E9E7DD; }
 
 /* 信息区 */

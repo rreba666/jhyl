@@ -7,8 +7,24 @@
  *
  * 金额按设计稿字符级样式：货币符号「¥」小一号（12px/23rpx），数字 14px/500。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { MerchantProductVO } from '@/api/merchant'
+
+/**
+ * 商品主图是否「加载结束」（成功或失败都算）。
+ *
+ * ⚠️ 2026-09-29 图片加载优化（与首页卡片、分类页同款）：原来 `.thumb` 只有一块纯黑底，
+ *    图片加载完**硬切**出现。现在改为「骨架 + 扫光」占位、实图淡入。
+ *
+ * ⚠️ 这里可以用**单个布尔量**（不像列表页要按 id 记）：本组件一个实例只承载**一个商品**，
+ *    两种形态（batch / normal）共用同一张图，天然不会串台。
+ * ⚠️ `@error` 也算「结束」—— 否则扫光一直转，看起来像卡死。
+ */
+const imageLoaded = ref(false)
+/** 标记主图「已加载结束」（成功、失败都调用）。 */
+function onImageSettled(): void {
+  imageLoaded.value = true
+}
 
 const props = withDefaults(defineProps<{
   product: MerchantProductVO
@@ -80,7 +96,19 @@ function onAction(type: 'left' | 'price' | 'stock' | 'edit'): void {
     </view>
     <view class="card card-batch">
       <view class="card-top">
-        <image class="thumb" :src="product.mainImage || ''" mode="aspectFill" />
+        <!-- ⚠️ 2026-09-29 图片加载优化：图区改为「定位容器 + 骨架层 + 实图层」 -->
+        <view class="thumb-wrap">
+          <view v-if="product.mainImage && !imageLoaded" class="thumb-skeleton skeleton-shimmer" />
+          <image
+            v-if="product.mainImage"
+            class="thumb motion-image-in"
+            :class="{ 'motion-image-loaded': imageLoaded }"
+            :src="product.mainImage"
+            mode="aspectFill"
+            @load="onImageSettled"
+            @error="onImageSettled"
+          />
+        </view>
         <view class="info">
           <text class="name">{{ product.name || '—' }}</text>
           <text v-if="specText" class="spec">{{ specText }}</text>
@@ -96,7 +124,19 @@ function onAction(type: 'left' | 'price' | 'stock' | 'edit'): void {
   <!-- 普通模式 -->
   <view v-else class="card">
     <view class="card-top">
-      <image class="thumb" :src="product.mainImage || ''" mode="aspectFill" />
+      <!-- ⚠️ 2026-09-29 图片加载优化：同 batch 形态 -->
+      <view class="thumb-wrap">
+        <view v-if="product.mainImage && !imageLoaded" class="thumb-skeleton skeleton-shimmer" />
+        <image
+          v-if="product.mainImage"
+          class="thumb motion-image-in"
+          :class="{ 'motion-image-loaded': imageLoaded }"
+          :src="product.mainImage"
+          mode="aspectFill"
+          @load="onImageSettled"
+          @error="onImageSettled"
+        />
+      </view>
       <view class="info">
         <text class="name">{{ product.name || '—' }}</text>
         <text v-if="specText" class="spec">{{ specText }}</text>
@@ -161,12 +201,34 @@ function onAction(type: 'left' | 'price' | 'stock' | 'edit'): void {
   display: flex;
   gap: 23rpx;
 }
-.thumb {
+/* ⚠️ 2026-09-29：图区改为「定位容器 + 骨架层 + 实图层」，骨架才叠得上去。
+   尺寸与底色沿用原来的 `.thumb`（181×181、黑底，#000000），只是从图本身挪到了外层容器上。
+   ⚠️ 保留黑底是刻意的：商品无图时仍显示黑块，与改动前行为一致。 */
+.thumb-wrap {
+  position: relative;
   flex: none;
   width: 181rpx;
   height: 181rpx;
   border-radius: 15rpx;
   background: #000000;
+  overflow: hidden;
+}
+.thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+/* 骨架层铺满图区（底色与扫光由全局 `skeleton-shimmer` 提供，见 styles/motion.wxss） */
+.thumb-skeleton {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 15rpx;
 }
 .info {
   flex: 1;
