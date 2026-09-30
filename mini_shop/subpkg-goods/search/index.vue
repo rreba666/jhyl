@@ -152,7 +152,14 @@ onMounted(() => {
 
 <style>
 .page { display: flex; flex-direction: column; height: 100vh; background: #fff; color: #222; }
-.nav { display: flex; align-items: center; flex-shrink: 0; height: auto; padding: 0 24rpx; box-sizing: border-box; border-bottom: 1px solid #f0f0f0; }
+/**
+ * 顶部搜索栏。
+ * ⚠️ 2026-09-29：**去掉 `border-bottom`**（原为 `1px solid #f0f0f0`）。
+ *    原因：下方 `.sort-row` 加了 `margin-top: 20rpx` 之后，这条线**悬空在搜索框与选项行之间**，
+ *    看起来像"选项行的上边框"（用户反馈"有一条灰色细线贯穿搜索框下方"）✗。
+ *    选项行自身已有 `border-bottom` 负责与商品区分隔，所以去掉这条不会失去层次。
+ */
+.nav { display: flex; align-items: center; flex-shrink: 0; height: auto; padding: 0 24rpx; box-sizing: border-box; }
 .back { width: 52rpx; color: #222; font-size: 56rpx; line-height: 1; text-align: left; }
 .search-box { display: flex; flex: 1; align-items: center; height: 68rpx; margin-left: 12rpx; padding: 0 22rpx; background: #f5f5f5; border-radius: 34rpx; box-sizing: border-box; }
 .search-input { flex: 1; min-width: 0; color: #222; font-size: 26rpx; }
