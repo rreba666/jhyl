@@ -468,7 +468,10 @@ onMounted(() => {
       </view>
     </view>
 
-    <view v-if="brandExpanded" class="brand-expanded-layer" @click="brandExpanded = false">
+    <!-- ⚠️ 2026-09-29：由 `v-if="brandExpanded"` 改为**常驻 DOM + class 切换**，以支持展开/收起动画。
+         `v-if` 是"元素凭空出现/消失"，CSS transition 没有起始帧可插值 ⇒ 动画不可能生效。
+         收起后的隐藏靠 `.brand-expanded-layer` 的 `opacity: 0` + `pointer-events: none`（见样式说明）。 -->
+    <view class="brand-expanded-layer" :class="{ open: brandExpanded }" @click="brandExpanded = false">
       <view class="brand-expanded-panel" @click.stop>
         <!-- ⚠️ 展开态背景：用**普通 view + CSS background-image(base64)** 而非 <image> ——
                  小程序的 <image> 是原生组件、有固有尺寸，绝对定位给 top/bottom 也不会被撑开，
@@ -600,11 +603,39 @@ onMounted(() => {
 .brand-expand-icon { display: flex; flex-direction: column; align-items: center; }
 .brand-expand-bars { color: #1d2129; font-size: 28rpx; line-height: 22rpx; }
 .brand-expand-arrow { color: #1d2129; font-size: 22rpx; line-height: 18rpx; }
-.brand-expanded-layer { position: absolute; inset: 0; z-index: 10; background: rgba(0, 0, 0, .5); }
-.brand-expanded-panel { position: absolute; top: 0; left: 0; width: 100%; min-height: 600rpx; overflow: hidden; background: #fff; }
+/**
+ * 展开层（品牌全量面板 + 半透明遮罩）。
+ *
+ * ⚠️ 2026-09-29 加展开/收起动画，做法与理由：
+ *    ① **必须常驻 DOM**：原来用 `v-if` ⇒ 元素凭空出现/消失 ⇒ CSS transition **没有起始帧可插值**，
+ *       写了 transition 也不会动。⇒ 改为 `:class="{ open: brandExpanded }"`。
+ *    ② **收起后不能再用 `display: none`**（那等于又退回没动画）⇒ 用
+ *       `opacity: 0` + **`pointer-events: none`**：不可见、且**不拦截下层点击**。
+ *    ③ 动效分两层：**遮罩淡入淡出**（`.24s`）+ **面板从上方滑入滑出**（`.3s`，末段缓出）。
+ *       ⚠️ 面板用 `translateY` 而不是 `height`：height 动画要每帧重排、且 `min-height` 场景下算不准。
+ */
+.brand-expanded-layer {
+  position: absolute; inset: 0; z-index: 10;
+  background: rgba(0, 0, 0, .5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .24s ease;
+}
+.brand-expanded-layer.open { opacity: 1; pointer-events: auto; }
+.brand-expanded-panel {
+  position: absolute; top: 0; left: 0; width: 100%; min-height: 600rpx; overflow: hidden; background: #fff;
+  transform: translateY(-100%);
+  transition: transform .3s cubic-bezier(.22, 1, .36, 1);
+}
+.brand-expanded-layer.open .brand-expanded-panel { transform: translateY(0); }
 .brand-expanded-grid { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); row-gap: 31rpx; padding: 15rpx 31rpx 0; box-sizing: border-box; }
 .brand-expanded-grid .brand-item { display: flex; width: auto; margin-right: 0; }
 .brand-collapse { position: relative; display: flex; height: 69rpx; align-items: center; justify-content: center; gap: 8rpx; color: #4e5969; font-size: 23rpx; line-height: 40rpx; }
 .brand-collapse-arrow { font-size: 28rpx; line-height: 1; }
-@media (prefers-reduced-motion: reduce) { .brand-expand-surface { transition: none; } }
+/* ⚠️ 减弱动效偏好下，本次新增的两处动画也要一起禁用 —— 否则"尊重用户设置"只做了一半 */
+@media (prefers-reduced-motion: reduce) {
+  .brand-expand-surface,
+  .brand-expanded-layer,
+  .brand-expanded-panel { transition: none; }
+}
 </style>
