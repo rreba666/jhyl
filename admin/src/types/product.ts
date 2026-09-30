@@ -65,6 +65,12 @@ export interface ProductSku {
 
 export interface ProductDetail extends ProductListItem {
   categoryId: string
+  /**
+   * 所属分类（多值，2026-09-30 新增）。
+   * ⚠️ `categoryId` 仍保留（后端取**传入数组的第一个**）作为老前端兜底；新代码请用本字段。
+   * ⚠️ 后端**未部署**前该字段缺失 ⇒ 回填时回退到 `[categoryId]`（见 `fillForm`）。
+   */
+  categoryIds?: string[]
   /** 商品品牌 id（goods_brand.id）。 */
   goodsBrandId?: number | null
   /** 关联门店 id 列表（多门店）。 */
@@ -99,7 +105,16 @@ export interface ProductDetail extends ProductListItem {
 export interface AdminProductSaveDTO {
   id?: string
   name: string
-  categoryId: string
+  /**
+   * 所属分类（**多选**）—— 2026-09-30 由单个 `categoryId` 改为数组。
+   *
+   * ⚠️ 后端契约（`AdminProductSaveDTO.categoryIds`）是 `number[]`；
+   *    这里在**表单内**存字符串（与既有 `categoryId` 一样，避免 el-select 的 value 类型混乱），
+   *    **提交前**再统一转成数字（见 `submitForm`）。
+   * ⚠️ 后端口径：多个分类**平等、无主分类**；保存为**全量覆盖**；
+   *    **空数组会报错**（前端 rules 已拦「至少选一个」）；上限 **10 个**；不存在的分类 ID 也报错。
+   */
+  categoryIds: string[]
   /** 商品品牌 id（goods_brand.id，如「海天」；与平台租户 brandId 无关）。 */
   goodsBrandId?: number | null
   /** 所属商户 id（long）。 */
@@ -166,8 +181,9 @@ export interface AdminSkuSaveItem {
  * 详情接口没回显到某个字段时，**该字段单独不提交**（传默认值 1 会把商家已关掉的开关重新打开）。
  * ⇒ 三个字段各自独立判断，不要"一个没回显就全都不提交"（那会导致明明回显到的开关也保存不了）。
  */
-export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryId' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled' | 'sameCityEnabled'> {
-  categoryId?: number
+export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryIds' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled' | 'sameCityEnabled'> {
+  /** 所属分类（**多选**，long[]）。⚠️ 空数组不提交（后端会报错）。 */
+  categoryIds?: number[]
   goodsBrandId?: number
   /** 所属商户 id（long；undefined = 不提交/不修改）。 */
   merchantId?: number | null

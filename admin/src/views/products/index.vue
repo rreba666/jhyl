@@ -63,7 +63,9 @@ const initialDetailImages = ref<string[]>([])
 const initialSortOrder = ref(0)
 const rules: FormRules = {
   name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
-  categoryId: [{ required: true, message: '请选择商品分类', trigger: 'change' }],
+  // ⚠️ 2026-09-30 多分类：数组校验必须写 `type: 'array'` + `min: 1` ——
+  //    空数组 `[]` 在 JS 里是**真值**，只用 `required` 拦不住"一个都没选"。
+  categoryIds: [{ required: true, type: 'array', min: 1, message: '请至少选择一个商品分类', trigger: 'change' }],
   mainImage: [{ required: true, message: '请上传商品主图', trigger: 'change' }],
 }
 
@@ -170,7 +172,7 @@ async function loadBrandOptions(): Promise<void> {
 /** 创建新增商品的默认表单。 */
 function createEmptyForm(): AdminProductSaveDTO {
   // pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增）后端默认 1：新增商品默认两种配送方式都支持
-  return { id: undefined, name: '', categoryId: '', goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1, sameCityEnabled: 1 }
+  return { id: undefined, name: '', categoryIds: [], goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1, sameCityEnabled: 1 }
 }
 
 function getMinSkuPrice(skuList: AdminProductSaveDTO['skuList'] = form.skuList): number {
@@ -224,7 +226,7 @@ function fillForm(detail?: ProductDetail): void {
   const sameCityEcho = detail ? normalizeSwitchOrNull(detail.sameCityEnabled) : 1
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
   sameCitySwitchEchoed.value = sameCityEcho !== null
-  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryId: detail.categoryId, merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, sameCityEnabled: sameCityEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryIds: (detail.categoryIds?.length ? detail.categoryIds : (detail.categoryId ? [String(detail.categoryId)] : [])).map(String), merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, sameCityEnabled: sameCityEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 回填后按该商户加载门店选项（否则 shopIds 在选项里找不到，多选显示为空）
   // ⚠️ 第二参传 true：该商户只有**一个**门店、且本次没回填到 shopIds 时，自动选中它；
   //    若 `detail.shopIds` 已有值，上面的 Object.assign 已写入 ⇒ 自动跳过，不覆盖用户原有选择。
@@ -359,9 +361,16 @@ async function submitForm(): Promise<void> {
   // 后端 categoryId / goodsBrandId 是 integer：传非数字字符串会被 Jackson 判为「请求体格式错误」
   // （2026-09-19 实测复现：categoryId="分类A" → code=1000 请求体格式错误）。
   // 这里提前拦下来给出可读提示，空值则整个字段都不提交。
-  const { categoryId: rawCategoryId, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, sameCityEnabled: rawSameCityEnabled, ...rest } = form
-  const categoryId = toOptionalInteger(rawCategoryId)
-  if (String(rawCategoryId ?? '') !== '' && categoryId === undefined) {
+  const { categoryIds: rawCategoryIds, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, sameCityEnabled: rawSameCityEnabled, ...rest } = form
+  // ⚠️ 2026-09-30 多分类：数组逐个数字化。
+  //    · 后端 `categoryIds` 是 **long[]**，传字符串会被 Jackson 判为「请求体格式错误」；
+  //    · 契约明确「**空数组会报错**」⇒ 空数组时干脆**整个字段不提交**
+  //      （rules 已保证至少选一个，这里是双保险：不提交也比提交空数组去触发后端报错更安全）。
+  const rawCategoryIdList = rawCategoryIds || []
+  const categoryIdList = rawCategoryIdList
+    .map((value) => toOptionalInteger(value))
+    .filter((value): value is number => value !== undefined)
+  if (categoryIdList.length !== rawCategoryIdList.length) {
     ElMessage.error('商品分类参数不合法，请重新选择分类')
     return
   }
@@ -386,7 +395,7 @@ async function submitForm(): Promise<void> {
     const normalizedShopIds = merchantIdPayload == null ? undefined : shopIdList
     const payload: AdminProductSavePayload = {
       ...rest,
-      ...(categoryId === undefined ? {} : { categoryId }),
+      ...(categoryIdList.length ? { categoryIds: categoryIdList } : {}),
       ...(goodsBrandId === undefined ? {} : { goodsBrandId }),
       // 商户 / 门店归属（2026-09-28 接入）：V2 的 save 已支持这两个字段（此前 V2 缺失 ⇒ 保存被静默忽略）。
       // ⚠️ 两者都是 long / long[]：必须传**数字**，传字符串会被 Jackson 判为「请求体格式错误」。
@@ -668,7 +677,14 @@ onMounted(() => {
       <el-form ref="formRef" class="product-form" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="商品名称" prop="name"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="描述标题"><el-input v-model="form.descriptionTitle" placeholder="首页卡片商品描述文字" /></el-form-item>
-        <el-form-item label="商品分类" prop="categoryId"><el-select v-model="form.categoryId" placeholder="请选择分类"><el-option v-for="option in categoryOptions" :key="option.id" :label="option.label" :value="option.id" /></el-select></el-form-item>
+        <!-- ⚠️ 2026-09-30 多分类：改为**多选**（后端 `categoryIds` 是 long[]；
+             多个分类**平等、无主分类**；保存为**全量覆盖**；上限 10 个）。
+             `collapse-tags` 避免选多个时把表单撑高，`filterable` 便于分类多时快速定位。 -->
+        <el-form-item label="商品分类" prop="categoryIds">
+          <el-select v-model="form.categoryIds" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择分类（可多选）">
+            <el-option v-for="option in categoryOptions" :key="option.id" :label="option.label" :value="option.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="主图" prop="mainImage" class="form-item-full media-form-item">
           <ImageGridUpload :model-value="form.mainImage ? [form.mainImage] : []" :max="1" :uploading="mediaUploading" @upload="onMainImageUpload" @remove="form.mainImage = ''" />
           <p class="upload-hint">建议尺寸 750×750px（1:1 正方形），首页卡片中图片将撑满显示，文字叠于底部</p>

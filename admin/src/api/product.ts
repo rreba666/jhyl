@@ -60,6 +60,10 @@ function normalizeProductDetail(detail: ProductDetail): ProductDetail {
     ...detail,
     id: String(detail.id),
     categoryId: String(detail.categoryId),
+    // ⚠️ 2026-09-30 多分类：后端未部署时该字段缺失 ⇒ 归一化成空数组，由填写方回退到 [categoryId]。
+    //    `normalizeStringArray` 会用 `map(String)` 处理任意数组（数字不会丢）、且兼容 JSON 字符串形式，
+    //    正好把后端的 `number[]` 统一成 el-select 需要的字符串值。
+    categoryIds: normalizeStringArray(detail.categoryIds),
     minOriginalPrice: detail.minOriginalPrice == null ? undefined : Number(detail.minOriginalPrice),
     promotionFund: resolvePromotionFund(detail.promotionFund, detail.minPrice),
     promotionEnabled: normalizeProductBinaryOrNull(detail.promotionEnabled),
