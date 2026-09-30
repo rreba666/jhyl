@@ -8,21 +8,26 @@ import type {
   VoiceSceneItem,
   VoiceTemplateUpdate,
   VoiceTemplateUpdateResult,
+  VoiceTestCallRequest,
+  VoiceTestCallResult,
 } from '@/types/voice'
 
 /**
  * 语音配置后台接口层。
  *
- * 依据：`docs/20269231438/语音配置后台-前端对接说明-2026-09-24.md` §1。
+ * 依据：`docs/20269231438/语音配置后台-前端对接说明-2026-09-24.md` §1；
+ *      测试外呼依据 `docs/前端说明-语音模板测试外呼-2026-09-30.md` §二。
  *
  * | 方法 | 路径 | 用途 |
  * |---|---|---|
  * | GET | `/api/admin/voice/config` | 全局参数 + 3 个场景的文案明细 |
  * | PUT | `/api/admin/voice/config` | 全局参数（模板码 / 显号 / 全局开关） |
  * | PUT | `/api/admin/voice/templates/{displayKey}` | 某个场景的播报文案模板 |
+ * | POST | `/api/admin/voice/test-call` | **测试外呼**（用指定 TTS 码真实打一通电话） |
  *
  * - 改完**即时生效**（多实例最多滞后 `cacheTtlSeconds`，现为 30 秒）；
  * - 非超管 `403`；`1000` = 参数校验失败（`message` 可直接展示）。
+ * - ⚠️ `test-call` 是**真实外呼**、后端**无限流**，调用方必须自己防连点。
  */
 
 function unwrap<T>(response: { data: VoiceResponse<T> }, fallback: string): T {
@@ -167,5 +172,41 @@ export async function updateVoiceTemplate(
     source: (row.source ?? 'FALLBACK') as VoiceTemplateUpdateResult['source'],
     oldTemplate: row.oldTemplate ?? null,
     cleared: row.cleared ?? null,
+  }
+}
+
+/**
+ * 写：**测试外呼**（2026-09-30 新增）。
+ *
+ * 用**指定 TTS 码**真实拨打一通电话，让运营当场确认该模板能不能正常播报。
+ *
+ * ⚠️⚠️ **三条必须守住的语义**：
+ * 1. **真实拨号**，不是模拟：调一次就是打一通电话、可能产生费用；后端**没有限流**
+ *    ⇒ **调用方必须 loading + 防连点**（连点会连打多个真实电话）。
+ * 2. **成败看 `data.success`，不是看 `code`**：渠道未受理时 HTTP 200 + `code=0`
+ *    ⇒ 只看 `code` 会把"未受理"误报成"已发起"。
+ * 3. `ttsCode` **原样传页面上「语音模板 ID」输入框的值**，且**不传模板变量** `params`
+ *    （模板文案由渠道侧模板自带，测试时用渠道默认内容）。
+ *
+ * @returns 归一化后的结果；`success=false` **不抛错**（由调用方展示 `message`），
+ *   只有 `code≠0`（`1000` 参数校验 / `1001` 语音渠道未启用）才抛 `Error`。
+ */
+export async function testVoiceCall(body: VoiceTestCallRequest): Promise<VoiceTestCallResult> {
+  const response = await request.post<VoiceResponse<VoiceTestCallResult>>('/api/admin/voice/test-call', body)
+  const result = response.data
+  // ⚠️ 这里**不能复用上面的 `unwrap()`**：`unwrap` 把 `success === false` 也当异常抛出，
+  //    而本接口"渠道未受理"恰恰是**外层 code=0 + 内层 data.success=false** —— 一旦 throw，
+  //    就把后端给的 `data.message`（唯一能说明未受理原因的信息）丢掉了。
+  //    ⇒ 只把「外层 code≠0」当异常。
+  if (result.code !== 0) throw new Error(result.message || '测试外呼失败')
+  const row = (result.data || {}) as Partial<VoiceTestCallResult>
+  return {
+    phone: row.phone ?? null,
+    ttsCode: row.ttsCode ?? null,
+    // 只有明确的 true 才算渠道已受理；缺失/非布尔一律按"未受理"处理（宁可提示，也不误报"已发起"）
+    success: toBoolean(row.success),
+    // null = 走渠道静态公共号池，属正常；页面展示时判空，别让 "null" 上屏
+    callerNumber: row.callerNumber ?? null,
+    message: row.message ?? null,
   }
 }

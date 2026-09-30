@@ -188,6 +188,42 @@ export interface VoiceTemplateUpdateResult {
   cleared: string | null
 }
 
+/**
+ * `POST /api/admin/voice/test-call` 请求体（2026-09-30 新增「测试外呼」）。
+ *
+ * 用途：让运营用某个场景**当前输入框里的 TTS 码**真实外呼一通，当场确认模板能不能正常播报。
+ * ⚠️ 这是**真实拨号**（不是模拟），会真的打电话、可能产生费用；且后端**未做限流** ⇒ 前端必须防连点。
+ */
+export interface VoiceTestCallRequest {
+  /** 接收测试电话的手机号。后端**不校验格式**，前端按"11 位数字"把住体验。 */
+  phone: string
+  /** **页面上「语音模板 ID」输入框里的值，原样传**：不要 trim 掉中间字符、不要自己拼前缀。 */
+  ttsCode: string
+}
+
+/**
+ * `POST /api/admin/voice/test-call` 的 `data`。
+ *
+ * ⚠️⚠️ **成败只看 `success`，不能只看外层 `code`**（说明文档 §二）：
+ * 渠道未受理时 **HTTP 仍是 200、外层 `code` 仍是 0**，只有 `data.success=false` + `data.message`
+ * 才表示这通电话**没打出去**。把 `code=0` 当成功 ⇒ 会把"未受理"报成"已发起"。
+ */
+export interface VoiceTestCallResult {
+  /** 后端回显的号码（原样回显，前端不要拿它当校验依据）。 */
+  phone: string | null
+  /** 后端回显的 TTS 码。 */
+  ttsCode: string | null
+  /** **唯一判成败的字段**：`true` = 渠道已受理并真实外呼。 */
+  success: boolean
+  /**
+   * 实际使用的显号；**`null` = 当前未指定显号，走渠道静态公共号池**（属正常，不是错误）。
+   * ⚠️ 展示时必须判空，**不要让字符串 "null" 上屏**。
+   */
+  callerNumber: string | null
+  /** 渠道未受理的原因（`success=true` 时为 `null`）。 */
+  message: string | null
+}
+
 /** 后端统一响应包装（与其它 api 模块一致）。 */
 export interface VoiceResponse<T> {
   code: number

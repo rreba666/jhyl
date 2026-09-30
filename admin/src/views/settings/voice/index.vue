@@ -23,7 +23,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getVoiceConfig, updateVoiceConfig, updateVoiceTemplate } from '@/api/voice'
+import { getVoiceConfig, testVoiceCall, updateVoiceConfig, updateVoiceTemplate } from '@/api/voice'
 import { VOICE_TEMPLATE_VARIABLES } from '@/types/voice'
 import type {
   VoiceConfigData,
@@ -31,6 +31,7 @@ import type {
   VoiceGlobalSource,
   VoiceSceneItem,
   VoiceSceneSource,
+  VoiceTestCallResult,
 } from '@/types/voice'
 
 const router = useRouter()
@@ -57,6 +58,31 @@ const sceneTtsDrafts = reactive<Record<string, string>>({})
  */
 const sceneTtsOrigin = reactive<Record<string, string>>({})
 
+/**
+ * ===== 测试外呼（2026-09-30 新增，「语音模板 ID」旁的「测试」按钮）=====
+ * 依据：`docs/前端说明-语音模板测试外呼-2026-09-30.md`。
+ * ⚠️⚠️ 这是**真实外呼**：点一下就用该场景当前的 TTS 码真的拨打一通电话、**可能产生费用**，
+ * 且后端**未做任何限流** ⇒ 连点会连打多个真实电话。所以这里必须 loading + 防连点。
+ */
+const testDialogVisible = ref(false)
+/**
+ * 待测试的手机号。
+ * ⚠️ **故意不在关闭弹窗时清空**：预填上次输入的值，便于连续测试多个场景（文档 §四-2）。
+ */
+const testPhone = ref('')
+/**
+ * 本次要测的场景快照（点「测试」那一刻取）。
+ * ⚠️ `ttsCode` 存**原始值**：原样传「语音模板 ID」输入框的当前值（不 trim 中间字符、不拼前缀）。
+ */
+const testTarget = ref<{ displayKey: string; sceneLabel: string; ttsCode: string } | null>(null)
+/** 提交中：既驱动按钮 loading，也做**重复提交的硬拦截**（loading 只是视觉，不是并发保护）。 */
+const testing = ref(false)
+/**
+ * 最近一次外呼的返回结果。
+ * ⚠️ 用途有两个：① 展示显号 `callerNumber`；② 未受理时把后端 `message` 落在弹窗里（不只是一闪而过的 toast）。
+ */
+const testResult = ref<VoiceTestCallResult | null>(null)
+
 /** 全局参数表单。 */
 const form = reactive<{
   voiceCode: string
@@ -76,8 +102,25 @@ const form = reactive<{
 /** 多实例最大滞后秒数（用于页面提示）。 */
 const cacheLagSeconds = computed(() => data.value?.cacheTtlSeconds || 0)
 
+/**
+ * 测试外呼结果里的**显号人话描述**。
+ * ⚠️ `callerNumber` 为 `null` 表示**走渠道静态公共号池**（正常情况），
+ *    直接插值会渲染出字符串 "null" ⇒ 这里必须判空后给说明文案（文档 §四-8）。
+ */
+const testCallerNumberText = computed(() => {
+  const value = testResult.value?.callerNumber
+  return value && value.trim() ? value : '未单独指定（走渠道静态公共号池）'
+})
+
 /** 模板码格式（与后端一致：忽略大小写的 `TTS_` + 6~12 位数字）。 */
 const VOICE_CODE_PATTERN = /^TTS_[0-9]{6,12}$/i
+
+/**
+ * 手机号基本格式：11 位数字、1 开头。
+ * ⚠️ 后端**不校验格式**（只校验非空，空了才 `1000`）⇒ 打错号会真的拨给一个错误号码，
+ *    所以「格式」这一关只能前端把（文档 §四-3）。
+ */
+const PHONE_PATTERN = /^1[3-9]\d{9}$/
 
 /** 全局参数来源文案。 */
 function globalSourceLabel(source: VoiceGlobalSource): string {
@@ -265,6 +308,85 @@ async function saveScene(item: VoiceSceneItem): Promise<void> {
   }
 }
 
+/**
+ * 打开「测试外呼」弹窗（场景卡片里「测试」按钮的入口）。
+ *
+ * ⚠️ 这里**先把 TTS 码的前置校验做掉**，而不是等提交时再说：
+ * 码为空 / 格式不对 ⇒ 后端 `1000`，白白让运营等一次网络往返；
+ * 而**格式不对的码后端其实也会照发**，所以前端提前拦住更稳妥（与「保存该场景」表单一套口径）。
+ */
+function openTestCall(item: VoiceSceneItem): void {
+  // 取输入框当前值，**不 trim**：原样传（含首尾空格的码本身就不合法，直接拦下）
+  const ttsCode = sceneTtsDrafts[item.displayKey] || ''
+  if (!ttsCode) {
+    // 文案与后端 `1000` 的文案保持一致，避免"前端说一套、后端说一套"
+    ElMessage.warning('请填写要测试的语音模板 ID（TTS 码，如 TTS_328610728）')
+    return
+  }
+  if (!VOICE_CODE_PATTERN.test(ttsCode)) {
+    ElMessage.warning('语音模板码格式不对：应为「TTS_ + 6~12 位数字」，且不要带多余空格')
+    return
+  }
+  testTarget.value = { displayKey: item.displayKey, sceneLabel: item.sceneLabel, ttsCode }
+  testResult.value = null
+  testDialogVisible.value = true
+}
+
+/**
+ * 提交测试外呼。
+ *
+ * ⚠️⚠️ 会**真实拨打一通电话、可能产生费用**，且后端**无限流**：
+ * 所以这里三道防连点 —— ① `testing` 早退（真正的并发保护）、② 提交按钮 `loading`、③ 提交按钮 `disabled`。
+ */
+async function submitTestCall(): Promise<void> {
+  const target = testTarget.value
+  if (!target) return
+  // 防连点第①道：提交中直接忽略（el-button 的 loading 只是视觉表现，不能当并发锁用）
+  if (testing.value) return
+
+  const phone = testPhone.value.trim()
+  if (!phone) {
+    ElMessage.warning('请填写接收测试电话的手机号')
+    return
+  }
+  if (!PHONE_PATTERN.test(phone)) {
+    ElMessage.warning('手机号格式不对：请填 11 位数字（例如 19958974093）')
+    return
+  }
+
+  testing.value = true
+  testResult.value = null
+  try {
+    // ttsCode 原样传（就是点「测试」那一刻输入框里的值）；**不传**模板变量 params
+    const result = await testVoiceCall({ phone, ttsCode: target.ttsCode })
+    testResult.value = result
+    // ⚠️ 成败只看 data.success：渠道未受理时 HTTP 仍是 200、code 仍是 0，
+    //    只看 code 会把"没打出去"报成"已发起"，运营就会一直等一个永远不会来的电话。
+    if (result.success) {
+      ElMessage.success('已发起测试外呼，请留意手机来电')
+      // 记住本次号码（弹窗不自动关，可连续测其它场景；号码预填上次输入值）
+      testPhone.value = phone
+    } else {
+      // 渠道未受理：把后端 message 展示给运营（这是唯一能说明原因的信息）
+      ElMessage.error(result.message || '渠道未受理：请检查该 TTS 模板是否已审核通过、号码是否合法、语音渠道是否可用')
+    }
+  } catch (error) {
+    // 抛错 = 外层 code≠0：`1000` 参数校验 / `1001` 系统繁忙（语音渠道未启用）⇒ 直接展示后端 message
+    ElMessage.error(error instanceof Error ? error.message : '测试外呼失败')
+  } finally {
+    testing.value = false
+  }
+}
+
+/**
+ * 弹窗关闭后的收尾。
+ * ⚠️ **只清结果与场景快照，不清 `testPhone`** —— 手机号要预填上次输入的值，方便连续测试。
+ */
+function handleTestDialogClosed(): void {
+  testResult.value = null
+  testTarget.value = null
+}
+
 onMounted(() => {
   void load()
 })
@@ -428,6 +550,21 @@ onMounted(() => {
                 <strong>（改过了，保存后生效）</strong>
               </template>
             </p>
+            <!-- ⚠️ 测试外呼（2026-09-30）：用上面输入框里**当前**的 TTS 码真实打一通电话。
+                 ⚠️ 会真的拨号、可能产生费用，且后端无限流 ⇒ 提交期间按钮一并禁用（防连点）。 -->
+            <div class="tts-test-row">
+              <el-button
+                size="small"
+                :loading="testing && testTarget?.displayKey === item.displayKey"
+                :disabled="testing"
+                @click="openTestCall(item)"
+              >
+                测试
+              </el-button>
+              <span class="hint inline">
+                用当前 TTS 码<strong>真实外呼一通</strong>（可能产生费用），当场确认模板能否播报
+              </span>
+            </div>
           </div>
 
           <div class="scene-preview">
@@ -489,6 +626,56 @@ onMounted(() => {
         </el-link>
       </el-card>
     </template>
+
+    <!-- ===== 测试外呼弹窗（2026-09-30 新增）=====
+         ⚠️ 弹窗只有一个（不放在 v-for 里），靠 testTarget 记住"要测哪个场景 + 用哪个 TTS 码"。
+         ⚠️ 提交中是真实拨号，期间禁止关闭（遮罩点击 / ESC / 右上角 ×）以免运营误以为"取消了"。 -->
+    <el-dialog
+      v-model="testDialogVisible"
+      title="测试外呼"
+      width="480px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!testing"
+      :show-close="!testing"
+      @closed="handleTestDialogClosed"
+    >
+      <template v-if="testTarget">
+        <!-- ⚠️ 这句提示是硬要求（文档 §四-4）：不是模拟，是真的打电话、真的可能扣费 -->
+        <el-alert type="warning" :closable="false" show-icon class="block">
+          <template #title>将向该号码真实拨打一通电话，可能产生费用</template>
+          <p class="hint">这是真实外呼（不是模拟），请先核对号码；后端未做限流，请勿连点。</p>
+        </el-alert>
+
+        <p class="hint">
+          场景：<strong>{{ testTarget.sceneLabel }}</strong>
+          · TTS 码：<code>{{ testTarget.ttsCode }}</code>
+          <span class="hint inline">（原样取「语音模板 ID」输入框的当前值）</span>
+        </p>
+
+        <el-form label-width="72px" class="mt">
+          <el-form-item label="手机号">
+            <el-input v-model="testPhone" maxlength="11" placeholder="11 位手机号，例如 19958974093" clearable />
+            <p class="hint">只做 11 位数字基本校验；<strong>打错了就是真的打给那个号</strong>，请核对后再提交。</p>
+          </el-form-item>
+        </el-form>
+
+        <!-- 结果区：成功的显号可能是 null（走渠道静态号池）⇒ 用 testCallerNumberText 判空，别让 "null" 上屏 -->
+        <el-alert v-if="testResult" :type="testResult.success ? 'success' : 'error'" :closable="false" show-icon>
+          <template #title>
+            {{ testResult.success ? '已发起测试外呼，请留意手机来电' : (testResult.message || '渠道未受理') }}
+          </template>
+          <p class="hint">显号：{{ testCallerNumberText }}</p>
+        </el-alert>
+      </template>
+
+      <template #footer>
+        <el-button :disabled="testing" @click="testDialogVisible = false">取消</el-button>
+        <!-- ⚠️ loading + disabled 双保险：后端无限流，连点 = 连打多个真实电话 -->
+        <el-button type="primary" :loading="testing" :disabled="testing" @click="submitTestCall">
+          {{ testing ? '正在外呼…' : '发起测试外呼' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -515,5 +702,7 @@ onMounted(() => {
 .field-label { display: block; margin: 0 0 6px; color: var(--el-text-color-regular); font-size: 13px; font-weight: 600; }
 .preview-text { margin: 0; padding: 10px 12px; background: var(--el-fill-color-light); border-radius: 6px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; }
 .scene-actions { display: flex; align-items: center; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+/* 「测试」按钮行：按钮与说明文字一行，窄屏自动换行 */
+.tts-test-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 .readonly-grid { display: flex; flex-direction: column; gap: 14px; }
 </style>
