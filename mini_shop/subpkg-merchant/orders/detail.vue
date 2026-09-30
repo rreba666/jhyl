@@ -434,9 +434,12 @@ function goBack(): void {
           <text class="info-label">实付金额</text>
           <text class="info-value-text">{{ payAmountText }}</text>
         </view>
-        <view v-if="order.remark" class="info-row">
+        <!-- ⚠️ 2026-09-30 修：契约 `MerchantOrderDetailVO` 的字段名是 **`buyerRemark`**（买家留言），
+             **没有 `remark`** ⇒ 原先 `v-if="order.remark"` **恒为 false**，商家**永远看不到买家留言**
+             （"少放辣""放门口"这类要求直接被丢掉）。同结构里 `exceptionRemark` 的用法是对的。 -->
+        <view v-if="order.buyerRemark" class="info-row">
           <text class="info-label">备注</text>
-          <text class="info-value-text">{{ order.remark }}</text>
+          <text class="info-value-text">{{ order.buyerRemark }}</text>
         </view>
       </view>
       <!-- 底部动作栏是 fixed，这里留占位，避免它盖住最后一行 -->

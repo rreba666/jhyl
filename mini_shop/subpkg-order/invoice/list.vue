@@ -52,6 +52,15 @@ async function showDetail(item: InvoiceRequest): Promise<void> {
 
 onLoad(() => {
   if (!isLoggedIn()) {
+    // ⚠️⚠️ 2026-09-30 修（审计发现）：
+    //    原先这里只置 `loginGuideVisible = true` 就 `return`，**没有置 `loaded = true`**，
+    //    而下方的 `onShow` 是 `if (loaded.value) void load(true)`
+    //    ⇒ 游客点「去登录」、登录成功返回本页后：`loaded` 仍为 false、`loading` 也为 false
+    //    ⇒ 「加载中」与「暂无发票记录」**两个空态都不满足** ⇒ **列表永久空白**，
+    //      且没有任何重试入口，用户只能退出重进。
+    //    ⚠️ 对照：`subpkg-order/orders/list.vue`、`subpkg-wallet/favorite/list.vue`
+    //       的同类分支**都置了** `loaded = true`，唯独此处遗漏。
+    loaded.value = true
     loginGuideVisible.value = true
     return
   }

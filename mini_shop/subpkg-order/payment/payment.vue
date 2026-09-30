@@ -87,6 +87,20 @@ const existingOrder = ref<OrderDetail | null>(null)
 const paying = ref(false)
 const switchingToBalancePayment = ref(false)
 const paymentSucceeded = ref(false)
+/**
+ * 支付流程是否**已收尾**（成功/失败终态），用于堵住「支付成功后仍可再次提交」的窗口。
+ *
+ * ⚠️ 2026-09-30 新增（审计发现，与用户反馈的「连下三单」同类）：
+ *   `completePayment(id, false)` 时 `paymentSucceeded` 仍是 `false`（页面要保持"可支付"直到跳转），
+ *   而它内部用 `setTimeout(500ms)` 排队 `redirectTo` 就 return，`paying` 又在 `finally` 里**立刻**置回 false
+ *   ⇒ 这 **0.5 秒窗口**内 `submitPayment()` 的唯一闸门 `if (paying.value) return` **已失效**，
+ *   连点「立即支付」会以**同一个 orderId 再次** `createPrepay` / `payByBalance`
+ *   （余额路径二次扣款、微信路径二次拉起收银台）。
+ *   ⇒ 用本标记在**进入 `completePayment` 的第一时间**就锁死后续提交（不依赖 500ms 定时器）。
+ *   ⚠️ 与 `paymentSucceeded` 分开是刻意的：后者还承担「整页切到支付成功态」的 UI 语义，
+ *      本标记只管**并发/重复提交**这一件事。
+ */
+const paymentFinalized = ref(false)
 /** 微信 prepay 成功后已占用微信支付渠道，余额支付必须走安全切换接口。 */
 const wechatPaymentStarted = ref(false)
 /** 仅在明确收到微信收银台取消结果后展示安全切换入口。 */
@@ -460,11 +474,27 @@ function reloadCheckout(): void {
  */
 const shopsLoaded = ref(false)
 
+/**
+ * 门店列表**是否加载失败**（区别于「确实一个可用门店都没有」）。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：原先 `loadShops` 失败时只把 `shops` 置空，
+ * 而 `shopEmptyText` 会据此显示「**暂无可用门店 / 暂无门店可提供该商品**」
+ * ⇒ **把网络/接口故障说成"平台没有门店"**，用户会信以为真直接弃单，
+ * 且页面**没有失败提示、没有重试入口**。
+ * ⇒ 现在单独记一个失败标记，由 `shopEmptyText` 给出**可区分**的文案。
+ */
+const shopsLoadFailed = ref(false)
+
 /** 加载 C 端可用门店，替换支付页中的本地假数据。 */
 async function loadShops(): Promise<void> {
-  try { shops.value = await getEnabledShops() }
-  catch (error) { shops.value = []; console.error('门店列表加载失败', error) }
-  finally { shopsLoaded.value = true }
+  try {
+    shops.value = await getEnabledShops()
+    shopsLoadFailed.value = false
+  } catch (error) {
+    shops.value = []
+    shopsLoadFailed.value = true
+    console.error('门店列表加载失败', error)
+  } finally { shopsLoaded.value = true }
 }
 
 /* ===================== 同城配送：按商品筛选可配送门店（2026-09-24 修） ===================== */
@@ -555,6 +585,9 @@ const sameCityShops = computed(() => {
  *    只有筛选结果拿不到（退回全量）时才说"暂无可用门店 / 没有门店开通同城"。
  */
 const shopEmptyText = computed(() => {
+  // ⚠️ 2026-09-30：门店列表**加载失败**时必须与「确实没有门店」区分开 ——
+  // 否则会把接口故障说成"平台没有门店"，用户信以为真直接弃单、也不会去重试。
+  if (shopsLoadFailed.value) return '门店列表加载失败，请点击「重新加载」重试'
   // 自提：只看有没有门店能提供这批商品
   if (pickupType.value === 1) {
     return deliverableShops.value !== null ? '暂无门店可提供该商品' : '暂无可用门店'
@@ -1407,6 +1440,9 @@ function isOrderPaid(status: unknown): boolean {
 
 /** 统一提交支付成功后的发票，并按支付来源决定留在当前页还是跳转订单详情。 */
 async function completePayment(currentOrderId: string, stayOnPage: boolean): Promise<void> {
+  // ⚠️ 2026-09-30：**第一件事就上锁** —— 支付到此已成功，无论后续发票/跳转是否顺利，
+  //    都不允许再提交一次支付（详见 `paymentFinalized` 的注释）。
+  paymentFinalized.value = true
   let invoiceError: unknown = null
   if (invoiceEnabled.value) {
     try {
@@ -1512,7 +1548,10 @@ async function switchToBalancePayment(): Promise<void> {
 
 /** 校验结算信息，创建订单后获取支付签名并调起微信支付。 */
 async function submitPayment(): Promise<void> {
-  if (paying.value) return
+  // ⚠️ 2026-09-30：`paymentFinalized` 是「支付已收尾」的**同步锁** ——
+  //    原先只看 `paying`，而它在支付成功后会被 `finally` 立刻置回 false（此时页面还没跳走）
+  //    ⇒ 存在约 0.5s 可重复提交的窗口（详见 `paymentFinalized` 注释）。
+  if (paying.value || paymentFinalized.value) return
   const isExistingOrder = Boolean(orderId.value)
   if (!items.value.length && !isExistingOrder) {
     uni.showToast({ title: '没有可结算的商品', icon: 'none' })

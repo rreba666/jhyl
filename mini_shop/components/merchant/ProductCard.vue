@@ -54,9 +54,20 @@ const priceText = computed(() => {
   return formatMoney(value)
 })
 
-/** 有效库存：门店库存优先，否则品牌总库存。 */
+/**
+ * 本店库存展示。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：原先用 `shopStock ?? totalStock` **自造**"有效库存"，
+ * 而契约 `MerchantProductVO` **本身就提供 `effectiveStock`**，且注释明确说三者**不是同一个数**：
+ *   · `effectiveStock` = 本店有效库存（可售）= 逐 SKU 三级回退后**减锁定**、下限 0，再求和；
+ *   · `totalStock`     = 品牌级总库存，**不减锁定**；
+ *   · `shopStock`      = 门店级 SPU 覆盖值（NULL 表示用总库存）。
+ * ⇒ 用错值会让**商家看到的库存与 C 端可售库存不一致**（显示有货、用户下单无货）。
+ * ⚠️ 回退链保留：老后端/字段缺失时仍依次退到 `shopStock` → `totalStock`，避免显示空白。
+ */
 const stockText = computed(() => {
-  const value = props.product.shopStock ?? props.product.totalStock
+  const product = props.product
+  const value = product.effectiveStock ?? product.shopStock ?? product.totalStock
   if (value == null) return '—'
   return Number(value).toLocaleString('en-US')
 })

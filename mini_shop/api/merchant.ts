@@ -119,6 +119,16 @@ export interface MerchantProductVO {
   shopPrice?: number | null
   /** 门店库存（NULL=用商品总库存）。 */
   shopStock?: number | null
+  /**
+   * **本店有效库存（可售）** —— 契约 `MerchantProductVO.effectiveStock`。
+   *
+   * ⚠️ 2026-09-30 补录：契约注释明确「= 逐 SKU 三级回退后**减锁定**、下限 0，再求和。
+   *    ⚠️ 与 `totalStock`（品牌级、**不减锁定**）、`shopStock`（SPU 级覆盖值）**都不是同一个数**」，
+   *    但此前前端类型**没有声明该字段**，商家端商品卡只好用 `shopStock ?? totalStock` **自造**一个
+   *    "有效库存" ⇒ **商家看到的库存与 C 端可售库存不一致**（显示有货、用户下单无货）。
+   * ⚠️ 老后端可能不下发 ⇒ 消费方需保留回退链。
+   */
+  effectiveStock?: number | null
   /** 启用规格数（=1 单规格；>1 多规格商品，改门店价会统一作用于全部规格）。 */
   skuCount?: number
   /** 启用规格明细（编辑页回填；size 恒等于 skuCount）。 */
@@ -297,8 +307,14 @@ export interface MerchantOrderDetailVO extends MerchantOrderCardVO {
   pickupCode?: string | null
   /** 商品合计（详情金额，与 totalAmount 同义，后端二者其一）。 */
   goodsAmount?: number | null
-  /** 订单备注 / 买家留言。 */
-  remark?: string | null
+  /**
+   * 买家留言 / 订单备注（契约 `MerchantOrderDetailVO.buyerRemark`）。
+   *
+   * ⚠️ 2026-09-30 修：此前字段名误写成 **`remark`**（契约里根本没有该字段）
+   * ⇒ 商家端订单详情的 `v-if="order.remark"` **恒为 false**，
+   * **商家永远看不到买家留言**（"少放辣""放门口"这类要求直接被丢掉）。
+   */
+  buyerRemark?: string | null
 }
 
 /** 订单页签（6 个，同城履约视角）。 */

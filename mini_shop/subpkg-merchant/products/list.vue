@@ -89,9 +89,19 @@ const leftBtnText = computed(() => (activeTab.value === 'offSale' ? '上架商�
 const batchTargetStatus = computed<0 | 1>(() => (activeTab.value === 'offSale' ? 1 : 0))
 const batchActionLabel = computed(() => (batchTargetStatus.value === 1 ? '上架' : '下架'))
 
-/** 有效库存（门店库存优先，否则品牌总库存）。 */
+/**
+ * 本店有效库存（**优先用契约字段 `effectiveStock`**）。
+ *
+ * ⚠️ 2026-09-30 修（审计发现）：原先用 `shopStock ?? totalStock` **自造**"有效库存"，
+ * 而契约 `MerchantProductVO` **本身就提供 `effectiveStock`**，且注释明确三者**不是同一个数**：
+ * `effectiveStock` = 逐 SKU 三级回退后**减锁定**、下限 0 再求和；
+ * `totalStock` = 品牌级、**不减锁定**；`shopStock` = SPU 级门店覆盖值。
+ * ⇒ 用错值会让**商家看到的库存与 C 端可售库存不一致**（显示有货、用户下单无货），
+ *   且「库存预警」也按错值过滤。
+ * ⚠️ 回退链保留：老后端不下发 `effectiveStock` 时依次退到 `shopStock` → `totalStock`。
+ */
 function effectiveStock(p: MerchantProductVO): number {
-  const v = p.shopStock ?? p.totalStock
+  const v = p.effectiveStock ?? p.shopStock ?? p.totalStock
   return v == null ? 0 : Number(v)
 }
 
@@ -309,7 +319,9 @@ function submitPrice(): void {
 function openStock(product: MerchantProductVO): void {
   stockTarget.value = product
   stockInput.value = ''
-  const cur = product.shopStock ?? product.totalStock
+  // ⚠️ 2026-09-30 同 `effectiveStock()`：改库存的**回填起点**也应优先用契约的「本店有效库存」，
+  //    否则商家看到的"当前库存"与实际可售不一致 ⇒ 会基于错误的起点改库存。
+  const cur = product.effectiveStock ?? product.shopStock ?? product.totalStock
   if (cur != null) stockInput.value = String(cur)
 }
 

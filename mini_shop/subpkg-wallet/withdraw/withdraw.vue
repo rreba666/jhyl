@@ -895,7 +895,17 @@ async function handleRealnameVerified(status: RealnameStatus): Promise<void> {
   pendingAction.value = null
 
   if (action === 'withdraw' && pendingWithdrawAmount.value != null) {
+    // ⚠️⚠️ 2026-09-30 修（审计发现的**资金类缺陷**）：
+    //    原实现只 `pendingWithdrawAmount.value = null` 就 `return`，**提现根本没有提交** ——
+    //    用户在提现页被拦去实名、认证完成、弹层关闭，**看不到任何提示**，
+    //    以为提现已提交，实际一分钱都没动。
+    //    ⚠️ 而共享门禁 `utils/realname-gate.ts:19 / :93` **明文承诺**
+    //       「认证成功后都会**自动续跑**原动作（用户无需再点一次）」——
+    //       紧邻的 transfer 分支也确实 `await executeTransfer(payload)`，唯独提现漏了续跑。
+    //    ⇒ 这里补上：取出金额后立即续跑 `executeWithdraw`（与 `:811` 的正常提现路径同一个函数）。
+    const amount = pendingWithdrawAmount.value
     pendingWithdrawAmount.value = null
+    await executeWithdraw(amount)
     return
   }
   if (action === 'transfer' && pendingTransfer.value) {
