@@ -3,7 +3,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
 import { cancelOrder, fastRefundOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单详情页共用同一套口径
-import { canFastRefund, refundStatusOverrideText } from '@/utils/refund-window'
+import { canFastRefundNow, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText } from '@/utils/refund-window'
 import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 import { isApiRequestError } from '@/utils/request'
@@ -376,6 +376,16 @@ async function submitFastRefund(reason: string): Promise<void> {
       }
       const gateMessage = gateMessageMap[Number(error.code)]
       if (gateMessage) {
+        // ⚠️⚠️ 2026-10-01 修（用户反馈「秒退达上限后提示走审核退款，但退款按钮还是走秒退」）：
+        //    后端已**明确拒绝**秒退 ⇒ 必须**记下来**，否则按钮仍是「立即退款」
+        //    （因为 30 分钟窗口还在）⇒ 用户再点还是被拒，**死循环**。
+        // ⚠️ 作用域不同：`2012` 是**账号级**（今天所有单都不该再秒退）；
+        //    `2011`/`2013`/`2014` 是**订单级**（只影响这一笔）。
+        //    ⚠️ 列表页的 `deliveryStatus` 恒为 null（不是详情页那套枚举）⇒
+        //       同城的履约闸门 `2013` 只能靠这里记，`isFastRefundGateClosed` 在列表页是失效的。
+        const code = Number(error.code)
+        if (code === 2012) markFastRefundDailyQuotaExhausted()
+        else markFastRefundBlocked(refundSheetOrder.value?.id)
         // 与 8705 一致：关弹层、清幂等键、跳「退款/售后」分类
         refundSheetVisible.value = false
         refundSheetOrder.value = null
@@ -521,7 +531,7 @@ onShow(() => {
               <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
               <!-- 秒退：支付后 30 分钟内可免审核立即退款（与订单详情页同一口径，见 utils/refund-window.ts）；
                    📌 2026-09-22 起**必须先填退款理由** → 点击只开理由弹层，提交逻辑在 submitFastRefund -->
-              <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="openFastRefund(order)">立即退款</text>
+              <text v-else-if="canFastRefundNow(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="openFastRefund(order)">立即退款</text>
               <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '退款' }}</text>
               <text class="btn primary" @click.stop="openDetail(order)">去自提</text>
             </template>
@@ -536,7 +546,7 @@ onShow(() => {
               <template v-if="order.status === 1 && progressNodeMap[order.orderNo] !== 'DELIVERED'">
                 <text v-if="processingOrderIds.has(String(order.id))" class="btn outline">售后中</text>
                 <!-- 秒退同上述自提单口径：先填退款理由再提交（📌 2026-09-22 起必填） -->
-                <text v-else-if="canFastRefund(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="openFastRefund(order)">立即退款</text>
+                <text v-else-if="canFastRefundNow(order)" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="openFastRefund(order)">立即退款</text>
                 <text v-else class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="refund(order)">{{ actionLoading === 'refund:' + order.id ? '处理中...' : '申请退款' }}</text>
               </template>
               <text v-if="order.pickupType === 2 && order.status === 1 && progressNodeMap[order.orderNo] === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>

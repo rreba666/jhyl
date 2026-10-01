@@ -158,7 +158,119 @@ export function refundStatusOverrideText(
   const n = Number(status)
   // 6 = 退款受理中：给到账预期，别让用户以为已经到账
   if (n === 6) return variant === 'short' ? REFUNDING_SHORT_TEXT : REFUNDING_TEXT
-  // 7 = 已退款到账：显式覆盖，保证"只有 7 才出现已退款"这条铁律由前端也兜一层
+  // 7 = 已退款到账：显式覆盖，保证"只有 7 出现已退款"这条铁律由前端也兜一层
   if (n === 7) return '已退款'
   return ''
+}
+
+/* ------------------------------------------------------------------ *
+ * 秒退被「后端闸门」拦下的本地记录（2026-10-01 修）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ⚠️⚠️ 为什么需要这一段（用户 2026-10-01 反馈）：
+ *
+ * > 「秒退达上限后提示走审核退款，但**退款按钮还是走的秒退**，应该到限制之后自动走普通退款接口」
+ *
+ * 秒退按钮原先只判**本地**两件事：
+ *   ① `canFastRefund(order)` —— 支付后 30 分钟窗口；
+ *   ② `isFastRefundGateClosed(order)` —— 同城履约进度闸门。
+ * **完全没有**考虑**后端返回的闸门错误** ⇒ 用户点一次被拒（弹"请提交售后申请（人工审核）"），
+ * 但按钮**仍然显示「立即退款」**（因为 30 分钟窗口还在）⇒ 再点还是被拒，**死循环**。
+ *
+ * ⇒ 这里记下"**后端已明确拒绝秒退**"的状态，让页面把按钮换成普通「申请退款」（人工审核）。
+ *
+ * ## 两类闸门，作用域**不同**（不能混为一谈）
+ * | 后端码 | 含义 | 作用域 |
+ * |---|---|---|
+ * | `2014` | 订单金额超过秒退上限（默认 500 元） | **订单级**（只影响这一笔） |
+ * | `2011` | 已超过秒退时限 | **订单级** |
+ * | `2012` | **今日**秒退次数已达上限 | ⚠️ **账号级**（影响该用户**当天所有**订单） |
+ *
+ * ⚠️ 因此 `2012` 用**日期**限定，**跨天自动失效**（后端口径就是"今日次数"）；
+ *    而订单级记录直接存订单 ID。
+ * ⚠️ 都持久化到 storage：换页面（列表 ↔ 详情）与重进小程序都应保持，否则按钮会"复活"。
+ */
+
+/** 订单级：被拒绝秒退的订单 ID 列表。 */
+const BLOCKED_ORDERS_KEY = 'fast_refund_blocked_orders'
+/** 账号级：记录"今日秒退次数已用完"的**日期串**（非当天即失效）。 */
+const DAILY_QUOTA_DATE_KEY = 'fast_refund_daily_quota_date'
+
+/** 当前日期串（`yyyy-MM-dd`），用于"今日次数"的跨天判定。 */
+function todayKey(): string {
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** 读取订单级黑名单（异常一律当空，保证不阻断页面）。 */
+function readBlockedOrders(): string[] {
+  try {
+    const raw = uni.getStorageSync(BLOCKED_ORDERS_KEY)
+    return Array.isArray(raw) ? raw.map((item) => String(item)) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 标记「这笔订单已被后端拒绝秒退」（`2014` 金额超上限 / `2011` 超时限）。
+ * ⚠️ 调用后页面应立刻把按钮换成普通「申请退款」。
+ */
+export function markFastRefundBlocked(orderId: number | string | null | undefined): void {
+  if (orderId == null || orderId === '') return
+  try {
+    const id = String(orderId)
+    const list = readBlockedOrders()
+    if (!list.includes(id)) {
+      list.push(id)
+      uni.setStorageSync(BLOCKED_ORDERS_KEY, list)
+    }
+  } catch {
+    // ⚠️ 记录失败不影响主流程：最坏结果只是按钮多显示一次「立即退款」
+  }
+}
+
+/** 这笔订单是否已被后端拒绝过秒退。 */
+export function isFastRefundBlocked(orderId: number | string | null | undefined): boolean {
+  if (orderId == null || orderId === '') return false
+  return readBlockedOrders().includes(String(orderId))
+}
+
+/**
+ * 标记「**今日**秒退次数已用完」（`2012`）。
+ * ⚠️ 这是**账号级**闸门 —— 当天所有订单都不该再给秒退入口；跨天自动失效。
+ */
+export function markFastRefundDailyQuotaExhausted(): void {
+  try {
+    uni.setStorageSync(DAILY_QUOTA_DATE_KEY, todayKey())
+  } catch {
+    // 同上：失败不阻断
+  }
+}
+
+/** 今日秒退次数是否已用完（跨天自动返回 false）。 */
+export function isFastRefundDailyQuotaExhausted(): boolean {
+  try {
+    return String(uni.getStorageSync(DAILY_QUOTA_DATE_KEY) || '') === todayKey()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * **秒退入口的总判据**（页面统一用这个，不要再单独用 `canFastRefund`）。
+ *
+ * = 本地 30 分钟窗口 **且** 该订单未被后端拒过 **且** 今日次数未用完。
+ *
+ * ⚠️ 仍不包含同城履约闸门 —— 那个由页面用 `isFastRefundGateClosed(order)` 单独判
+ *    （因为它还要给出"申请取消（需商家确认）"这种**不同的**按钮形态）。
+ */
+export function canFastRefundNow(
+  order: Pick<OrderSummary, 'id' | 'status' | 'payTime' | 'createTime'> | null | undefined,
+): boolean {
+  if (!canFastRefund(order)) return false
+  if (isFastRefundDailyQuotaExhausted()) return false
+  return !isFastRefundBlocked(order?.id)
 }

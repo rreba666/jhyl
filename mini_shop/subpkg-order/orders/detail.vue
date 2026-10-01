@@ -3,7 +3,7 @@ import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref, watch } from 'vue'
 import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
-import { canFastRefund, isFastRefundGateClosed, refundStatusOverrideText } from '@/utils/refund-window'
+import { canFastRefundNow, isFastRefundGateClosed, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
 import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
@@ -686,6 +686,12 @@ async function submitFastRefund(reason: string): Promise<void> {
       }
       const gateMessage = gateMessageMap[code]
       if (gateMessage) {
+        // ⚠️⚠️ 2026-10-01 修（用户反馈「达上限后提示走审核退款，但退款按钮还是走秒退」）：
+        //    后端已明确拒绝秒退 ⇒ **必须记下来**，否则按钮仍是「立即退款」
+        //    （因为 30 分钟窗口还在）⇒ 用户再点还是被拒，**死循环**。
+        // ⚠️ 作用域不同：2012 是**账号级**（今天所有单都不该再秒退）；2014/2011 是**订单级**。
+        if (code === 2012) markFastRefundDailyQuotaExhausted()
+        else markFastRefundBlocked(order.value?.id)
         refundSheetVisible.value = false
         fastRefundRequestId = ''
         uni.showToast({ title: gateMessage, icon: 'none', duration: 3000 })
@@ -847,13 +853,16 @@ onUnload(() => {
         </view>
       </view>
 
-      <!-- ⚠️ 秒退按钮的判据必须**调用** canFastRefund(order)：它是函数，模板里不加括号会被求值成"函数对象"（恒 truthy），
-           于是 30 分钟窗口判断完全失效、任何"已支付未送达"的单都会显示「立即退款」（2026-09-22 修的 bug）。 -->
+      <!-- ⚠️ 秒退按钮的判据必须**调用** `canFastRefundNow(order)`：它是函数，模板里不加括号会被求值成"函数对象"（恒 truthy），
+           于是窗口判断完全失效、任何"已支付未送达"的单都会显示「立即退款」（2026-09-22 修的 bug）。
+           ⚠️ 2026-10-01：判据由「纯窗口函数」升级为下面这个**总判据**（叠加了闸门记录）—— 它在 30 分钟窗口之外，
+              还叠加了「被后端闸门拒过（2011/2014）」与「今日次数已用完（2012）」两个记录，
+              这样被拒一次后按钮会自动落到下面的「申请退款」（人工审核），不再死循环。 -->
       <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><!-- 同城单已过履约闸门（已出餐/已派单/配送中）→ 置灰并改为「申请取消（需商家确认）」。
            ⚠️ 用 class 置灰而**不用 disabled**：disabled 会让点击彻底无效，用户不知道为什么；
            可点则能给出解释（对应后端的 2013 错误码）。 -->
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">申请取消（需商家确认）</button>
-        <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefund(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
+        <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->

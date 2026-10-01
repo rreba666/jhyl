@@ -1515,8 +1515,33 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
     //    ⇒ 直接冒到全局 `onError`（真机日志里的 `app.js [app-error]` 就是它）。
     // ⇒ 因此这里也必须包 try/catch，且**同步抛出时同样要走降级**：
     //    绝不能只留一个全局错误、更不能让用户卡在结算页（钱已扣，重复支付风险最高）。
+    /**
+     * 当前是否**已经**在订单详情页（用页面栈判断，而不是靠回调）。
+     *
+     * ⚠️⚠️ 2026-10-01 真机**第三轮**排查结论（关键）：
+     *    第二版给 `uni.redirectTo` 加 try/catch 后，**跳转反而失效了**，且 Console 出现
+     *    **多条** `[pay-error]`（列号 `20240 → 20646 → 21188` 一路递增，后几条栈里已无
+     *    `<setTimeout callback function>`）⇒ 典型的**连锁降级**：
+     *      `redirectTo` 抛错 → 我调的 `reLaunch` 抛错 → 再降级 `showModal` 也抛错……
+     *    ⚠️ 而**旧版没有 try/catch 时是能正常跳转的** ⇒ 强烈说明：
+     *      **`uni.redirectTo` 是"内部抛错，但路由其实已经切过去了"**。
+     *    ⇒ 所以**捕获后不能盲目再跳一次**（那是在新页面上再跳，必然失败、还可能打断已完成的跳转）。
+     *      必须先看**当前页是不是已经在目标页**，是就直接收工。
+     */
+    const isAlreadyOnDetail = (): boolean => {
+      try {
+        const pages = getCurrentPages()
+        const current = pages[pages.length - 1] as { route?: string } | undefined
+        return Boolean(current?.route && current.route.includes('subpkg-order/orders/detail'))
+      } catch {
+        return false
+      }
+    }
+
     /** 连降级跳转都失败（理论上不会）：明确告知钱已付，防止重复支付。 */
     const showPaidButJumpFailed = (): void => {
+      // ⚠️ 先再确认一次：如果其实已经跳过去了，就不要再弹"跳转失败"
+      if (isAlreadyOnDetail()) return
       try {
         uni.showModal({
           title: '支付已完成',
@@ -1535,6 +1560,8 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
       // ⚠️ 关键：**先切「支付成功」态** —— 否则结算页仍可再次点击支付，必然重复下单
       //    （2026-09-30 那次「连下三单」的成因）
       paymentSucceeded.value = true
+      // ⚠️ 已经跳走就别再跳（见 isAlreadyOnDetail 的注释：uni.redirectTo 可能"抛错但已成功"）
+      if (isAlreadyOnDetail()) return
       try {
         uni.reLaunch({
           url: detailUrl,
@@ -1550,9 +1577,11 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
       try {
         uni.redirectTo({ url: detailUrl, fail: goDetailOrFallback })
       } catch (error) {
-        // ⚠️ uni.redirectTo 同步抛出（如内部读 undefined.index）：直接走降级
+        // ⚠️ uni.redirectTo 同步抛出：多数情况下**路由其实已经切过去了**（见 isAlreadyOnDetail），
+        //    所以先延迟一拍看当前页 —— 已在目标页就什么都不做，否则才走降级。
         recordPayError(error, { step: 'redirectTo-throw', nonFatal: true, paidAlready: true })
-        goDetailOrFallback()
+        if (isAlreadyOnDetail()) return
+        setTimeout(goDetailOrFallback, 300)
       }
     }, 500)
     return
