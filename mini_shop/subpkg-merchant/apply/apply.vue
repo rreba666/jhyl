@@ -4,6 +4,12 @@ import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import { getMyMerchantApply, submitMerchantApply, type MerchantApplyVO } from '@/api/merchant'
 import { ApiRequestError, uploadFile } from '@/utils/request'
 import { validateIdCard } from '@/utils/input-validation'
+// ⚠️ 2026-10-01 新增：图片上传前统一压缩，不再指望用户自己把图裁到规定尺寸。
+import {
+  chooseAndCompressImage,
+  CERTIFICATE_IMAGE_COMPRESS,
+  SHOP_IMAGE_COMPRESS,
+} from '@/utils/image-compress'
 
 /** 我的申请单（null = 未提交过，展示表单）。 */
 const apply = ref<MerchantApplyVO | null>(null)
@@ -121,76 +127,72 @@ function chooseShopLocation(): void {
   })
 }
 
-/** 营业执照：选图 → 上传（/api/common/upload）→ 回填 licenseImage。 */
-function chooseLicense(): void {
-  uni.chooseImage({
-    count: 1,
-    success: async (res) => {
-      const filePath = res.tempFilePaths?.[0]
-      if (!filePath) return
-      uploading.value = true
-      try {
-        form.value.licenseImage = await uploadFile(filePath)
-        uni.showToast({ title: '营业执照已上传', icon: 'success' })
-      } catch (error) {
-        uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
-      } finally {
-        uploading.value = false
-      }
-    },
-  })
+/**
+ * 营业执照：选图 → **自动压缩** → 上传（`/api/common/upload`）→ 回填 `licenseImage`。
+ *
+ * ⚠️ 2026-10-01 修：原实现写的是 `uni.chooseImage({ count: 1 })` —— **连 `sizeType` 都没传**，
+ * 也就是把手机相册里的**原图直接上传**（随手一拍就可能十几 MB）。
+ * 现改走 `chooseAndCompressImage()`（统一压缩到长边 ≤1600、≤1000 KB）。
+ */
+async function chooseLicense(): Promise<void> {
+  const picked = await chooseAndCompressImage(CERTIFICATE_IMAGE_COMPRESS)
+  if (!picked) return // 用户取消选择
+  uploading.value = true
+  try {
+    form.value.licenseImage = await uploadFile(picked.path)
+    uni.showToast({ title: '营业执照已上传', icon: 'success' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
+  } finally {
+    uploading.value = false
+  }
 }
 
 /**
- * 门店图片（门头/店内照）：选图 → 上传（`/api/common/upload`）→ 回填 `shopImage`。
- * 与营业执照同一套上传通道；后端对图片的要求是 690x345、<2MB（见 `ShopCreateDTO.shopImage`），
- * 这里只做「单张 + 压缩」的轻量约束，尺寸由商户自己把握。
+ * 门店图片（门头/店内照）：选图 → **自动压缩** → 上传（`/api/common/upload`）→ 回填 `shopImage`。
+ *
+ * ⚠️ 2026-10-01 修：原注释写的是「尺寸由商户自己把握」—— **这正是问题所在**：
+ *    后端 `ShopCreateDTO.shopImage` 要求 **690×345、<2MB**，而 `sizeType:['compressed']`
+ *    是微信自带压缩，**不保证尺寸/体积/比例** ⇒ 用户随手拍的大图照样能传上去。
+ *    现改走 `chooseAndCompressImage(SHOP_IMAGE_COMPRESS)`：
+ *    **保持原图比例不裁剪**，长边压到 ≤1280、体积压到 ≤800 KB（远低于后端 2MB 上限）。
  */
-function chooseShopImage(): void {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const filePath = res.tempFilePaths?.[0]
-      if (!filePath) return
-      uploading.value = true
-      try {
-        form.value.shopImage = await uploadFile(filePath)
-        uni.showToast({ title: '门店图片已上传', icon: 'success' })
-      } catch (error) {
-        uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
-      } finally {
-        uploading.value = false
-      }
-    },
-  })
+async function chooseShopImage(): Promise<void> {
+  const picked = await chooseAndCompressImage(SHOP_IMAGE_COMPRESS)
+  if (!picked) return // 用户取消选择
+  uploading.value = true
+  try {
+    form.value.shopImage = await uploadFile(picked.path)
+    uni.showToast({ title: '门店图片已上传', icon: 'success' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
+  } finally {
+    uploading.value = false
+  }
 }
 
 /**
- * 身份证正/反面照：选图 → 上传（`/api/common/upload`）→ 回填对应字段。
- * 与营业执照/门店图片同一套上传通道；后端字段是**申请层**的
- * `idCardFrontImage` / `idCardBackImage`（不是门店层，也不是提现的 `idCardFrontUrl`）。
+ * 身份证正/反面照：选图 → **自动压缩** → 上传（`/api/common/upload`）→ 回填对应字段。
+ *
+ * 后端字段是**申请层**的 `idCardFrontImage` / `idCardBackImage`
+ * （不是门店层，也不是提现的 `idCardFrontUrl`）。
+ * ⚠️ 2026-10-01：压缩策略用 `CERTIFICATE_IMAGE_COMPRESS`（长边 ≤1600、≤1000 KB）
+ * —— 证件要能看清文字，所以比门店图放宽一档。
  */
-function chooseIdCardImage(side: 'front' | 'back'): void {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const filePath = res.tempFilePaths?.[0]
-      if (!filePath) return
-      uploading.value = true
-      try {
-        const url = await uploadFile(filePath)
-        if (side === 'front') form.value.idCardFrontImage = url
-        else form.value.idCardBackImage = url
-        uni.showToast({ title: side === 'front' ? '身份证正面已上传' : '身份证反面已上传', icon: 'success' })
-      } catch (error) {
-        uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
-      } finally {
-        uploading.value = false
-      }
-    },
-  })
+async function chooseIdCardImage(side: 'front' | 'back'): Promise<void> {
+  const picked = await chooseAndCompressImage(CERTIFICATE_IMAGE_COMPRESS)
+  if (!picked) return // 用户取消选择
+  uploading.value = true
+  try {
+    const url = await uploadFile(picked.path)
+    if (side === 'front') form.value.idCardFrontImage = url
+    else form.value.idCardBackImage = url
+    uni.showToast({ title: side === 'front' ? '身份证正面已上传' : '身份证反面已上传', icon: 'success' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
+  } finally {
+    uploading.value = false
+  }
 }
 
 /** 提交入驻申请。 */

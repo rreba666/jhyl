@@ -1563,6 +1563,50 @@ async function switchToBalancePayment(): Promise<void> {
 }
 
 /** 校验结算信息，创建订单后获取支付签名并调起微信支付。 */
+/**
+ * 记录支付链路异常（真机排查用）。
+ *
+ * ⚠️⚠️ 2026-10-01 诊断（用户反馈「**使用余额支付时**弹
+ * `Cannot read properties of undefined (reading 'index')`」）：
+ *
+ *    `submitPayment` 的 `catch` 会**把异常吞掉并转成 toast** ⇒
+ *    `App.vue` 的 `onError`（**只收"未处理的错误"**）**永远看不到它**
+ *    ⇒ 这正是此前一直拿不到堆栈、只能靠猜的原因。
+ *
+ * ⇒ 所以在这里**展示给用户之前**，先把**完整堆栈 + 出错时的上下文**塞进本地缓存。
+ *    真机复现后取回方式（开发者工具 Console 里执行，或在同一个小程序里加个临时按钮）：
+ *
+ * ```js
+ * uni.getStorageSync('__last_pay_error__')
+ * ```
+ *
+ * ⚠️ 该 key 与 `App.vue` 的 `__last_app_error__` **刻意分开**：
+ *    那个是全局未处理错误，这个是"被支付流程捕获"的错误，来源不同、混在一起会互相覆盖。
+ */
+function recordPayError(error: unknown, context: Record<string, unknown>): void {
+  try {
+    const payload = {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : typeof error,
+      stack: error instanceof Error ? error.stack : '(无 stack)',
+      context,
+      // 页面栈快照：能看出是否与"页面已卸载/栈已满"有关
+      pages: (() => {
+        try {
+          return getCurrentPages().map((page) => page?.route || '?').join(' > ')
+        } catch {
+          return '(取不到页面栈)'
+        }
+      })(),
+      at: new Date().toISOString(),
+    }
+    console.error('[pay-error]', payload)
+    uni.setStorageSync('__last_pay_error__', payload)
+  } catch {
+    // ⚠️ 记录本身失败绝不能影响支付主流程
+  }
+}
+
 async function submitPayment(): Promise<void> {
   // ⚠️ 2026-09-30：`paymentFinalized` 是「支付已收尾」的**同步锁** ——
   //    原先只看 `paying`，而它在支付成功后会被 `finally` 立刻置回 false（此时页面还没跳走）
@@ -1689,6 +1733,16 @@ async function submitPayment(): Promise<void> {
     }
     await completePayment(currentOrderId, false)
   } catch (error) {
+    // ⚠️ 2026-10-01：**先记诊断**再决定怎么提示 —— 本 catch 会吞掉异常，
+    //    导致 `App.vue` 的 `onError` 拿不到它（详见 `recordPayError` 的注释）。
+    recordPayError(error, {
+      payMethod: payMethod.value,
+      pickupType: pickupType.value,
+      isExistingOrder: Boolean(orderId.value),
+      wechatPaymentStarted: wechatPaymentStarted.value,
+      invoiceEnabled: invoiceEnabled.value,
+      itemCount: items.value.length,
+    })
     if (wechatPaymentStarted.value && orderId.value) {
       if (isWechatPaymentCancelled(error)) {
         canSwitchToBalance.value = true

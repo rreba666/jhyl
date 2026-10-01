@@ -27,6 +27,8 @@ import { uploadFile } from '@/utils/request'
 import { getIdentity, type IdentityVO } from '@/api/identity'
 // 订阅配置（2026-09-29）：用于展示「当前门店能否收到微信提示」
 import { preloadMerchantSubscribeConfig, readSubscribeReceiverBound } from '@/utils/subscribe'
+// ⚠️ 2026-10-01 新增：门店图片上传前统一压缩（与入驻页同一套封装，避免两处口径漂移）
+import { chooseAndCompressImage, SHOP_IMAGE_COMPRESS } from '@/utils/image-compress'
 
 /** 自定义导航栏需要自己避开状态栏。 */
 const statusBarHeight = ref(0)
@@ -141,25 +143,26 @@ function chooseLocation(): void {
   })
 }
 
-/** 门店图片：选图 → 上传 → 回填 URL（与入驻页同一套 `/api/common/upload` 通道）。 */
-function chooseImage(): void {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const filePath = res.tempFilePaths?.[0]
-      if (!filePath) return
-      uploading.value = true
-      try {
-        form.value.shopImage = await uploadFile(filePath)
-        uni.showToast({ title: '门店图片已上传', icon: 'success' })
-      } catch (error) {
-        uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
-      } finally {
-        uploading.value = false
-      }
-    },
-  })
+/**
+ * 门店图片：选图 → **自动压缩** → 上传 → 回填 URL（与入驻页同一套 `/api/common/upload` 通道）。
+ *
+ * ⚠️ 2026-10-01 修：原实现只有 `sizeType: ['compressed']` —— 那是**微信自带**的压缩，
+ * **不保证尺寸、不保证体积、不保证比例**，而后端 `ShopCreateDTO.shopImage` 要求
+ * **690×345、<2MB** ⇒ 用户随手拍的大图照样能传上去（上传通道到 10MB 才拦）。
+ * 现改走统一封装：**保持原图比例不裁剪**，长边压到 ≤1280、体积压到 ≤800 KB。
+ */
+async function chooseImage(): Promise<void> {
+  const picked = await chooseAndCompressImage(SHOP_IMAGE_COMPRESS)
+  if (!picked) return // 用户取消选择
+  uploading.value = true
+  try {
+    form.value.shopImage = await uploadFile(picked.path)
+    uni.showToast({ title: '门店图片已上传', icon: 'success' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '上传失败', icon: 'none' })
+  } finally {
+    uploading.value = false
+  }
 }
 
 /** 提交新建门店。 */
