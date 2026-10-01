@@ -1477,23 +1477,33 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
 
   canSwitchToBalance.value = false
   wechatPaymentStarted.value = false
-  paymentSucceeded.value = stayOnPage
-  // ⚠️⚠️ 2026-10-01 真机定位结论（`step = "complete-payment"` 的复现数据）：
-  //    在 `invoiceEnabled=false`（跳过发票分支）+ `stayOnPage=false` 的情况下，
-  //    本函数同步段里**只有这几行赋值 + 下面这一次 `showToast`**，
-  //    而赋值都是"写成原本就是 false 的值"（不触发重渲染）⇒
-  //    **唯一可能抛错的对外调用就是这次 `showToast`**（真机报
-  //    `Cannot read properties of undefined (reading 'index')`）。
-  //
-  // ⇒ 语义上必须明白：**走到这里说明钱已经扣了**（`payByBalance` 已成功返回）。
-  //    "提示成功"这个 UI 动作**绝对不能**反过来把整个支付流程判成失败
-  //    —— 那会让用户以为没付成功、进而重复支付（本页历史事故正是重复下单）。
-  //    所以无条件包 try/catch，失败只记日志。
-  try {
-    uni.showToast({ title: invoiceError ? '支付成功，发票申请失败' : '支付成功', icon: invoiceError ? 'none' : 'success' })
-  } catch (error) {
-    // ⚠️ 只记录、不上抛：支付已完成，UI 提示失败不影响业务结果
-    recordPayError(error, { step: 'complete-payment-showtoast', nonFatal: true, payMethod: payMethod.value })
+  /**
+   * ⚠️⚠️ 2026-10-01 **最终修法**（真机第三步定位到 `step = "complete-payment-showtoast"`，列 `20247`）：
+   *
+   * 事实链（三轮真机堆栈逐次逼近）：
+   *   1. 同步段里**只有这一次 `uni.showToast`** 可能抛错（其余都是"写回原值"的赋值，不触发重渲染）；
+   *   2. 真机埋点确认：`step = "complete-payment-showtoast"` ⇒ **就是它**；
+   *   3. 而且它抛错 ⇒ **toast 根本没显示出来** ⇒ 既没给用户提示、又刷了一条错误日志。
+   *
+   * ⇒ 结论：`uni.showToast` 在「**即将 redirectTo**」这个时机会内部抛
+   *    `Cannot read properties of undefined (reading 'index')`（很可能是 toast 与路由切换的竞态，
+   *    uni/微信基础库内部行为，页面侧无法进一步钻）。
+   *
+   * ⇒ 因此**要跳转的场景不再调 `showToast`**，改为：
+   *    ① **立刻**把页面切到「支付成功」态（`paymentSucceeded = true`）—— 500ms 内给用户明确反馈，
+   *       而不是让用户盯着一个还能点的支付页；
+   *    ② 500ms 后跳订单详情页，由详情页承担"支付成功"的表达。
+   *    ⚠️ **留页场景**（`stayOnPage`，例如微信支付结果查询后）**仍然弹 toast** ——
+   *       那时不跳转、toast 能正常显示，语义也更清楚。
+   */
+  paymentSucceeded.value = true
+  if (stayOnPage) {
+    try {
+      uni.showToast({ title: invoiceError ? '支付成功，发票申请失败' : '支付成功', icon: invoiceError ? 'none' : 'success' })
+    } catch (error) {
+      // ⚠️ 只记录、不上抛：支付已完成，UI 提示失败不影响业务结果
+      recordPayError(error, { step: 'complete-payment-showtoast', nonFatal: true, payMethod: payMethod.value })
+    }
   }
   if (!stayOnPage) {
     const detailUrl = `/subpkg-order/orders/detail?orderId=${currentOrderId}`
