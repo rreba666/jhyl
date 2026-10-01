@@ -1506,25 +1506,54 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
     //   1. 跳转失败时**降级 reLaunch**（会清空页面栈，一定能到）；
     //   2. 跳转失败时**立刻把页面切到「支付成功」态** —— 这是最关键的一步：
     //      否则结算页仍可再次点击支付，必然导致重复下单。
+    // ⚠️⚠️ 2026-10-01 真机**第二条**堆栈定位到此处：
+    //    错误发生在 `<setTimeout callback function>` 内（栈：
+    //    `Function.<anonymous> (subpkg-order/app-service.js:1779:20646)` 紧接
+    //    `at <setTimeout callback function>`）⇒ 即下面这次 `uni.redirectTo`。
+    //    它与同步段那次（`showToast`）是**同一类**问题：**uni API 内部读 `undefined.index`**。
+    //    ⚠️ 但 `setTimeout` 里的异常**不会**被 `submitPayment` 的 `catch` 捕获
+    //    ⇒ 直接冒到全局 `onError`（真机日志里的 `app.js [app-error]` 就是它）。
+    // ⇒ 因此这里也必须包 try/catch，且**同步抛出时同样要走降级**：
+    //    绝不能只留一个全局错误、更不能让用户卡在结算页（钱已扣，重复支付风险最高）。
+    /** 连降级跳转都失败（理论上不会）：明确告知钱已付，防止重复支付。 */
+    const showPaidButJumpFailed = (): void => {
+      try {
+        uni.showModal({
+          title: '支付已完成',
+          content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
+          showCancel: false,
+          confirmText: '知道了',
+        })
+      } catch (error) {
+        // ⚠️ 连提示都失败就只能记日志了 —— 支付结果本身已经成功，不再上抛
+        recordPayError(error, { step: 'paid-modal-throw', nonFatal: true, paidAlready: true })
+      }
+    }
+
+    /** 跳转订单详情；失败则降级 `reLaunch`（清空页面栈，一定能到）。 */
+    const goDetailOrFallback = (): void => {
+      // ⚠️ 关键：**先切「支付成功」态** —— 否则结算页仍可再次点击支付，必然重复下单
+      //    （2026-09-30 那次「连下三单」的成因）
+      paymentSucceeded.value = true
+      try {
+        uni.reLaunch({
+          url: detailUrl,
+          fail: () => showPaidButJumpFailed(),
+        })
+      } catch (error) {
+        recordPayError(error, { step: 'reLaunch-throw', nonFatal: true, paidAlready: true })
+        showPaidButJumpFailed()
+      }
+    }
+
     setTimeout(() => {
-      uni.redirectTo({
-        url: detailUrl,
-        fail: () => {
-          paymentSucceeded.value = true
-          uni.reLaunch({
-            url: detailUrl,
-            fail: () => {
-              // 连 reLaunch 都失败（理论上不会）：至少明确告知钱已付，防止重复支付
-              uni.showModal({
-                title: '支付已完成',
-                content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
-                showCancel: false,
-                confirmText: '知道了',
-              })
-            },
-          })
-        },
-      })
+      try {
+        uni.redirectTo({ url: detailUrl, fail: goDetailOrFallback })
+      } catch (error) {
+        // ⚠️ uni.redirectTo 同步抛出（如内部读 undefined.index）：直接走降级
+        recordPayError(error, { step: 'redirectTo-throw', nonFatal: true, paidAlready: true })
+        goDetailOrFallback()
+      }
     }, 500)
     return
   }
