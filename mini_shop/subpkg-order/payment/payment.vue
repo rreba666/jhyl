@@ -1680,11 +1680,24 @@ async function submitPayment(): Promise<void> {
     return
   }
   paying.value = true
+  /**
+   * ⚠️⚠️ 2026-10-01 **分步埋点**（真机排查 `Cannot read properties of undefined (reading 'index')`）。
+   *
+   * 为什么需要它：
+   *   · 真机堆栈指向**压缩产物** `subpkg-order/app-service.js:1779:20240`
+   *     （该行有两万多字符，无法直接阅读，也没有上传 Source Map）；
+   *   · 而**源码里搜不到任何 `.index`**（全项目 `.index` 零命中）⇒ 静态推断已到极限。
+   * ⇒ 用「步骤名」把范围缩到**具体哪一次调用**：复现后看 `__last_pay_error__.context.step`
+   *    就知道炸在 `create-order` / `balance-pay` / `complete-payment` 中的哪一步。
+   */
+  let payStep = 'start'
   try {
+    payStep = 'read-order-id'
     let currentOrderId = orderId.value
     if (!currentOrderId) {
       // 立即购买走直接下单（items），购物车结算走 cartIds，二者互斥避免把购物车其他商品带入
       const isDirectBuy = Boolean(directSkuId.value && directProductId.value)
+      payStep = 'create-order'
       const created = await createOrder({
         ...(isDirectBuy
           ? { items: [{ skuId: directSkuId.value as number, quantity: directQuantity.value }] }
@@ -1709,14 +1722,17 @@ async function submitPayment(): Promise<void> {
         } : {}),
         ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
       })
+      payStep = 'create-order-return'
       const id = created.orderId ?? created.id
       if (id == null) throw new Error('创建订单未返回订单 ID')
       currentOrderId = String(id)
       orderId.value = currentOrderId
     }
     if (payMethod.value === 'balance') {
+      payStep = 'balance-pay'
       if (wechatPaymentStarted.value) {
         if (canSwitchToBalance.value) {
+          payStep = 'switch-to-balance'
           await switchToBalancePayment()
         } else {
           uni.showToast({ title: '微信支付状态确认中，请稍后查询', icon: 'none' })
@@ -1725,17 +1741,24 @@ async function submitPayment(): Promise<void> {
       }
       // 尚未拉起微信支付时，余额支付可直接走原有同步接口
       await payByBalance(currentOrderId)
+      payStep = 'balance-pay-done'
     } else {
+      payStep = 'wechat-prepay'
       // 微信支付：获取签名并调起微信收银台
       const prepay = await createPrepay(currentOrderId)
       wechatPaymentStarted.value = true
+      payStep = 'wechat-request-payment'
       await requestPayment(prepay)
+      payStep = 'wechat-payment-done'
     }
+    payStep = 'complete-payment'
     await completePayment(currentOrderId, false)
+    payStep = 'done'
   } catch (error) {
     // ⚠️ 2026-10-01：**先记诊断**再决定怎么提示 —— 本 catch 会吞掉异常，
     //    导致 `App.vue` 的 `onError` 拿不到它（详见 `recordPayError` 的注释）。
     recordPayError(error, {
+      step: payStep,
       payMethod: payMethod.value,
       pickupType: pickupType.value,
       isExistingOrder: Boolean(orderId.value),
