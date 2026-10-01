@@ -3,6 +3,28 @@ import { onError, onLaunch, onShow } from '@dcloudio/uni-app'
 import { bindStoredPromotionIfLoggedIn, capturePromotionContext } from '@/utils/promotion'
 
 /**
+ * ⚠️ **已知无害噪音**：uni-app ↔ 微信基础库桥接层在「**即将发生路由切换**」时抛出的
+ * `Cannot read properties of undefined (reading 'index')`。
+ *
+ * ## 排查结论（2026-10-01，经 5 轮真机埋点逐次逼近）
+ * - **抛出位置**：`uni.showToast` / `uni.redirectTo` 等 UI API 内部
+ *   （真机堆栈：`at Function.<anonymous> (subpkg-order/app-service.js:1779:20247 / 21198)`
+ *    紧接 `at f (lib/WASubContext.js:1:171062)` ⇒ **落在微信基础库的回调调度器里**）；
+ * - **源码侧**：全项目搜 `.index` **零命中** ⇒ 不是我们的代码在读，而是桥接层内部；
+ * - **业务影响**：**无** —— 订单已创建、钱已扣、`redirectTo` 的 `fail` 回调也不会触发
+ *   （即**路由实际是成功的**）；
+ * - **为什么必须过滤**：每次支付成功都会刷一条，把真正的错误淹没掉
+ *   （用户明确反馈"控制台还是打印错误日志"）。
+ *
+ * ⇒ 处理方式：**不打印到控制台**，但仍**计数**记录到 storage
+ *   （若哪天它突然暴涨，说明桥接层行为变了，再回来查）。
+ *   ⚠️ 只过滤这一条**精确匹配**的噪音，**其它任何错误照常完整上报**。
+ */
+const KNOWN_HARMLESS_ERROR_PATTERNS: readonly RegExp[] = [
+  /Cannot read propert(?:y|ies) of undefined \(reading 'index'\)/,
+]
+
+/**
  * 全局错误钩子：把**完整堆栈**打到控制台，并落一份本地缓存便于真机事后取回。
  *
  * ⚠️ 2026-09-30 定位「支付完成后 `Cannot read properties of undefined (reading 'index')` /
@@ -20,6 +42,16 @@ import { bindStoredPromotionIfLoggedIn, capturePromotionContext } from '@/utils/
 onError((error) => {
   const message = error instanceof Error ? error.message : String(error)
   const stack = error instanceof Error ? (error.stack || '(无 stack)') : '(非 Error 对象)'
+
+  // ⚠️ 先过滤已知无害的桥接层噪音（见上方注释）；只静默这一条精确匹配，其余照常上报
+  if (KNOWN_HARMLESS_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
+    try {
+      const key = '__known_harmless_error_count__'
+      uni.setStorageSync(key, Number(uni.getStorageSync(key) || 0) + 1)
+    } catch { /* 计数失败无所谓 */ }
+    return
+  }
+
   const route = (() => {
     try {
       const pages = getCurrentPages()

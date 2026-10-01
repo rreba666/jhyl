@@ -1478,121 +1478,56 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
   canSwitchToBalance.value = false
   wechatPaymentStarted.value = false
   /**
-   * ⚠️⚠️ 2026-10-01 **最终修法**（真机第三步定位到 `step = "complete-payment-showtoast"`，列 `20247`）：
+   * ⚠️⚠️ 2026-10-01 **收敛版**（经 5 轮真机排查后的最终结论）
    *
-   * 事实链（三轮真机堆栈逐次逼近）：
-   *   1. 同步段里**只有这一次 `uni.showToast`** 可能抛错（其余都是"写回原值"的赋值，不触发重渲染）；
-   *   2. 真机埋点确认：`step = "complete-payment-showtoast"` ⇒ **就是它**；
-   *   3. 而且它抛错 ⇒ **toast 根本没显示出来** ⇒ 既没给用户提示、又刷了一条错误日志。
+   * 已确认的事实：
+   *   · `uni.showToast` 与 `uni.redirectTo` 在这个时机**都会**抛
+   *     `Cannot read properties of undefined (reading 'index')`（真机列 `20247` / `21198`）；
+   *   · 该错误来自 **uni ↔ 微信基础库的桥接层**（栈里有 `lib/WASubContext.js`），**与业务无关**；
+   *   · ⚠️ 前几轮我给它们加 try/catch、加"是否已跳走"判断、加降级链，
+   *     **反而把跳转弄坏了**（用户反馈「**之前能跳**」⇒ 旧版只有 `fail` 回调、反而正常）。
    *
-   * ⇒ 结论：`uni.showToast` 在「**即将 redirectTo**」这个时机会内部抛
-   *    `Cannot read properties of undefined (reading 'index')`（很可能是 toast 与路由切换的竞态，
-   *    uni/微信基础库内部行为，页面侧无法进一步钻）。
-   *
-   * ⇒ 因此**要跳转的场景不再调 `showToast`**，改为：
-   *    ① **立刻**把页面切到「支付成功」态（`paymentSucceeded = true`）—— 500ms 内给用户明确反馈，
-   *       而不是让用户盯着一个还能点的支付页；
-   *    ② 500ms 后跳订单详情页，由详情页承担"支付成功"的表达。
-   *    ⚠️ **留页场景**（`stayOnPage`，例如微信支付结果查询后）**仍然弹 toast** ——
-   *       那时不跳转、toast 能正常显示，语义也更清楚。
+   * ⇒ 本次收敛为**最小改动**，逐条对应上面的教训：
+   *   ① `paymentSucceeded = stayOnPage` —— **恢复旧版语义**，不再在跳转前整页切成成功态
+   *      （那会把 `v-else` 的结算页整块销毁重建，与即将发生的路由切换打架）；
+   *   ② `showToast` **仍包** try/catch，但目的只是**让流程继续往下走** ——
+   *      它抛错会中断本函数，导致后面的跳转**压根执行不到**（这正是"之前不跳"的原因之一）；
+   *   ③ `redirectTo` **不包** try/catch，只用 `fail` 回调降级 ——
+   *      `fail` 是"路由是否成功"的**权威信号**；而 try/catch 抓的是"同步抛错"，
+   *      真机上它常常"**抛错但已经跳成功**"，包住它就会误判并重复跳；
+   *   ④ 那条桥接层噪音由 `App.vue` 的 `onError` **统一过滤**，不再打扰排查。
    */
-  paymentSucceeded.value = true
-  if (stayOnPage) {
-    try {
-      uni.showToast({ title: invoiceError ? '支付成功，发票申请失败' : '支付成功', icon: invoiceError ? 'none' : 'success' })
-    } catch (error) {
-      // ⚠️ 只记录、不上抛：支付已完成，UI 提示失败不影响业务结果
-      recordPayError(error, { step: 'complete-payment-showtoast', nonFatal: true, payMethod: payMethod.value })
-    }
+  paymentSucceeded.value = stayOnPage
+  try {
+    uni.showToast({ title: invoiceError ? '支付成功，发票申请失败' : '支付成功', icon: invoiceError ? 'none' : 'success' })
+  } catch (error) {
+    // ⚠️ **吞掉但继续**：否则中断本函数，下面那段跳转就执行不到了
+    recordPayError(error, { step: 'complete-payment-showtoast', nonFatal: true, paidAlready: true })
   }
   if (!stayOnPage) {
     const detailUrl = `/subpkg-order/orders/detail?orderId=${currentOrderId}`
-    // ⚠️ 2026-09-30 加固（用户反馈「付完款后卡在确认订单页、连下三单都退款了」）：
-    //   原实现是 `uni.redirectTo(...)` **没有任何 fail 回调** ——
-    //   而 `uni.redirectTo` 在**页面栈已满**（小程序最多 10 层）或路径异常时会**静默失败**，
-    //   用户便永远停在确认订单页。此时**钱已经扣了**，页面却还停留在"可支付"的结算页
-    //   ⇒ 用户以为没付成功 ⇒ **重复下单**（本次事故正是连下三单）。
-    // ⇒ 修复两点：
-    //   1. 跳转失败时**降级 reLaunch**（会清空页面栈，一定能到）；
-    //   2. 跳转失败时**立刻把页面切到「支付成功」态** —— 这是最关键的一步：
-    //      否则结算页仍可再次点击支付，必然导致重复下单。
-    // ⚠️⚠️ 2026-10-01 真机**第二条**堆栈定位到此处：
-    //    错误发生在 `<setTimeout callback function>` 内（栈：
-    //    `Function.<anonymous> (subpkg-order/app-service.js:1779:20646)` 紧接
-    //    `at <setTimeout callback function>`）⇒ 即下面这次 `uni.redirectTo`。
-    //    它与同步段那次（`showToast`）是**同一类**问题：**uni API 内部读 `undefined.index`**。
-    //    ⚠️ 但 `setTimeout` 里的异常**不会**被 `submitPayment` 的 `catch` 捕获
-    //    ⇒ 直接冒到全局 `onError`（真机日志里的 `app.js [app-error]` 就是它）。
-    // ⇒ 因此这里也必须包 try/catch，且**同步抛出时同样要走降级**：
-    //    绝不能只留一个全局错误、更不能让用户卡在结算页（钱已扣，重复支付风险最高）。
-    /**
-     * 当前是否**已经**在订单详情页（用页面栈判断，而不是靠回调）。
-     *
-     * ⚠️⚠️ 2026-10-01 真机**第三轮**排查结论（关键）：
-     *    第二版给 `uni.redirectTo` 加 try/catch 后，**跳转反而失效了**，且 Console 出现
-     *    **多条** `[pay-error]`（列号 `20240 → 20646 → 21188` 一路递增，后几条栈里已无
-     *    `<setTimeout callback function>`）⇒ 典型的**连锁降级**：
-     *      `redirectTo` 抛错 → 我调的 `reLaunch` 抛错 → 再降级 `showModal` 也抛错……
-     *    ⚠️ 而**旧版没有 try/catch 时是能正常跳转的** ⇒ 强烈说明：
-     *      **`uni.redirectTo` 是"内部抛错，但路由其实已经切过去了"**。
-     *    ⇒ 所以**捕获后不能盲目再跳一次**（那是在新页面上再跳，必然失败、还可能打断已完成的跳转）。
-     *      必须先看**当前页是不是已经在目标页**，是就直接收工。
-     */
-    const isAlreadyOnDetail = (): boolean => {
-      try {
-        const pages = getCurrentPages()
-        const current = pages[pages.length - 1] as { route?: string } | undefined
-        return Boolean(current?.route && current.route.includes('subpkg-order/orders/detail'))
-      } catch {
-        return false
-      }
-    }
-
-    /** 连降级跳转都失败（理论上不会）：明确告知钱已付，防止重复支付。 */
-    const showPaidButJumpFailed = (): void => {
-      // ⚠️ 先再确认一次：如果其实已经跳过去了，就不要再弹"跳转失败"
-      if (isAlreadyOnDetail()) return
-      try {
-        uni.showModal({
-          title: '支付已完成',
-          content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
-          showCancel: false,
-          confirmText: '知道了',
-        })
-      } catch (error) {
-        // ⚠️ 连提示都失败就只能记日志了 —— 支付结果本身已经成功，不再上抛
-        recordPayError(error, { step: 'paid-modal-throw', nonFatal: true, paidAlready: true })
-      }
-    }
-
-    /** 跳转订单详情；失败则降级 `reLaunch`（清空页面栈，一定能到）。 */
-    const goDetailOrFallback = (): void => {
-      // ⚠️ 关键：**先切「支付成功」态** —— 否则结算页仍可再次点击支付，必然重复下单
-      //    （2026-09-30 那次「连下三单」的成因）
-      paymentSucceeded.value = true
-      // ⚠️ 已经跳走就别再跳（见 isAlreadyOnDetail 的注释：uni.redirectTo 可能"抛错但已成功"）
-      if (isAlreadyOnDetail()) return
-      try {
-        uni.reLaunch({
-          url: detailUrl,
-          fail: () => showPaidButJumpFailed(),
-        })
-      } catch (error) {
-        recordPayError(error, { step: 'reLaunch-throw', nonFatal: true, paidAlready: true })
-        showPaidButJumpFailed()
-      }
-    }
-
+    // ⚠️ 2026-09-30 加固保留：跳转失败要降级 `reLaunch` + 切「支付成功」态，
+    //    否则用户停在结算页会再次点支付（2026-09-30「连下三单」事故的成因）。
     setTimeout(() => {
-      try {
-        uni.redirectTo({ url: detailUrl, fail: goDetailOrFallback })
-      } catch (error) {
-        // ⚠️ uni.redirectTo 同步抛出：多数情况下**路由其实已经切过去了**（见 isAlreadyOnDetail），
-        //    所以先延迟一拍看当前页 —— 已在目标页就什么都不做，否则才走降级。
-        recordPayError(error, { step: 'redirectTo-throw', nonFatal: true, paidAlready: true })
-        if (isAlreadyOnDetail()) return
-        setTimeout(goDetailOrFallback, 300)
-      }
+      uni.redirectTo({
+        url: detailUrl,
+        // ⚠️ **只认 `fail`**：真机上 `redirectTo` 常"抛错但已跳成功"，不能据同步异常降级
+        fail: () => {
+          paymentSucceeded.value = true
+          uni.reLaunch({
+            url: detailUrl,
+            fail: () => {
+              // 连 reLaunch 都失败（理论上不会）：至少明确告知钱已付，防止重复支付
+              uni.showModal({
+                title: '支付已完成',
+                content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
+                showCancel: false,
+                confirmText: '知道了',
+              })
+            },
+          })
+        },
+      })
     }, 500)
     return
   }
