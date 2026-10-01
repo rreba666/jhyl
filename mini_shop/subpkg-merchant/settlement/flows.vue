@@ -159,7 +159,10 @@ function goBack(): void {
       <!-- 13016：仅品牌主体可看结算账户 -->
       <view v-if="notMerchantOwner" class="state">
         <text class="state-title">仅商户品牌主体可查看结算账户与提现</text>
-        <text class="state-text">当前身份为店长/店员，请在「账单」查看本门店订单口径营业额。</text>
+        <!-- ⚠️ 2026-10-01 文案更正：账单的归属维度已由「履约门店」改为「结算归属品牌商家」
+             （后端新增 `wx_order.settlement_merchant_id`，14 处金额 SQL 一并改），
+             说「本门店营业额」会让店长误以为只算自己这家店。 -->
+        <text class="state-text">当前身份为店长/店员，请在「账单」查看所属品牌（结算归属）的订单口径营业额。</text>
       </view>
 
       <template v-else>

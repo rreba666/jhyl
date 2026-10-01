@@ -1,11 +1,27 @@
 <script setup lang="ts">
 /**
  * 商家端 · 账单（对应设计稿「账单」页 + 时间筛选弹层，订单口径只读）
- * 契约（api_doc.json GET /api/merchant/bill）：
- * - 数据口径：INCOME 订单收入（pay_time）/ REFUND 订单退款（update_time），不是对账单
+ *
+ * 契约（`api_doc.json` GET /api/merchant/bill）：
+ * - 数据口径：INCOME 订单收入（`pay_time`）/ REFUND 订单退款（`update_time`），**不是对账单**
  * - 响应：month/startTime/endTime/incomeTotal/expenseTotal/total/records[]
  * - records[]：type/typeText/direction(1收入2支出)/amount(恒正数)/occurredAt/icon/orderNo/bizNo
  * 金额正负由 direction 决定；合计 incomeTotal 为收入合计（设计稿头部「收入 ¥…」灰色）。
+ *
+ * ⚠️⚠️ 2026-10-01 **归属维度变更**（后端《答复-营业额口径与物流单归属》§三）：
+ *   此前金额按「**履约门店**」过滤（`o.merchant_id = 登录门店`），
+ *   **现已改为「结算归属品牌商家」** —— 后端新增 `wx_order.settlement_merchant_id`
+ *   （语义 = `wx_merchant.id`，下单时快照；物流单走"订单→商品→品牌"归属），
+ *   `MerchantFinanceQueryMapper` 共 **14 处**金额 SQL 一并改为按该列解析。
+ *   ⇒ **本页金额是「该门店所属品牌」的汇总，不是本门店的**；
+ *   ⇒ 物流单**现在也计入**（此前 `merchant_id` 为 NULL 导致断链，商户营业额会偏低甚至为 0）。
+ *
+ * ⚠️ **但 `settlement/account`（结算快照）本次未改**，仍是履约门店口径
+ *   ⇒ **账单金额与可提现余额可能对不上**（后端已说明，待其把 `buildSnapshot` 也切到
+ *   `settlement_merchant_id`）⇒ 界面上**不要宣传两者口径一致**。
+ *
+ * ⚠️ 订单列表**不受影响**：仍按登录门店过滤（后端按业务决策保持不变，
+ *   以免店长/店员看到同品牌其他门店的订单）。
  */
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
