@@ -1506,29 +1506,52 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
   }
   if (!stayOnPage) {
     const detailUrl = `/subpkg-order/orders/detail?orderId=${currentOrderId}`
-    // ⚠️ 2026-09-30 加固保留：跳转失败要降级 `reLaunch` + 切「支付成功」态，
-    //    否则用户停在结算页会再次点支付（2026-09-30「连下三单」事故的成因）。
-    setTimeout(() => {
-      uni.redirectTo({
-        url: detailUrl,
-        // ⚠️ **只认 `fail`**：真机上 `redirectTo` 常"抛错但已跳成功"，不能据同步异常降级
-        fail: () => {
-          paymentSucceeded.value = true
-          uni.reLaunch({
-            url: detailUrl,
-            fail: () => {
-              // 连 reLaunch 都失败（理论上不会）：至少明确告知钱已付，防止重复支付
-              uni.showModal({
-                title: '支付已完成',
-                content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
-                showCancel: false,
-                confirmText: '知道了',
-              })
-            },
-          })
-        },
-      })
-    }, 500)
+    // ⚠️ 先切「支付成功」态：既给用户明确反馈（此场景 toast 不可用，见上方注释），
+    //    又**禁掉支付按钮** —— 防止用户停在结算页再次点击支付（重复下单风险）。
+    paymentSucceeded.value = true
+    /**
+     * ⚠️⚠️ 2026-10-01 **第六轮真机定位**（收敛的关键）：
+     *
+     * 真机堆栈明确显示错误发生在 **`<setTimeout callback function>`** 内：
+     * ```
+     * at Function.<anonymous> (subpkg-order/app-service.js:1779:20643)
+     * at <setTimeout callback function>
+     * ```
+     * ⚠️ 且这次 **`fail` 回调也没有触发** ⇒ 路由 API **既不成功也不失败**，用户卡在结算页。
+     *
+     * ⇒ 三条结论：
+     *   ① **不能在 `setTimeout` 回调里调路由 API** —— 该时机下 uni ↔ 基础库的页面栈上下文
+     *      已经不可靠（这正是 `reading 'index'` 的由来）。原来那个 500ms 延迟是为了等 toast
+     *      显示，而 **toast 在此时机根本不工作**（见上）⇒ 延迟毫无收益、纯是故障源，**去掉**。
+     *   ② 首选改用 **`uni.navigateTo`**：它只 **push** 新页、**不关闭当前页**，
+     *      页面栈操作最少，最不容易踩到上面那个上下文问题。
+     *      ⚠️ 代价是结算页仍在栈里 —— 所以**必须先切「支付成功」态**（已做），
+     *      否则用户返回后还能再点支付 ⇒ 重复下单（2026-09-30「连下三单」的成因）。
+     *   ③ 降级链保留：`navigateTo` → `redirectTo` → `reLaunch` → 明确告知"钱已付、勿重复支付"。
+     *      ⚠️ 每一级都只用 **`fail` 回调**判断（`fail` 才是路由成败的权威信号）。
+     */
+    uni.navigateTo({
+      url: detailUrl,
+      fail: () => {
+        uni.redirectTo({
+          url: detailUrl,
+          fail: () => {
+            uni.reLaunch({
+              url: detailUrl,
+              fail: () => {
+                // 三级都失败（理论上不会）：至少明确告知钱已付，防止重复支付
+                uni.showModal({
+                  title: '支付已完成',
+                  content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
+                  showCancel: false,
+                  confirmText: '知道了',
+                })
+              },
+            })
+          },
+        })
+      },
+    })
     return
   }
 
@@ -1813,7 +1836,12 @@ async function cancelExistingOrder(): Promise<void> {
   try {
     await cancelOrder(orderId.value)
     uni.showToast({ title: '订单已取消', icon: 'success' })
-    setTimeout(() => { uni.navigateBack() }, 500)
+    // ⚠️ 2026-10-01：原来这里是 `setTimeout(() => uni.navigateBack(), 500)` ——
+    //    与支付跳转同一个坑：**在定时器回调里调路由 API** 会踩到
+    //    `Cannot read properties of undefined (reading 'index')`（真机实测栈落
+    //    `at <setTimeout callback function>`）。这里改成**直接返回**：
+    //    代价只是 toast 可能来不及看清，而"返回成功"比"看全 toast"重要得多。
+    uni.navigateBack()
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : '取消订单失败', icon: 'none' })
   } finally { paying.value = false }
