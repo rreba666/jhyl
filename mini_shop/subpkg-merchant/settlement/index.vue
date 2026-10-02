@@ -470,6 +470,32 @@ function goBack(): void {
           </view>
         </view>
 
+        <!-- ⚠️ 2026-10-03 新增（P1P2 §二.1 明确要求「前端文案请相应说明，避免商家以为钱丢了」）：
+             用户实测反馈「钱过了一天还躺在待结算、提不出来，不知道为什么」⇒ 这里把释放期讲清楚。
+             口径来源：P1P2 §二.1（三种形态的释放期 + 任务每 5 分钟入账）+ P5（物流锚点已升级为「快递签收」）。 -->
+        <view class="card">
+          <text class="card-title">钱什么时候能提现？</text>
+          <text class="rule-lead">订单完成后，钱不会立刻可提现，而是先进「待结算」，过了释放期才转成「可提现」：</text>
+          <view class="release-list">
+            <view class="release-item">
+              <text class="release-form">物流单</text>
+              <text class="release-rule">快递签收后 7 天</text>
+            </view>
+            <text class="release-hint">查不到签收轨迹时，按发货后 15 天估算</text>
+            <view class="release-item">
+              <text class="release-form">同城配送</text>
+              <text class="release-rule">订单完成后 1 天</text>
+            </view>
+            <view class="release-item">
+              <text class="release-form">门店自提</text>
+              <text class="release-rule">核销后 1 天</text>
+            </view>
+            <text class="release-hint">自提未核销不会释放</text>
+          </view>
+          <text class="rule-note">释放期到点后由系统自动入账，最长约 5 分钟到账。</text>
+          <text class="rule-note">⚠️ 只有「可提现余额」能提现；「待结算」的钱还没到期，暂时提不出来 —— 它不会丢，到期后会自动转入可提现。</text>
+        </view>
+
         <!-- 累计口径（净额口径） -->
         <view class="card">
           <text class="card-title">累计账目（净额口径）</text>
@@ -749,6 +775,50 @@ function goBack(): void {
   color: #1d2129;
   font-size: 29rpx;
   font-weight: 600;
+}
+/* ⚠️ 2026-10-03 新增：释放期说明卡（商家最容易困惑的地方 —— 「钱为什么还不能提」） */
+.rule-lead {
+  display: block;
+  margin-top: 16rpx;
+  color: #4e5969;
+  font-size: 25rpx;
+  line-height: 40rpx;
+}
+.release-list {
+  margin-top: 18rpx;
+}
+.release-item {
+  display: flex;
+  align-items: center;
+  margin-top: 14rpx;
+}
+.release-form {
+  flex-shrink: 0;
+  width: 150rpx;
+  color: #1d2129;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+.release-rule {
+  flex: 1;
+  color: #4e5969;
+  font-size: 25rpx;
+  line-height: 38rpx;
+}
+.release-hint {
+  display: block;
+  margin-top: 4rpx;
+  padding-left: 150rpx;
+  color: #86909c;
+  font-size: 22rpx;
+  line-height: 34rpx;
+}
+.rule-note {
+  display: block;
+  margin-top: 14rpx;
+  color: #86909c;
+  font-size: 23rpx;
+  line-height: 36rpx;
 }
 .total-grid {
   display: flex;
