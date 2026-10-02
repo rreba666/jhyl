@@ -51,7 +51,9 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/notify',
     // 2026-10-03 物流单结算改造（P5/P7/P8）新增三页：
     // - `/logistics/sign-pending`：⚠️ **仅超管**（P5 §一 明确"仅超管"）—— 人工修正签收时间会决定资金释放锚点
-    // - `/logs/channel-reconcile`、`/logs/fund-report`：中控财务向，与 `/logs/ledger` 同口径（超管/客服/财务）
+    // - `/logs/channel-reconcile`、`/logs/fund-report`：中控财务向
+    //   ⚠️ 2026-10-03 按后端反馈 §五 修正：后端 `SUPER_OR_FINANCE_PREFIXES` ⇒ **超管 + 财务**，
+    //   **客服 403**（原先误给客服，见下方 CUSTOMER_SERVICE 处的说明）。
     '/logistics/sign-pending', '/logs/channel-reconcile', '/logs/fund-report',
   ],
   ADMIN: [
@@ -71,9 +73,11 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
     // 微信通知（订阅消息诊断）：后端只给**超管 + 运营客服**，客服是这条链路的日常使用方（答疑"店长收不到"）
     '/notify',
-    // 2026-10-03（P7/P8）：渠道对账与资金报表是中控**财务向**，与留痕台账同口径。
-    // ⚠️ **不含** `/logistics/sign-pending`（P5 明确仅超管）。
-    '/logs/channel-reconcile', '/logs/fund-report',
+    // ⚠️⚠️ 2026-10-03（后端《给前端的反馈-契约缺口补充》§五 Q-1）：
+    //    `/api/admin/ledger/**` 在 `RoleGuardInterceptor` 里属于 `SUPER_OR_FINANCE_PREFIXES`
+    //    ⇒ 放行条件为 **`SUPER_ADMIN || FINANCE`**，**客服访问会 403**。
+    //    ⇒ 因此「渠道账单对账 / 资金报表」**不能给 CUSTOMER_SERVICE**（原按"超管+客服+财务"给是错的）。
+    //    ⚠️ 物流签收兜底本就不在本列表（**仅超管**，与 P5 一致）。
   ],
   FINANCE: [
     '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/audit', '/logs/ledger', '/shops',

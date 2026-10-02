@@ -2,7 +2,7 @@
 /**
  * 物流签收兜底（P5，2026-10-03 新增）· ⚠️ **仅超管可见**
  *
- * 契约：`docs/26/10.2/前端对接-P5物流签收兜底-2026-10-03.md`
+ * 契约：`docs/26/10.03/前端对接-P5物流签收兜底-2026-10-03.md`
  * - `GET /api/admin/logistics/sign-pending?page=&pageSize=&fallbackDays=` 待签收清单
  * - `GET /api/admin/logistics/sign-pending/count` 待办角标
  * - `PUT /api/admin/logistics/sign-time` 人工修正（**强制审计**）
@@ -182,6 +182,19 @@ onUnmounted(() => {
       :closable="false"
       show-icon
       title="清单口径：已发货及之后（2/3/4）、有运单号、尚无签收时间的物流单，按发货时间升序。签收时间是物流单资金释放期的锚点（签收 + 释放天数），缺失或估算会导致商家迟迟提不到钱。"
+    />
+    <!-- ⚠️ 2026-10-03（后端《给前端的反馈-契约缺口补充》§六 Q-2）：
+         `fallbackDays` **不传 = 15 天**（与轮询任务的兜底天数一致）。
+         ⚠️ 语义提醒：`pastFallbackDays = true` **只表示"发货已超过该天数"**，
+         **不代表系统已经写入了估算签收时间**（估算由定时任务在发货满 15 天后写入、并把 `signTimeEstimated` 置 1）
+         ⇒ 文案**不能**写成"已被系统估算"，否则与实现不符。 -->
+    <el-alert
+      class="hint"
+      type="info"
+      :closable="false"
+      show-icon
+      title="兜底天数默认 15 天（可手动调整）：发货超过该天数仍未查到签收的，会被标记出来提醒关注"
+      description="⚠️ 被标记只说明「发货已超过该天数」，不表示系统已经写入了估算签收时间 —— 估算由定时任务在发货满 15 天后写入。"
     />
     <el-alert
       v-if="overdueCount > 0"

@@ -472,19 +472,22 @@ function goBack(): void {
 
         <!-- ⚠️ 2026-10-03 新增（P1P2 §二.1 明确要求「前端文案请相应说明，避免商家以为钱丢了」）：
              用户实测反馈「钱过了一天还躺在待结算、提不出来，不知道为什么」⇒ 这里把释放期讲清楚。
-             口径来源：P1P2 §二.1（三种形态的释放期 + 任务每 5 分钟入账）+ P5（物流锚点已升级为「快递签收」）。 -->
+             ⚠️⚠️ 2026-10-03 晚 **口径重大变更**（后端《给前端的反馈-契约缺口补充》§四，业务定案
+             「**不能退款才能到账**」）⇒ **同城从"送达次日（1 天）"推迟到"订单完成后 7 天"**；
+             物流仍是完成后 7 天（**若妥投慢、签收晚于完成，则等「签收 + 7 天」，只会更晚**）；
+             自提不变（核销 + 1 天）。⇒ 本卡文案已按新口径更新。 -->
         <view class="card">
           <text class="card-title">钱什么时候能提现？</text>
           <text class="rule-lead">订单完成后，钱不会立刻可提现，而是先进「待结算」，过了释放期才转成「可提现」：</text>
           <view class="release-list">
             <view class="release-item">
               <text class="release-form">物流单</text>
-              <text class="release-rule">快递签收后 7 天</text>
+              <text class="release-rule">订单完成后 7 天</text>
             </view>
-            <text class="release-hint">查不到签收轨迹时，按发货后 15 天估算</text>
+            <text class="release-hint">若签收晚于订单完成，则按「签收后 7 天」计算（只会更晚）；查不到签收轨迹时按发货后 15 天估算</text>
             <view class="release-item">
               <text class="release-form">同城配送</text>
-              <text class="release-rule">订单完成后 1 天</text>
+              <text class="release-rule">订单完成后 7 天</text>
             </view>
             <view class="release-item">
               <text class="release-form">门店自提</text>
@@ -493,6 +496,7 @@ function goBack(): void {
             <text class="release-hint">自提未核销不会释放</text>
           </view>
           <text class="rule-note">释放期到点后由系统自动入账，最长约 5 分钟到账。</text>
+          <text class="rule-note">⚠️ 规则本质是「不能退款之后，钱才能提现」—— 释放期与订单的退款窗口对齐，避免出现「钱提走了又发生退款」。</text>
           <text class="rule-note">⚠️ 只有「可提现余额」能提现；「待结算」的钱还没到期，暂时提不出来 —— 它不会丢，到期后会自动转入可提现。</text>
         </view>
 
@@ -517,7 +521,18 @@ function goBack(): void {
               <text class="total-label">已提现</text>
             </view>
           </view>
-          <text class="commission-hint">当前让利比例（平台抽成）{{ commissionRateText }}，仅对之后新下的订单生效；配送费全额归商家。</text>
+        </view>
+
+        <!-- ⚠️ 2026-10-03 新增（用户要求 B 方案）：把「让利比例」从累计账目卡里的一行小字
+             提升为独立卡片。起因：商家只看到一行「当前让利比例（平台抽成）5%」，
+             既不知道**为什么**是这个数，也不知道**要去哪改**（商家端**没有任何设置入口**）。
+             ⇒ 用户明确要求：「**调整比例需要到 PC 商户后台**」这件事必须写明白。 -->
+        <view class="card">
+          <text class="card-title">让利比例（平台抽成）</text>
+          <text class="rate-value">{{ commissionRateText }}</text>
+          <text class="rule-note">平台从每笔订单中抽取的比例，按商品金额计算；⚠️ 配送费全额归商家，不参与抽成。</text>
+          <text class="rule-note">⚠️ 比例调整只对之后新下的订单生效；已完成订单按「下单当时」的比例结算，不会被追溯修改。</text>
+          <text class="rule-note">⚠️ 商家端不能修改比例 —— 需要调整请到「PC 商户后台」，或联系平台。</text>
         </view>
 
         <!-- 提现规则 + 阻断原因（原因直接展示后端原文） -->
@@ -819,6 +834,15 @@ function goBack(): void {
   color: #86909c;
   font-size: 23rpx;
   line-height: 36rpx;
+}
+/* ⚠️ 2026-10-03：让利比例独立卡片里的**大号比例数字**（原来挤在累计账目卡的一行小字里） */
+.rate-value {
+  display: block;
+  margin-top: 12rpx;
+  color: #ff5500;
+  font-size: 48rpx;
+  font-weight: 700;
+  line-height: 60rpx;
 }
 .total-grid {
   display: flex;

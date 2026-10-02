@@ -59,6 +59,13 @@ const scoped = computed(() => requestedTypes.value.length > 0)
 const baselinedKeys = computed(() => new Set(metas.value.filter((meta) => meta.baselined).map((meta) => meta.key)))
 
 /**
+ * 盲区详情里的「未执行的项 key」拼接文本。
+ * ⚠️ 2026-10-03：原先写在模板里（`data.skippedChecks.map(...)`）—— 模板只做展示、推导放 script，
+ * 且这是**技术详情**（收在折叠区），与商家可见文案分开。
+ */
+const skippedKeysText = computed(() => (data.value?.skippedChecks || []).map((s) => s.key).join('、') || '—')
+
+/**
  * 是否存在盲区（未执行 / 未知 key）。
  * ⚠️ 为真时页面**不得**出现"体检通过/无异常"的结论。
  */
@@ -149,22 +156,84 @@ watch(requestedTypes, () => {
     <div class="page-heading">
       <div>
         <h1>幽灵单巡检</h1>
-        <p>
-          扫描「不该存在的订单状态组合」（钱没退单没关、任务悬空、状态流水断链…）。
-          <strong>徽标与告警只算「新增」</strong>，历史存量仅记账、不告警。
-        </p>
+        <p class="heading-sub">（商家视角：<strong>订单异常巡检</strong>）</p>
       </div>
       <el-button type="primary" :loading="loading" @click="load">重新巡检</el-button>
     </div>
 
-    <!-- 盲区 3：接口报错。后端 fail-fast ⇒ 必须显式告知，不可吞掉 -->
+    <!--
+      ⚠️⚠️ 2026-10-03 新增：**给商家看的说明卡**。
+      起因（用户实测反馈）：入驻商家在这个页面看到「幽灵单巡检」「状态流水断链」「基线口径」
+      这类内部术语，**完全不知道这是什么、为什么会有、自己要做什么**。
+      下面三块依次回答这三个问题；**技术细节一律下沉到折叠区**（见页面底部）。
+    -->
+    <el-card shadow="never" class="explain-card">
+      <div class="explain-grid">
+        <div class="explain-item">
+          <h3 class="explain-q">这是什么？</h3>
+          <p class="explain-a">
+            系统自动检查<strong>你的店铺订单有没有"状态不正常"的情况</strong> ——
+            比如顾客退款成功了但订单还挂着、配送任务停住了没继续、或者订单状态记录断了一截。
+            <br />它的作用是<strong>提前发现问题</strong>，避免出现「钱和货对不上」。
+          </p>
+        </div>
+        <div class="explain-item">
+          <h3 class="explain-q">为什么会出现？</h3>
+          <p class="explain-a">
+            多数是<strong>流程走到一半被打断</strong>造成的，例如：
+            <ul class="explain-ul">
+              <li>顾客申请退款后，退款流程走完但订单没有跟着关闭；</li>
+              <li>配送中途被取消 / 骑手长时间没更新，任务停在半路；</li>
+              <li>系统在切换状态时出了一次错，导致状态记录缺了一环。</li>
+            </ul>
+            ⚠️ <strong>通常不是你的操作失误</strong>，也不代表顾客已经在投诉。
+          </p>
+        </div>
+        <div class="explain-item">
+          <h3 class="explain-q">你该做什么？</h3>
+          <p class="explain-a">
+            <ul class="explain-ul">
+              <li><strong>红色「新增」为 0</strong> ⇒ 不用管，页面只是留个记录；</li>
+              <li><strong>有红色「新增」</strong> ⇒ 点开该条，按上面的<strong>「建议」</strong>处理；
+                涉及钱的（退款类）请<strong>联系平台客服</strong>核实，<strong>不要自己改订单</strong>；</li>
+              <li>拿不准 ⇒ 把<strong>订单号</strong>发给客服，让平台协助排查。</li>
+            </ul>
+            ⚠️ 本页<strong>只检查、不修改</strong>，没有"一键修复"，这是有意设计的（防误操作）。
+          </p>
+        </div>
+      </div>
+      <el-collapse class="tech-collapse">
+        <el-collapse-item name="tech">
+          <template #title>
+            <span class="tech-title">给技术同学的详情</span>
+          </template>
+          <p class="blind-text">
+            巡检项由后端扫描「不该存在的订单状态组合」得出，返回<strong>计数 + 命中明细</strong>。
+            <strong>徽标与告警只统计 `newTotal` / `newCount`</strong>，历史存量（基线化之前的记录）
+            <strong>永不染红</strong>，仅展示。
+          </p>
+          <p class="blind-text">
+            页面下方的「未执行的项 / 未知 key」属于<strong>平台侧数据问题</strong>（表结构变更后 SQL 未同步、
+            key 拼错或改名 ⇒ 该项实际没被巡检），<strong>与商家经营数据无关</strong>，
+            出现时请联系平台技术侧处理。
+          </p>
+          <p class="blind-text">
+            ⚠️ 接口 fail-fast（不降级）：基线表读不到时直接报错，避免把存量当新增刷屏、
+            或把新增当存量漏报。存在盲区时<strong>不得</strong>显示"体检通过"。
+          </p>
+        </el-collapse-item>
+      </el-collapse>
+    </el-card>
+
+    <!-- 盲区 3：接口报错。⚠️ 对外用商家能懂的说法，技术原因收进折叠详情 -->
     <el-alert v-if="loadError" type="error" :closable="false" show-icon class="blind-alert">
-      <template #title>基线数据不可用，本次结果不可信</template>
-      <p class="blind-text">{{ loadError }}</p>
+      <template #title>本次巡检没有跑成功，结果不可用</template>
       <p class="blind-text">
-        常见原因是基线表 <code>inspect_baseline</code> 读不到（迁移 <code>V19007</code> 没跑 / 表被删）。
-        请后端确认迁移 <code>V19007</code> 是否已执行。
+        ⚠️ <strong>这是平台侧的问题，与你的店铺数据无关</strong> —— 不需要你做任何操作。
+        页面显示"0 条异常"也不能当作"没有问题"。
       </p>
+      <p class="blind-text">请<strong>联系平台</strong>处理；技术详情见上方「给技术同学的详情」。</p>
+      <p class="blind-text tech-raw">原始错误：{{ loadError }}</p>
     </el-alert>
 
     <template v-else>
@@ -176,15 +245,14 @@ watch(requestedTypes, () => {
         show-icon
         class="blind-alert"
       >
-        <template #title>本轮有 {{ data.skippedChecks.length }} 项未执行，体检不完整</template>
+        <template #title>本次有 {{ data.skippedChecks.length }} 项检查没能完成，结果不完整</template>
         <p class="blind-text">
-          多为表结构变更后 SQL 未同步。这些项<strong>没有被检查</strong>，不代表它们没有命中。
+          ⚠️ <strong>平台侧问题，与你的店铺数据无关</strong>；这些项<strong>没有被检查</strong>，
+          所以"没有异常"不代表这几项也没问题。请<strong>联系平台</strong>处理。
         </p>
-        <ul class="blind-list">
-          <li v-for="skipped in data.skippedChecks" :key="skipped.key">
-            <code>{{ skipped.key }}</code> {{ skipped.label }} —— {{ skipped.error }}
-          </li>
-        </ul>
+        <p class="blind-text tech-raw">
+          技术详情（表结构变更后 SQL 未同步）：<code>{{ skippedKeysText }}</code>
+        </p>
       </el-alert>
 
       <!-- 盲区 2：unknownTypes 非空（key 拼错/已改名，没被巡检） -->
@@ -195,10 +263,13 @@ watch(requestedTypes, () => {
         show-icon
         class="blind-alert"
       >
-        <template #title>
-          有 {{ data.unknownTypes.length }} 个 key 不存在（拼错或已改名），没有被巡检
-        </template>
-        <p class="blind-text"><code>{{ data.unknownTypes.join('、') }}</code></p>
+        <template #title>本次有 {{ data.unknownTypes.length }} 项检查项目无法识别，结果不完整</template>
+        <p class="blind-text">
+          ⚠️ <strong>平台侧配置问题，与你的店铺数据无关</strong>。请<strong>联系平台</strong>处理。
+        </p>
+        <p class="blind-text tech-raw">
+          技术详情（key 不存在 / 已改名）：<code>{{ data.unknownTypes.join('、') }}</code>
+        </p>
       </el-alert>
 
       <!-- 统计概览 -->
@@ -300,6 +371,17 @@ watch(requestedTypes, () => {
 </template>
 
 <style scoped>
+/* ⚠️ 2026-10-03：给商家看的「这是什么 / 为什么 / 你该做什么」说明卡 + 技术详情折叠区 */
+.heading-sub { margin: 4px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
+.explain-card { margin-bottom: 16px; }
+.explain-grid { display: flex; flex-direction: column; gap: 18px; }
+.explain-q { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--el-text-color-primary); }
+.explain-a { margin: 0; line-height: 1.8; color: var(--el-text-color-regular); }
+.explain-ul { margin: 6px 0 6px; padding-left: 20px; line-height: 1.9; }
+.tech-collapse { margin-top: 18px; border-top: 1px solid var(--el-border-color-lighter); }
+.tech-title { color: var(--el-text-color-secondary); font-size: 13px; }
+/* 技术原文（错误信息 / key 列表）用等宽小字弱化，避免抢走商家的注意力 */
+.tech-raw { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; word-break: break-all; }
 .blind-alert { margin-bottom: 16px; }
 .blind-text { margin: 6px 0 0; line-height: 1.7; }
 .blind-list { margin: 8px 0 0; padding-left: 20px; line-height: 1.8; }

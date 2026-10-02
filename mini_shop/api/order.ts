@@ -109,18 +109,17 @@ export interface OrderDetailItem {
  */
 export interface ChildOrderVO {
   /**
-   * 子订单主键 ID。
+   * 子订单主键 ID（**售后/秒退接口按此 id 操作，不接受订单号**）。
    *
-   * ⚠️⚠️ **后端契约缺口（2026-10-03 记录，已反馈）**：
-   * P3 §2.3 要求前端「**选具体子单**后再调 `POST /api/after-sale/submit`，**传子单的 `orderId`**」，
-   * 但 `api_doc.json` 的 `ChildOrderVO` **只给了 `orderNo`、没有 `id`**，
-   * 而退款/售后接口**只按 `{orderId}` 操作**（已确认不存在按 `orderNo` 的同类接口）
-   * ⇒ **前端拿不到子单 ID 就无法对子单申请**。
-   *
-   * 这里按**可选**声明，并让页面**优雅降级**（有 `id` 才可选子单，没有则给出明确提示），
-   * 待后端在 `ChildOrderVO` 补 `id` 后**无需改前端即可生效**。
+   * ⚠️⚠️ 2026-10-03 后端反馈已修正此前的判断（《给前端的反馈-契约缺口补充》§二）：
+   * - 曾以为「`Long` ⇒ JSON 序列化为**字符串**，与 `MerchantVO.id` 同约定」—— **实测不成立**：
+   *   原始 JSON 就是 `{"id":100235}`、`"settlementMerchantId":911`，**都是数字**，
+   *   项目里**没有** Long→String 的全局序列化配置；
+   * - ⇒ 现按后端口径声明为 **`number`**（自增小整数，不存在 JS 精度问题；
+   *   将来若改用雪花 ID 再统一评估）；
+   * - ⚠️ 后端已于 **jar `870f9d98…`** 补齐该字段，**列表与详情都会返回、非 null**。
    */
-  id?: number
+  id: number
   /** 子订单号。 */
   orderNo: string
   /** 结算归属商家 ID（`wx_merchant.id`）⇒ 前端据此映射商家名。 */
