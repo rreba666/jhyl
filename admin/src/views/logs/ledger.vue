@@ -391,18 +391,31 @@ const reconcileSummary = computed(() => {
 })
 
 /**
- * 对账结论是否可信：后端文档明确「`inconsistencies=0` 且 `invariantsChecked<4` 说明有 SQL 没跑成、结论不可信」。
- * 正常应检查 4 条不变式 → 少于 4 条时页面必须给警告，而不是显示"全部通过"。
+ * 不变式**期望条数**（后端 `invariantsChecked` 的满值）。
+ *
+ * ⚠️⚠️ 2026-10-03（P9）：后端把不变式从 **4 条扩到 8 条**（新增 INV-8/INV-9）。
+ * ⇒ **不要**再把 4 写死在判断或展示里（否则 8 条全跑成也会被误判成"不完整"）。
+ * 这里集中成一个常量，后端再扩时**只改这一处**。
+ */
+const EXPECTED_INVARIANTS = 8
+
+/**
+ * 对账结论是否可信。
+ *
+ * ⚠️ 用途是判断"这次结果是否可信"：后端 SQL 出错时会**少跑**不变式，
+ * 少了就说明**这次对账不完整**，不能把「0 异常」当成"一切正常"
+ * ⇒ 少于 {@link EXPECTED_INVARIANTS} 时必须给黄色提示而不是显示"全部通过"。
  */
 const reconcileIncomplete = computed(() =>
-  Boolean(reconcileResult.value?.structured) && (reconcileResult.value?.invariantsChecked ?? 0) < 4,
+  Boolean(reconcileResult.value?.structured)
+  && (reconcileResult.value?.invariantsChecked ?? 0) < EXPECTED_INVARIANTS,
 )
 
 /** 手动对账。 */
 async function reconcile(): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      '将对 4 条不变式立即跑一次交叉校验（发现不一致会落成 ANOMALY 异常留痕）。该操作幂等但不会去重：重复触发会把同一批不一致再记一条，请勿连点。',
+      `将对 ${EXPECTED_INVARIANTS} 条不变式立即跑一次交叉校验（发现不一致会落成 ANOMALY 异常留痕）。该操作幂等但不会去重：重复触发会把同一批不一致再记一条，请勿连点。`,
       '确认手动对账',
       { type: 'warning', confirmButtonText: '立即对账', cancelButtonText: '取消' },
     )
@@ -847,19 +860,19 @@ onMounted(() => {
           <p class="detail-hint">{{ reconcileSummary }}</p>
           <el-descriptions :column="2" border>
             <el-descriptions-item label="检查窗口起点 since">{{ reconcileResult.since || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="执行不变式数 invariantsChecked">{{ reconcileResult.invariantsChecked }} / 4</el-descriptions-item>
+            <el-descriptions-item label="执行不变式数 invariantsChecked">{{ reconcileResult.invariantsChecked }} / {{ EXPECTED_INVARIANTS }}</el-descriptions-item>
             <el-descriptions-item label="发现不一致 inconsistencies">{{ reconcileResult.inconsistencies }}</el-descriptions-item>
             <el-descriptions-item label="命中明细条数 hits">{{ reconcileResult.hits.length }}</el-descriptions-item>
           </el-descriptions>
 
-          <!-- ⚠️ 后端文档：inconsistencies=0 且 invariantsChecked<4 说明有 SQL 没跑成、结论不可信 → 不能显示"全部通过" -->
+          <!-- ⚠️ P9：inconsistencies=0 且 invariantsChecked < EXPECTED_INVARIANTS 说明有 SQL 没跑成、结论不可信 → 不能显示"全部通过" -->
           <el-alert
             v-if="reconcileIncomplete"
             class="detail-alert"
             type="warning"
             show-icon
             :closable="false"
-            title="本次没有跑满 4 条不变式，结论不可信"
+            :title="`本次没有跑满 ${EXPECTED_INVARIANTS} 条不变式，结果仅供参考`"
             description="至少有一条不变式未执行成功（可能 SQL 报错），此时「发现 0 处不一致」不代表数据没问题 —— 请把本结果反馈给后端排查，不要当成本次校验全部通过。"
           />
           <el-alert

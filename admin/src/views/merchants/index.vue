@@ -31,11 +31,21 @@ const commissionSaving = ref(false)
 const commissionTarget = ref<MerchantVO | null>(null)
 /** 弹窗里的比例值；`null` = 保持不修改（提交时不带该字段）。 */
 const commissionInput = ref<number | null>(null)
+/**
+ * 弹窗里的**物流单专用**让利比例（%，2026-10-03 P4 新增）。
+ *
+ * ⚠️ `null` = **不修改 / 沿用品牌级**（提交时**不带**该字段）——
+ * 后端语义是"不传 = 不修改"，而传值就要过 3~20 ⇒ **恢复"跟随品牌级"只能不传**，不能传 0。
+ */
+const logisticsCommissionInput = ref<number | null>(null)
 
 /** 打开让利比例弹窗，回显该商户当前值（`null` = 未设置）。 */
 function openCommissionDialog(row: MerchantVO): void {
   commissionTarget.value = row
   commissionInput.value = typeof row.commissionRate === 'number' ? row.commissionRate : null
+  // ⚠️ 物流单专用比例：后端 `MerchantVO` **目前不返回该字段**（契约缺口，见 types/merchant.ts）
+  //    ⇒ 读不到就留空（留空提交 = 不修改，语义安全，不会误清值）。待后端补齐后自动回显。
+  logisticsCommissionInput.value = typeof row.logisticsCommissionRate === 'number' ? row.logisticsCommissionRate : null
   commissionDialogVisible.value = true
 }
 
@@ -51,18 +61,28 @@ async function saveCommission(): Promise<void> {
   const row = commissionTarget.value
   if (!row) return
   const value = commissionInput.value
+  const logisticsValue = logisticsCommissionInput.value
   // 前端先拦一次，给出更快的反馈（后端强校验仍是最终把关，越界返回 13018）
   if (value != null && (value < 3 || value > 20)) {
     ElMessage.warning('让利比例需在 3~20 之间')
+    return
+  }
+  if (logisticsValue != null && (logisticsValue < 3 || logisticsValue > 20)) {
+    ElMessage.warning('物流单专用让利比例需在 3~20 之间')
     return
   }
   commissionSaving.value = true
   try {
     await updateMerchant(row.id, {
       brandName: row.brandName,
+      // ⚠️ 两个比例都遵守「不传 = 不修改」：清空即不带该字段（传 0 会被 3~20 校验拒）
       ...(value == null ? {} : { commissionRate: value }),
+      ...(logisticsValue == null ? {} : { logisticsCommissionRate: logisticsValue }),
     })
-    ElMessage.success(value == null ? '已提交（让利比例未修改）' : `让利比例已设为 ${value}%`)
+    const parts: string[] = []
+    parts.push(value == null ? '让利比例未修改' : `让利比例 ${value}%`)
+    parts.push(logisticsValue == null ? '物流单专用比例未修改（沿用品牌级）' : `物流单专用比例 ${logisticsValue}%`)
+    ElMessage.success(`已提交（${parts.join('；')}）`)
     commissionDialogVisible.value = false
     await loadList()
   } catch (error) {
@@ -233,12 +253,24 @@ onMounted(() => {
             <el-input-number v-model="commissionInput" :min="3" :max="20" :precision="2" :step="0.5" />
             <span class="commission-unit">%</span>
           </el-form-item>
+          <!-- ⚠️ 2026-10-03 新增（P4）：**物流单专用**让利比例。仅对物流单生效，自提/同城仍用上面的品牌级。 -->
+          <el-form-item label="物流单专用">
+            <el-input-number v-model="logisticsCommissionInput" :min="3" :max="20" :precision="2" :step="0.5" />
+            <span class="commission-unit">%</span>
+          </el-form-item>
         </el-form>
         <el-alert
           type="info"
           :closable="false"
           show-icon
           title="区间 3~20。该比例是商户级的，对商户下所有门店生效，并参与结算（按订单快照，只影响之后新下的订单）。留空 / 清空表示不修改。"
+        />
+        <el-alert
+          class="commission-alert"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="物流单专用让利比例（3~20）：仅对**物流单**生效，自提 / 同城仍用上面的品牌级比例。留空 = 沿用品牌级；清空表示不修改。"
         />
       </div>
       <template #footer>

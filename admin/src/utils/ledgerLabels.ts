@@ -134,6 +134,21 @@ export const LEDGER_OPERATION_LABELS: Record<string, string> = {
   'INV-2_REFUND_WITHOUT_REFUND_STATUS': '不变式2：有退款流水但无退款状态留痕',
   'INV-3_STOCK_WITHOUT_OPERATION': '不变式3：人造库存变动无后台操作留痕',
   'INV-4_LOGISTICS_WITHOUT_FULFILLMENT': '不变式4：查过物流但无履约状态留痕',
+  /**
+   * ⚠️ 2026-10-03 新增（P9：不变式 4 → 8 条，异常台账会多出这两个 `operation`）。
+   *
+   * ⚠️⚠️ **必须按 `operation` 码匹配，不要按后端文案匹配**：
+   * 历史留痕的文案**曾经是错的**（早期版本把 INV-7 的说明"已完成的子单缺少结算快照…"
+   * 误带给了这两条）—— 那是修好之前产生的记录；新记录文案才准确。
+   * ⇒ 用码匹配，历史记录也能显示正确含义。
+   *
+   * 业务含义（P9 §一）：
+   * - INV-8：报表说"这笔钱已入账"，但商家账上**没有对应流水**（报表与账不符）；
+   * - INV-9：用户**退款成功**了，但**结算快照没作废** ⇒ **商家会多拿钱**。
+   * ⚠️ 两者都需**人工核查后由财务处理**（系统**只报不改**）。
+   */
+  'INV-8_CREDITED_WITHOUT_FLOW': '不变式8：已入账快照缺少对应资金流水',
+  'INV-9_REFUNDED_WITHOUT_REVERSED_SETTLEMENT': '不变式9：退款成功但结算快照未作废',
 }
 
 /** 未知操作码的提示（列 tooltip 用）。 */

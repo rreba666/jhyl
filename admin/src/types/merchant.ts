@@ -22,6 +22,19 @@ export interface MerchantVO {
    * ⚠️ 这是**商户级**配置，对该商户下**所有门店**生效；门店级 `commission_rate` **不生效**（仅历史存档）。
    */
   commissionRate?: number | null
+  /**
+   * **物流单专用**让利比例（%）—— 2026-10-03 后端新增（P4）。
+   *
+   * ⚠️⚠️ **后端契约缺口（已反馈）**：该字段目前**只在写入 DTO**
+   * （`MerchantUpdateDTO.logisticsCommissionRate`），**读取的 `MerchantVO` 里没有**
+   * ⇒ 前端**能写不能回显**。这里按可选声明，弹窗回显时**读不到就留空**
+   * （留空提交 = 不修改，语义安全，不会误清值）；待后端在 `MerchantVO` 补齐后**无需改前端**。
+   *
+   * ⚠️ 语义（P4 §一）：取值 **3~20**；**不传 = 不修改**；
+   *    **留空/不设 = 沿用品牌级 `commissionRate`**（**仅物流单**生效，自提/同城仍用品牌级）。
+   * ⚠️ 与 `commissionRate` 一样在**下单时快照**，只影响之后新下的订单。
+   */
+  logisticsCommissionRate?: number | null
   createTime?: string
 }
 
@@ -69,6 +82,14 @@ export interface MerchantUpdateDTO {
   remark?: string
   /** 让利比例（%，**取值 3~20**）；⚠️ **不传 = 不修改**。越界后端返回 `13018`。 */
   commissionRate?: number
+  /**
+   * **物流单专用**让利比例（%，**取值 3~20**，2026-10-03 P4 新增）。
+   *
+   * ⚠️ **不传 = 不修改**；**留空/不设 = 沿用品牌级 `commissionRate`**
+   *    （⇒ 想恢复"跟随品牌级"时，前端**不能传 0**，只能**不传该字段**，否则会被 3~20 校验拒）。
+   * ⚠️ **仅对物流单生效**，自提/同城仍用品牌级 `commissionRate`。
+   */
+  logisticsCommissionRate?: number
 }
 
 /** 商户接口统一响应结构。 */
