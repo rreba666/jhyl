@@ -40,7 +40,6 @@ import {
   type SettlementWithdrawRulesVO,
 } from '@/api/settlement'
 import { isApiRequestError, resolveImageUrl, uploadFile } from '@/utils/request'
-import { getIdentity } from '@/api/identity'
 
 const statusBarHeight = ref(0)
 /** 内容区顶部留白 = 状态栏 + 自定义导航栏高度（与 bill/index.vue 同口径）。 */
@@ -66,38 +65,13 @@ const payeeQrUrl = ref('')
 const uploading = ref(false)
 const qrUploading = ref(false)
 
-/**
- * 账号里是否**存在**「商家（MERCHANT_OWNER）」身份。
- *
- * ⚠️ 2026-09-23 新增（诊断用）：结算/提现是按**当前身份**判定的，而一个自然人常常
- * **同时**有「商家」与「店长」两个身份（入驻审核通过时一并授予）
- * ⇒ 在店长身份下就会拿到 `13016`。
- *
- * 此时必须能区分两种情况，否则用户只能反复试、排查的人也只能猜：
- * ① 账号**有** owner 身份 ⇒ 是"身份没切过去"，去「我的」页切一下即可；
- * ② 账号**没有** owner 身份 ⇒ 是真的没权限，得找平台处理。
- */
-const hasOwnerIdentity = ref(false)
-
-/** 读一次身份，标记账号是否含商家身份（失败不影响页面，只是不显示这半句提示）。 */
-async function loadOwnerIdentityFlag(): Promise<void> {
-  try {
-    const data = await getIdentity()
-    const list = data?.identities || []
-    hasOwnerIdentity.value = list.some((item) => String(item.role || '').toUpperCase() === 'MERCHANT_OWNER')
-  } catch {
-    hasOwnerIdentity.value = false
-  }
-}
-
 onLoad(() => {
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
   uni.setNavigationBarTitle({ title: '结算与提现' })
 })
 
 // 每次显示都重新拉数据：提交后余额/规则会变（申请即冻结），返回本页也必须是最新值
-// ⚠️ 同时重新判定「账号是否有商家身份」：用户可能刚去「我的」页切了身份再回来
-onShow(() => { void refreshData(); void loadOwnerIdentityFlag() })
+onShow(() => { void refreshData() })
 
 // ===== 金额与状态展示 =====
 
@@ -393,19 +367,14 @@ function goWithdrawList(): void {
  * **账单金额与可提现余额可能对不上**（后端已说明，见《后端答复-营业额口径与物流单归属-2026-10-01》§五），
  * 因此界面上**不要宣传两者口径一致**。
  */
+/**
+ * 去「账单」看品牌营业额。
+ *
+ * ⚠️ 店长/店员即使没有结算权限，**仍然可以**查看所属品牌（结算归属）的订单口径营业额，
+ * 所以这个入口对无权限用户保留（是他们在本页唯一有意义的动作）。
+ */
 function goBill(): void {
   uni.navigateTo({ url: '/subpkg-merchant/bill/index' })
-}
-
-/**
- * 去「我的」页切换身份。
- *
- * ⚠️ 结算与提现按**当前身份**判定：入驻会同时授予「商家（MERCHANT_OWNER）」与「店长（MANAGER）」
- * 两个身份，若当前是店长，后端就返回 13016。商户主体需要回「我的」切到商家身份。
- * `pages/mine/mine` 是 tabBar 页 ⇒ 必须用 `switchTab`（navigateTo 会失败）。
- */
-function goSwitchIdentity(): void {
-  uni.switchTab({ url: '/pages/mine/mine' })
 }
 
 function goBack(): void {
@@ -423,30 +392,39 @@ function goBack(): void {
     </view>
 
     <scroll-view class="content" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
-      <!-- 13016：仅品牌主体可看结算账户与提现（店长/店员误入） -->
+      <!-- 13016：当前品牌下没有商家主体身份（2026-10-03 后端口径变更后唯一的原因） -->
       <view v-if="notMerchantOwner" class="blocked-card">
         <text class="blocked-title">仅商户品牌主体可查看结算账户与提现</text>
         <!-- ⚠️ 2026-10-01 文案更正：账单归属维度已改为「结算归属品牌商家」（详见 goBill 的注释） -->
         <text class="blocked-desc">当前身份为店长/店员，可以查看所属品牌（结算归属）的订单口径营业额。</text>
-        <!-- 区分「身份没切过去」与「账号真没权限」：这两句话的可操作动作完全不同 -->
-        <text v-if="hasOwnerIdentity" class="blocked-hint">
-          检测到你的账号确实拥有「商家」身份：结算与提现按当前身份判定，现在用的是「店长」身份。
-          请到「我的」页切换到商家身份后再回来。
-        </text>
-        <text v-else class="blocked-hint">
-          当前账号没有「商家（品牌主体）」身份，所以看不到结算账户与提现。如需开通请联系平台。
+        <!--
+          ⚠️⚠️ 2026-10-03 后端改造（P1P2 §一.3）：放行条件由「**当前身份**必须是 MERCHANT_OWNER」
+          改为「**该账号在当前品牌下拥有** MERCHANT_OWNER 绑定」⇒
+            · 既有店长身份、又拥有该品牌 owner 绑定的账号，**现在能进来**（不再返回 13016）；
+            · 因此**能走到这个提示的，就必然是真的没有该品牌的商家主体身份** ——
+              原来那句"检测到你拥有商家身份，请去切换身份"已**不可能成立**，故删除；
+            · 后端也明确要求：⚠️ **前端不要再引导用户"切换身份"**
+              （商家与店长进的是同一个工作台，用户无从感知两个身份的区别）。
+        -->
+        <text class="blocked-hint">
+          当前账号在该品牌下没有商家主体身份，所以看不到结算账户与提现。如需开通请联系平台。
         </text>
         <view class="blocked-button" @click="goBill">去「账单」看品牌营业额</view>
-        <view class="blocked-button blocked-button--ghost" @click="goSwitchIdentity">去「我的」切换身份</view>
       </view>
 
       <template v-else>
-        <!-- 账户卡片：可提现 / 冻结中 / 欠款 -->
+        <!-- 账户卡片：可提现 / 待结算 / 冻结中 / 欠款（四金额务必分清，P1P2 §一.1） -->
         <view class="account-card">
           <text class="account-subject">{{ account.subjectName || '我的商户' }}</text>
           <text class="account-label">可提现余额（元）</text>
           <text class="account-value">{{ formatSettlementAmount(account.availableBalance) }}</text>
+          <!-- ⚠️ 提现按钮只认可提现余额；待结算是"已支付但未满释放期"的钱，到点才进可提现 -->
           <view class="account-sub">
+            <view class="sub-item">
+              <text class="sub-value">{{ formatSettlementAmount(account.pendingSettlementAmount) }}</text>
+              <text class="sub-label">待结算（未满释放期）</text>
+            </view>
+            <view class="sub-divider" />
             <view class="sub-item">
               <text class="sub-value">{{ formatSettlementAmount(account.frozenBalance) }}</text>
               <text class="sub-label">冻结中（已申请未打款）</text>
