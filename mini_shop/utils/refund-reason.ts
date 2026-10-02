@@ -79,3 +79,32 @@ export function validateRefundReason(value: unknown, options: { required?: boole
   }
   return { ok: true, value: normalized }
 }
+
+/**
+ * 校验**售后申请**原因（`POST /api/after-sale/submit` 的 `AfterSaleSubmitDTO.reason`）。
+ *
+ * ⚠️⚠️ 为什么**不能**复用 {@link validateRefundReason}（2026-10-03 代码审查发现）：
+ * 两个后端 DTO 的约束**不一样**：
+ * | DTO | 长度 | 字符白名单 |
+ * |---|---|---|
+ * | `OrderRefundDTO.reason`（秒退/自助退款） | 200 | ✅ **有 `@Pattern`**（见 {@link REFUND_REASON_PATTERN}） |
+ * | **`AfterSaleSubmitDTO.reason`**（售后申请） | 200 | ❌ **没有 pattern** |
+ *
+ * ⇒ 若售后也套退款的白名单，用户写个表情或 `~ / % &` 会被**前端**拦下，
+ *   而后端**本来接受** ⇒ 属于"前端比后端更严"的假报错（用户被无理由挡住）。
+ *
+ * ⇒ 所以这里**只校验必填与长度**，字符交给后端（它没有白名单）。
+ * ⚠️ 清洗仍复用 `cleanRefundReason`（去控制字符/零宽字符、合并空白），那是纯卫生处理、不影响合法性。
+ */
+export function validateAfterSaleReason(value: unknown, options: { required?: boolean } = {}): ValidationResult<string> {
+  const required = options.required !== false
+  const normalized = cleanRefundReason(value)
+  if (!normalized) {
+    return required ? { ok: false, message: '请填写售后原因' } : { ok: true, value: '' }
+  }
+  if (refundReasonCharCount(normalized) > REFUND_REASON_MAX_LENGTH) {
+    return { ok: false, message: `售后原因不能超过${REFUND_REASON_MAX_LENGTH}个字符` }
+  }
+  // ⚠️ 刻意**不做**白名单校验：后端 AfterSaleSubmitDTO.reason 没有 @Pattern
+  return { ok: true, value: normalized }
+}

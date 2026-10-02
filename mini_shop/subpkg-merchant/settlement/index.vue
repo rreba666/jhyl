@@ -357,21 +357,17 @@ function goWithdrawList(): void {
 }
 
 /**
- * 店长/店员误入时的退路：去「账单」看营业额。
- *
- * ⚠️ 2026-10-01 文案更正：账单的归属维度已由「履约门店」改为「**结算归属品牌商家**」
- * （后端新增 `wx_order.settlement_merchant_id`，`MerchantFinanceQueryMapper` 共 14 处金额 SQL
- * 由 `o.merchant_id = 登录门店` 改为按该列解析）⇒ 店长看到的**不是本门店**营业额，
- * 而是**该门店所属品牌**的营业额。
- * ⚠️ 但 `settlement/account`（结算快照）**本次未改**，仍是履约门店口径 ⇒
- * **账单金额与可提现余额可能对不上**（后端已说明，见《后端答复-营业额口径与物流单归属-2026-10-01》§五），
- * 因此界面上**不要宣传两者口径一致**。
- */
-/**
- * 去「账单」看品牌营业额。
+ * 去「账单」看品牌营业额（**无结算权限时的唯一退路**）。
  *
  * ⚠️ 店长/店员即使没有结算权限，**仍然可以**查看所属品牌（结算归属）的订单口径营业额，
- * 所以这个入口对无权限用户保留（是他们在本页唯一有意义的动作）。
+ * 所以这个入口对无权限用户保留。
+ *
+ * ⚠️ 账单的归属维度自 2026-10-01 起是「**结算归属品牌商家**」而不是「履约门店」
+ * （后端按 `wx_order.settlement_merchant_id` 解析）⇒ 店长看到的**不是本门店**营业额，
+ * 而是**该门店所属品牌**的营业额。
+ * ⚠️ 但 2026-10-03 起后端已把 `settlement/account` 也切到同一口径（P1/P2 改造），
+ * 所以两者现在**同口径**；界面文案仍不要主动宣传"账单金额 = 可提现余额"
+ * （可提现还受**释放期**影响：钱可能还在「待结算」里）。
  */
 function goBill(): void {
   uni.navigateTo({ url: '/subpkg-merchant/bill/index' })
@@ -396,7 +392,7 @@ function goBack(): void {
       <view v-if="notMerchantOwner" class="blocked-card">
         <text class="blocked-title">仅商户品牌主体可查看结算账户与提现</text>
         <!-- ⚠️ 2026-10-01 文案更正：账单归属维度已改为「结算归属品牌商家」（详见 goBill 的注释） -->
-        <text class="blocked-desc">当前身份为店长/店员，可以查看所属品牌（结算归属）的订单口径营业额。</text>
+        <text class="blocked-desc">当前账号在该品牌下没有商家主体身份，可以查看所属品牌（结算归属）的订单口径营业额。</text>
         <!--
           ⚠️⚠️ 2026-10-03 后端改造（P1P2 §一.3）：放行条件由「**当前身份**必须是 MERCHANT_OWNER」
           改为「**该账号在当前品牌下拥有** MERCHANT_OWNER 绑定」⇒
@@ -626,14 +622,6 @@ function goBack(): void {
   font-size: 24rpx;
   line-height: 38rpx;
   text-align: center;
-}
-/* 次要按钮：白色描边。
-   ⚠️ 用 `.blocked-card` 前缀提高特异性（2 个 class），否则会被后面的 `.blocked-button` 覆盖 */
-.blocked-card .blocked-button--ghost {
-  margin-top: 20rpx;
-  background: #ffffff;
-  border: 1rpx solid #ff5500;
-  color: #ff5500;
 }
 .blocked-button {
   margin-top: 38rpx;

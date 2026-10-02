@@ -6,6 +6,8 @@ import { cancelOrder, fastRefundOrder, getOrderList, receiveOrder, refundOrder, 
 import { canFastRefundNow, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText } from '@/utils/refund-window'
 import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
+// 申请售后弹层的状态与提交（与订单详情页**共用**，见该文件头部说明为何抽出）
+import { useAfterSaleSubmit } from '@/utils/after-sale-submit'
 import { isApiRequestError } from '@/utils/request'
 // 幂等键生成（请求头 X-Request-Id）：同一笔秒退动作的连点/重试复用同一个值，见 utils/request-id.ts
 import { createRequestId } from '@/utils/request-id'
@@ -87,6 +89,30 @@ const refundSheetVisible = ref(false)
 const refundSheetSubmitting = ref(false)
 /** 理由弹层内的错误（提交失败时**不关弹层**，理由不丢，可直接改完重试）。 */
 const refundSheetError = ref('')
+
+/**
+ * 售后申请弹层（**已完成订单**用）。
+ *
+ * ⚠️ 2026-10-03：状态与提交逻辑已抽到 `utils/after-sale-submit.ts`（与订单详情页共用），
+ * 这里只提供**成功后**的收尾动作（列表页的收尾 = 切到「退款/售后」页签并刷新）。
+ *
+ * 背景（后端 P1P2 §一.2）：**已完成（COMPLETED）的订单现在也可以申请售后**
+ * （旧逻辑"完成即不可申请"）⇒ 已完成订单原先在列表里**没有任何售后入口**。
+ * 走 `POST /api/after-sale/submit`（**待审核**、**不会立即退款**）。
+ */
+const {
+  sheetVisible: afterSaleSheetVisible,
+  sheetSubmitting: afterSaleSheetSubmitting,
+  sheetError: afterSaleSheetError,
+  open: openAfterSale,
+  submit: submitAfterSaleRequest,
+} = useAfterSaleSubmit({
+  onSuccess: async () => {
+    // 与退款一致：切到「退款/售后」分类看进度
+    activeIndex.value = AFTER_SALE_TAB_INDEX
+    await load(true)
+  },
+})
 
 /** 微信胶囊按钮位置，用于自定义导航栏精确定位。 */
 const menuTop = ref(0)
@@ -551,6 +577,11 @@ onShow(() => {
               </template>
               <text v-if="order.pickupType === 2 && order.status === 1 && progressNodeMap[order.orderNo] === 'DELIVERED'" class="btn primary" :class="{ disabled: !!actionLoading }" @click.stop="receiveDelivery(order)">{{ actionLoading === 'confirm:' + order.id ? '处理中...' : '确认收货' }}</text>
             </template>
+            <!-- ⚠️ 2026-10-03 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**
+                 （旧逻辑"完成即不可申请"）⇒ 已完成订单原先在列表里**没有任何售后入口**。
+                 ⚠️ 这里用独立 `v-if`，**不挂进上面按 pickupType 分组的 v-if/v-else-if 链**，
+                 以免影响既有按钮的互斥关系（三种配送方式都使用同一入口）。 -->
+            <text v-if="order.status === 4 && !processingOrderIds.has(String(order.id))" class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="openAfterSale(order.id)">申请售后</text>
           </view>
         </view>
       </template>
@@ -569,6 +600,21 @@ onShow(() => {
       :submitting="refundSheetSubmitting"
       :error-message="refundSheetError"
       @confirm="submitFastRefund"
+    />
+
+    <!-- 售后申请弹层（**已完成订单**用，2026-10-03 新增）：
+         ⚠️ 与秒退的文案必须区分 —— 售后走 `POST /api/after-sale/submit`，
+         **创建待审核售后单、不会立即退款**，写成"立即原路退款"会误导用户。 -->
+    <RefundReasonSheet
+      v-model="afterSaleSheetVisible"
+      title="填写售后原因"
+      subtitle="提交后进入售后审核，审核通过后退款，预计 1–3 个工作日到账。"
+      submit-text="提交申请"
+      mode="afterSale"
+      placeholder="请填写售后原因（必填）"
+      :submitting="afterSaleSheetSubmitting"
+      :error-message="afterSaleSheetError"
+      @confirm="submitAfterSaleRequest"
     />
   </view>
 </template>

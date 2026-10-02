@@ -4,6 +4,7 @@ import {
   QUICK_REFUND_REASONS,
   REFUND_REASON_MAX_LENGTH,
   refundReasonCharCount,
+  validateAfterSaleReason,
   validateRefundReason,
 } from '@/utils/refund-reason'
 
@@ -38,6 +39,19 @@ interface Props {
   errorMessage?: string
   /** 输入框占位文案。 */
   placeholder?: string
+  /**
+   * 校验模式（决定用哪个后端 DTO 的约束）。
+   *
+   * ⚠️⚠️ 2026-10-03 新增（代码审查发现）：两个后端 DTO 约束**不同**，不能共用一套校验：
+   * | mode | 对应接口 | 长度 | 字符白名单 |
+   * |---|---|---|---|
+   * | `refund`（默认） | 秒退 `refund/fast` / 自助退款 `refund` | 200 | ✅ **有 `@Pattern`** |
+   * | `afterSale` | 售后申请 `after-sale/submit` | 200 | ❌ **无 pattern** |
+   *
+   * ⇒ 售后用 `afterSale`：**只校验必填与长度**，否则用户写表情会被**前端**无理由拦住
+   *   （后端本来接受），表现为"假报错"。
+   */
+  mode?: 'refund' | 'afterSale'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -48,6 +62,8 @@ const props = withDefaults(defineProps<Props>(), {
   submitting: false,
   errorMessage: '',
   placeholder: '请填写退款理由（必填）',
+  // ⚠️ 默认走退款口径（含后端 @Pattern 白名单）；售后入口需显式传 mode="afterSale"
+  mode: 'refund',
 })
 
 const emit = defineEmits<{
@@ -92,7 +108,9 @@ function close(): void {
 
 function submit(): void {
   if (props.submitting) return
-  const result = validateRefundReason(reason.value, { required: props.required })
+  // ⚠️ 按 mode 选择校验口径：售后（afterSale）后端无 @Pattern ⇒ 只校验必填与长度
+  const validate = props.mode === 'afterSale' ? validateAfterSaleReason : validateRefundReason
+  const result = validate(reason.value, { required: props.required })
   if (!result.ok) {
     localError.value = result.message
     return

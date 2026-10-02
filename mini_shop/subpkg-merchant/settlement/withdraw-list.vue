@@ -165,7 +165,7 @@ function goBack(): void {
       <view v-if="notMerchantOwner" class="state">
         <text class="state-title">仅商户品牌主体可查看结算账户与提现</text>
         <!-- ⚠️ 2026-10-01 文案更正：账单归属维度已改为「结算归属品牌商家」，不再是本门店（详见 flows.vue 同处注释） -->
-        <text class="state-text">当前身份为店长/店员，请在「账单」查看所属品牌（结算归属）的订单口径营业额。</text>
+        <text class="state-text">当前账号在该品牌下没有商家主体身份，请在「账单」查看所属品牌（结算归属）的订单口径营业额。</text>
       </view>
 
       <template v-else>

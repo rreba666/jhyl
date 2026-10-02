@@ -5,7 +5,9 @@ import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, 
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
 import { canFastRefundNow, isFastRefundGateClosed, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
-import { getAfterSaleList, submitAfterSale } from '@/api/after-sale'
+import { getAfterSaleList } from '@/api/after-sale'
+// 申请售后弹层的状态与提交（与订单列表页**共用**，见该文件头部说明为何抽出）
+import { useAfterSaleSubmit } from '@/utils/after-sale-submit'
 import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
 import { isApiRequestError, resolveImageUrl } from '@/utils/request'
@@ -57,15 +59,24 @@ const refundSheetError = ref('')
 /**
  * 售后申请弹层（**已完成订单**用）。
  *
- * ⚠️ 2026-10-03 新增（后端 P1P2 §一.2 的售后窗口新口径）：
- * **已完成（COMPLETED）的订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。
- * 走的是 `POST /api/after-sale/submit`（创建售后单、**待审核**、**不立即退款**），
- * 与秒退（`refund/fast`）和用户自助退款（`refund`，仅 PAID）都不同 ⇒ 故用独立的弹层状态与提交函数。
- * ⚠️ 复用同一个 `RefundReasonSheet` 组件，但标题/说明/按钮文案不同（这里要说明"需人工审核"）。
+ * ⚠️ 2026-10-03：状态与提交逻辑已抽到 `utils/after-sale-submit.ts`（与订单列表页共用），
+ * 这里只提供**成功后**的收尾动作（详情页的收尾 = 跳到「退款/售后」分类）。
+ *
+ * 背景（后端 P1P2 §一.2）：**已完成（COMPLETED）的订单现在也可以申请售后**
+ * （旧逻辑"完成即不可申请"），走 `POST /api/after-sale/submit`（**待审核**、**不会立即退款**）。
  */
-const afterSaleSheetVisible = ref(false)
-const afterSaleSheetSubmitting = ref(false)
-const afterSaleSheetError = ref('')
+const {
+  sheetVisible: afterSaleSheetVisible,
+  sheetSubmitting: afterSaleSheetSubmitting,
+  sheetError: afterSaleSheetError,
+  open: openAfterSale,
+  submit: submitAfterSaleRequest,
+} = useAfterSaleSubmit({
+  onSuccess: () => {
+    // 与退款一致：跳到「退款/售后」分类看进度
+    uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
+  },
+})
 
 /** 地址修改申请表单，内容按当前用户和订单自动缓存。 */
 interface AddressChangeForm {
@@ -646,44 +657,6 @@ function showFastRefundGateTip(): void {
   })
 }
 
-/**
- * 打开「申请售后」的理由弹层（**已完成订单**用）。
- *
- * ⚠️ 2026-10-03 新增：后端把售后窗口改为「**物流/同城 = 订单完成后 7 天内**」，
- * 且**已完成（COMPLETED）的订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。
- * 走 `POST /api/after-sale/submit`（创建售后单、**待审核**、**不会立即退款**）。
- *
- * ⚠️ **窗口不在前端判断**：超期由后端返回 `8703`（文案后端已更正为「订单完成已超过7天…」），
- * 前端**直接展示后端原文**，避免两边口径漂移。
- */
-function openAfterSale(): void {
-  if (!order.value || actionLoading.value) return
-  afterSaleSheetError.value = ''
-  afterSaleSheetVisible.value = true
-}
-
-/**
- * 提交售后申请（理由来自弹层 `confirm`，**已过校验与清洗**）。
- * ⚠️ 失败不关弹层：理由不丢，用户改完可直接重试。
- */
-async function submitAfterSaleRequest(reason: string): Promise<void> {
-  if (!order.value || afterSaleSheetSubmitting.value) return
-  afterSaleSheetSubmitting.value = true
-  afterSaleSheetError.value = ''
-  try {
-    await submitAfterSale({ orderId: order.value.id, reason })
-    afterSaleSheetVisible.value = false
-    uni.showToast({ title: '售后申请已提交，等待审核', icon: 'success' })
-    // 与退款一致：跳到「退款/售后」分类看进度
-    uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
-  } catch (error) {
-    // ⚠️ 超期（8703）等业务错误由后端下发文案 ⇒ 直接展示，不在此处拼中文
-    afterSaleSheetError.value = error instanceof Error ? error.message : '售后申请失败，请稍后重试'
-  } finally {
-    afterSaleSheetSubmitting.value = false
-  }
-}
-
 function openFastRefund(): void {
   if (!order.value || actionLoading.value) return
   refundSheetError.value = ''
@@ -913,7 +886,7 @@ onUnload(() => {
            可点则能给出解释（对应后端的 2013 错误码）。 -->
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">申请取消（需商家确认）</button>
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button><!-- ⚠️ 2026-10-03 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。⚠️ 用独立 v-if、不挂在上面那串 v-else-if 链上，避免影响既有按钮的互斥关系。⚠️ 窗口由后端判定（物流/同城＝完成后 7 天内），超期返回 8703 并展示后端文案。 -->
-        <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="openAfterSale()">申请售后</button></view>
+        <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="openAfterSale(order?.id)">申请售后</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->
@@ -949,6 +922,8 @@ onUnload(() => {
       title="填写售后原因"
       subtitle="提交后进入售后审核，审核通过后退款，预计 1–3 个工作日到账。"
       submit-text="提交申请"
+      mode="afterSale"
+      placeholder="请填写售后原因（必填）"
       :submitting="afterSaleSheetSubmitting"
       :error-message="afterSaleSheetError"
       @confirm="submitAfterSaleRequest"
