@@ -130,7 +130,9 @@ function isNotMerchantOwnerError(error: unknown): boolean {
 /** 拉结算账户；13016 → 整页置为「仅品牌主体可见」。 */
 async function loadAccount(): Promise<void> {
   try {
-    account.value = (await getSettlementAccount()) || {}
+    const raw = (await getSettlementAccount()) || {}
+    account.value = raw
+    logAccountDiagnostic(raw)
     notMerchantOwner.value = false
   } catch (error) {
     account.value = {}
@@ -140,6 +142,31 @@ async function loadAccount(): Promise<void> {
     }
     uni.showToast({ title: resolveSettlementErrorMessage(error, '结算账户加载失败'), icon: 'none' })
   }
+}
+
+/**
+ * ⚠️ **临时诊断**（2026-10-03 加入）：核对「待结算」金额是否为后端口径问题。
+ *
+ * 起因：用户实测下 3 单各 ¥0.01（**合计 ¥0.03**），页面「待结算」却显示 **0.30**（**×10**）。
+ * 已核实**前端全链路无任何 ×10 / ÷100 换算**（`formatSettlementAmount` 只是 `Number(v).toFixed(2)`，
+ * 模板直接绑 `account.pendingSettlementAmount`）⇒ 需看**后端原始值**才能定性。
+ *
+ * ⚠️ 若原始值确为 `0.3` ⇒ **后端计算问题**（反馈后端）；
+ *    若原始值为 `0.03` 而页面显示 0.30 ⇒ **前端渲染问题**（回来查这里）。
+ * ⚠️ 定位后**应删除**本函数与调用（避免长期留噪音日志）。
+ */
+function logAccountDiagnostic(raw: SettlementAccountVO): void {
+  console.warn('[MerchantSettlement] account raw:', JSON.stringify({
+    availableBalance: raw.availableBalance,
+    pendingSettlementAmount: raw.pendingSettlementAmount,
+    frozenBalance: raw.frozenBalance,
+    debtAmount: raw.debtAmount,
+    totalGoodsIncome: raw.totalGoodsIncome,
+    totalCommission: raw.totalCommission,
+    totalDeliveryFee: raw.totalDeliveryFee,
+    totalWithdrawn: raw.totalWithdrawn,
+    commissionRate: raw.commissionRate,
+  }))
 }
 
 /** 拉提现规则（失败静默：阻断原因与张数限制退化为兜底值，不打断主流程）。 */
@@ -438,7 +465,7 @@ function goBack(): void {
             <view class="sub-divider" />
             <view class="sub-item">
               <text class="sub-value" :class="{ 'is-debt': debtAmount > 0 }">{{ formatSettlementAmount(account.debtAmount) }}</text>
-              <text class="sub-label">欠款（&gt;0 不可提现）</text>
+              <text class="sub-label">欠款（大于 0 不可提现）</text>
             </view>
           </view>
         </view>
