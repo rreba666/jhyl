@@ -60,7 +60,7 @@ const baselinedKeys = computed(() => new Set(metas.value.filter((meta) => meta.b
 
 /**
  * 盲区详情里的「未执行的项 key」拼接文本。
- * ⚠️ 2026-10-03：原先写在模板里（`data.skippedChecks.map(...)`）—— 模板只做展示、推导放 script，
+ * ⚠️ 2026-10-02：原先写在模板里（`data.skippedChecks.map(...)`）—— 模板只做展示、推导放 script，
  * 且这是**技术详情**（收在折叠区），与商家可见文案分开。
  */
 const skippedKeysText = computed(() => (data.value?.skippedChecks || []).map((s) => s.key).join('、') || '—')
@@ -114,7 +114,7 @@ function severityTagType(severity: GhostSeverity): 'danger' | 'warning' | 'info'
 
 /** 样例归属 → 标签文案；`null` 返回空串（调用方据此不渲染标签）。 */
 function sampleKindLabel(kind: GhostSampleKind): string {
-  // ⚠️ 2026-10-03：这些文案**直接上屏给商家**，原先的"存量/已记账"商家看不懂 ⇒ 改为通俗说法
+  // ⚠️ 2026-10-02：这些文案**直接上屏给商家**，原先的"存量/已记账"商家看不懂 ⇒ 改为通俗说法
   if (kind === 'NEW') return '新发现'
   if (kind === 'LEGACY') return '历史记录（已登记）'
   if (kind === 'NEW_AND_LEGACY') return '新发现 + 历史记录'
@@ -172,7 +172,7 @@ watch(requestedTypes, () => {
     </div>
 
     <!--
-      ⚠️⚠️ 2026-10-03 新增：**给商家看的说明卡**。
+      ⚠️⚠️ 2026-10-02 新增：**给商家看的说明卡**。
       起因（用户实测反馈）：入驻商家在这个页面看到「幽灵单巡检」「状态流水断链」「基线口径」
       这类内部术语，**完全不知道这是什么、为什么会有、自己要做什么**。
       下面三块依次回答这三个问题；**技术细节一律下沉到折叠区**（见页面底部）。
@@ -275,7 +275,7 @@ watch(requestedTypes, () => {
         </p>
       </el-alert>
 
-      <!-- 统计概览（⚠️ 2026-10-03：文案全部改为商家能懂的说法，不再用"徽标/存量/深链"等内部词） -->
+      <!-- 统计概览（⚠️ 2026-10-02：文案全部改为商家能懂的说法，不再用"徽标/存量/深链"等内部词） -->
       <el-card v-if="data" shadow="never" class="summary-card">
         <div class="summary-row">
           <div class="summary-item">
@@ -372,7 +372,7 @@ watch(requestedTypes, () => {
     </template>
 
     <!--
-      ⚠️ 2026-10-03：**技术详情统一收在这里**（页底折叠，默认收起）。
+      ⚠️ 2026-10-02：**技术详情统一收在这里**（页底折叠，默认收起）。
       起因（两轴代码审查 + 用户实测反馈）：原先原始 error（含表名 `inspect_baseline`、迁移号 `V19007`）、
       检查项 `key`、`unknownTypes` 都直接渲染在**默认可见**的告警正文里 ⇒ 商家看到"表结构变更后 SQL 未同步"
       完全不知所云。⇒ 现在**商家可见处只留通俗说法**，技术原文一律下沉到本折叠区。
@@ -409,7 +409,7 @@ watch(requestedTypes, () => {
 </template>
 
 <style scoped>
-/* ⚠️ 2026-10-03：给商家看的「这是什么 / 为什么 / 你该做什么」说明卡 + 技术详情折叠区 */
+/* ⚠️ 2026-10-02：给商家看的「这是什么 / 为什么 / 你该做什么」说明卡 + 技术详情折叠区 */
 .heading-sub { margin: 4px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
 .explain-card { margin-bottom: 16px; }
 .explain-grid { display: flex; flex-direction: column; gap: 18px; }

@@ -70,7 +70,7 @@ const fastRefundTargetId = ref<number | string | null>(null)
 /**
  * 售后申请弹层（**已完成订单**用）。
  *
- * ⚠️ 2026-10-03：状态与提交逻辑已抽到 `utils/after-sale-submit.ts`（与订单列表页共用），
+ * ⚠️ 2026-10-02：状态与提交逻辑已抽到 `utils/after-sale-submit.ts`（与订单列表页共用），
  * 这里只提供**成功后**的收尾动作（详情页的收尾 = 跳到「退款/售后」分类）。
  *
  * 背景（后端 P1P2 §一.2）：**已完成（COMPLETED）的订单现在也可以申请售后**
@@ -954,7 +954,7 @@ onUnload(() => {
            ⚠️ 用 class 置灰而**不用 disabled**：disabled 会让点击彻底无效，用户不知道为什么；
            可点则能给出解释（对应后端的 2013 错误码）。 -->
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">申请取消（需商家确认）</button>
-        <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button><!-- ⚠️ 2026-10-03 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。⚠️ 用独立 v-if、不挂在上面那串 v-else-if 链上，避免影响既有按钮的互斥关系。⚠️ 窗口由后端判定（物流/同城＝完成后 7 天内），超期返回 8703 并展示后端文案。 -->
+        <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button><!-- ⚠️ 2026-10-02 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。⚠️ 用独立 v-if、不挂在上面那串 v-else-if 链上，避免影响既有按钮的互斥关系。⚠️ 窗口由后端判定（物流/同城＝完成后 7 天内），超期返回 8703 并展示后端文案。 -->
         <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="handleAfterSaleClick()">申请售后</button></view>
     </scroll-view>
 

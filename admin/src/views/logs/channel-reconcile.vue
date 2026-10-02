@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 渠道账单对账（P7，2026-10-03 新增）。
+ * 渠道账单对账（P7，2026-10-02 新增）。
  *
- * 契约：`docs/26/10.03/前端对接-P7微信渠道账单对账-2026-10-03.md`
+ * 契约：`docs/26/10.02/前端对接-P7微信渠道账单对账-2026-10-02.md`
  * - `POST /api/admin/ledger/channel-reconcile` 手动触发（`billDate` + 可选 `billBody`）
  * - `GET  /api/admin/ledger/channel-anomalies?billDate=` 差异明细（最多 500 条，新记录在前）
  *

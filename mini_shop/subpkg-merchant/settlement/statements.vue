@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 商家端 · 结算单（P6，2026-10-03 新增）
+ * 商家端 · 结算单（P6，2026-10-02 新增）
  * ------------------------------------------------------------
- * 契约：`docs/26/10.03/前端对接-P6结算单与导出-2026-10-03.md`
+ * 契约：`docs/26/10.02/前端对接-P6结算单与导出-2026-10-02.md`
  * - `GET /api/merchant/settlement/statements?status=&page=&pageSize=` → 分页结算单
  * - `GET /api/merchant/settlement/statements/export?status=`         → CSV（UTF-8 带 BOM）
  *

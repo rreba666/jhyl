@@ -83,7 +83,7 @@ export function validateRefundReason(value: unknown, options: { required?: boole
 /**
  * 校验**售后申请**原因（`POST /api/after-sale/submit` 的 `AfterSaleSubmitDTO.reason`）。
  *
- * ⚠️⚠️ 为什么**不能**复用 {@link validateRefundReason}（2026-10-03 代码审查发现）：
+ * ⚠️⚠️ 为什么**不能**复用 {@link validateRefundReason}（2026-10-02 代码审查发现）：
  * 两个后端 DTO 的约束**不一样**：
  * | DTO | 长度 | 字符白名单 |
  * |---|---|---|

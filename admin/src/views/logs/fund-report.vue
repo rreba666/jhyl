@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 资金日报 / 月报（P8，2026-10-03 新增）。
+ * 资金日报 / 月报（P8，2026-10-02 新增）。
  *
- * 契约：`docs/26/10.03/前端对接-P8资金日报月报-2026-10-03.md`
+ * 契约：`docs/26/10.02/前端对接-P8资金日报月报-2026-10-02.md`
  * - `GET /api/admin/ledger/fund-report/daily?from=&to=` 日报（不传默认最近 30 天）
  * - `GET /api/admin/ledger/fund-report/monthly?year=` 月报（`year` 不传取当前年）
  * - `GET /api/admin/ledger/fund-report/export?from=&to=` 日报 CSV（UTF-8 BOM）

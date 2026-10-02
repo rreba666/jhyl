@@ -6,7 +6,7 @@
  * 对**父单**会被后端拒（`code=1000`）」⇒ 两页都需要「判定有没有子单 + 弹窗让用户选一个」。
  * 这段逻辑与业务无关（纯判空 + ActionSheet）⇒ 抽出来共用，避免两页各写一份（先例见 `after-sale-submit.ts`）。
  *
- * ## ✅ 后端契约缺口已修复（2026-10-03）
+ * ## ✅ 后端契约缺口已修复（2026-10-02）
  * 此前 `ChildOrderVO` **只有 `orderNo`、没有 `id`** ⇒ 前端拿不到子单 ID 就无法提交售后。
  * 后端已在 jar `870f9d98…` 补齐 `id`（**数字类型**，见 `api/order.ts`）⇒
  * 本文件的「无 `id` 则不给选」分支**保留为防御性兜底**（万一后端回滚或数据异常），
@@ -58,7 +58,7 @@ export function pickChildOrder(
   actionLabel: string,
 ): Promise<ChildOrderVO | null> {
   const list = Array.isArray(children) ? children : []
-  // ✅ 后端已补齐 `id`（2026-10-03）⇒ 正常情况下 `selectable` 就是全量；
+  // ✅ 后端已补齐 `id`（2026-10-02）⇒ 正常情况下 `selectable` 就是全量；
   //    这里的过滤是**防御性兜底**（万一后端回滚或某条数据异常），保留不删。
   const selectable = list.filter((child) => child.id != null)
   if (!selectable.length) {

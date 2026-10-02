@@ -59,7 +59,7 @@ export interface AfterSaleSubmitDTO {
 /**
  * 提交售后申请（`POST /api/after-sale/submit`）。
  *
- * ⚠️⚠️ 2026-10-03 新增（按后端 P1P2 §一.2 的售后窗口新口径）：
+ * ⚠️⚠️ 2026-10-02 新增（按后端 P1P2 §一.2 的售后窗口新口径）：
  *
  * ## 为什么要单独封装它（而不是复用 `refundOrder`）
  * 后端把两个退款入口分了工（见契约）：

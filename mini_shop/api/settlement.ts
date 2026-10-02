@@ -37,7 +37,7 @@ export interface SettlementAccountVO {
   /**
    * **待结算**（已支付，但订单未完成或未满释放期）。
    *
-   * ⚠️ 2026-10-03 后端新增（P1/P2）。四个金额**务必分清**（P1P2 §一.1）：
+   * ⚠️ 2026-10-02 后端新增（P1/P2）。四个金额**务必分清**（P1P2 §一.1）：
    * | 字段 | 含义 |
    * |---|---|
    * | `availableBalance` | 可提现（**不含**待结算）⇒ ⚠️ **提现按钮只认这个** |
@@ -45,7 +45,7 @@ export interface SettlementAccountVO {
    * | `frozenBalance` | 提现冻结（已申请未打款） |
    * | `debtAmount` | 欠款（> 0 禁止提现） |
    *
-   * ⚠️⚠️ **释放期**（2026-10-03 晚**口径变更**：业务定案「**不能退款才能到账**」，
+   * ⚠️⚠️ **释放期**（2026-10-02 晚**口径变更**：业务定案「**不能退款才能到账**」，
    * 即资金释放与订单的**退款窗口对齐**，避免"钱提走了又退款"）：
    *
    * | 形态 | 钱变可提现 |
@@ -56,7 +56,7 @@ export interface SettlementAccountVO {
    *
    * 到期由定时任务入账（**任务每 5 分钟**跑一次 ⇒ 到点后最长约 5 分钟入账）。
    * ⇒ 所以「订单完成后钱先落在待结算，到期才进可提现」，前端文案要说明，**避免商家以为钱丢了**。
-   * 依据：后端《给前端的反馈-契约缺口补充-2026-10-03》§四。
+   * 依据：后端《给前端的反馈-契约缺口补充-2026-10-02》§四。
    */
   pendingSettlementAmount?: number
   /** 提现冻结中（已申请未打款；驳回/失败会解冻回可提现）。 */
@@ -84,7 +84,7 @@ export function getSettlementAccount(): Promise<SettlementAccountVO> {
   return request<SettlementAccountVO>({ url: '/api/merchant/settlement/account', method: 'GET' })
 }
 
-// ===== 结算单（P6，2026-10-03 新增）=====
+// ===== 结算单（P6，2026-10-02 新增）=====
 
 /**
  * 结算单状态（对应后端 `status`）。
@@ -182,11 +182,11 @@ export function buildSettlementStatementsExportUrl(status?: SettlementStatementS
 /**
  * 流水类型（对应后端 `type`）。不传 = 全部。
  *
- * ⚠️⚠️ 2026-10-03 后端改造（P1P2 §十）：**收入类分成了两个具体类型**
+ * ⚠️⚠️ 2026-10-02 后端改造（P1P2 §十）：**收入类分成了两个具体类型**
  * | 具体类型 | 含义 | 何时产生 |
  * |---|---|---|
- * | `SETTLEMENT_RELEASE` | **结算释放**（待结算 → 可提现） | 2026-10-03 **起**：释放期到点、钱真正可提现的那一刻 |
- * | `ORDER_INCOME` | 订单收入（历史） | 2026-10-03 **之前**产生的同类流水（同一笔钱、同一时刻） |
+ * | `SETTLEMENT_RELEASE` | **结算释放**（待结算 → 可提现） | 2026-10-02 **起**：释放期到点、钱真正可提现的那一刻 |
+ * | `ORDER_INCOME` | 订单收入（历史） | 2026-10-02 **之前**产生的同类流水（同一笔钱、同一时刻） |
  * ⇒ **两者语义同义，不是两种钱。**
  *
  * ⚠️ 因此筛选**不要**写死 `ORDER_INCOME`（会漏掉新的一半），
@@ -199,9 +199,9 @@ export type SettlementFlowType =
    * 筛选用这个，不要用具体类型，否则会漏数据。
    */
   | 'INCOME'
-  /** 订单收入（历史具体类型，2026-10-03 前） */
+  /** 订单收入（历史具体类型，2026-10-02 前） */
   | 'ORDER_INCOME'
-  /** 结算释放（新具体类型，2026-10-03 起；与 `ORDER_INCOME` 语义同义） */
+  /** 结算释放（新具体类型，2026-10-02 起；与 `ORDER_INCOME` 语义同义） */
   | 'SETTLEMENT_RELEASE'
   /** 退款扣回 */
   | 'ORDER_REVERSE'
@@ -221,7 +221,7 @@ export type SettlementFlowType =
  *
  * ⚠️ 收入项用**语义分组 `INCOME`**（不是 `ORDER_INCOME`）——
  * 后端 `resolveTypeFilter` 会展开为「收入类全部类型」，
- * 这样 2026-10-03 新增的 `SETTLEMENT_RELEASE` 不会漏，且**将来再加类型前端无需改**。
+ * 这样 2026-10-02 新增的 `SETTLEMENT_RELEASE` 不会漏，且**将来再加类型前端无需改**。
  */
 export const SETTLEMENT_FLOW_TYPE_OPTIONS: { label: string; value: SettlementFlowType | '' }[] = [
   { label: '全部', value: '' },
@@ -562,7 +562,7 @@ export const SETTLEMENT_ERROR_TEXT: Record<number, string> = {
   13013: '您有一笔提现正在审核中，请等待处理完成后再申请',
   13014: '发票金额与申请提现金额不一致',
   13015: '提现单状态已变化，请刷新后重试',
-  // ⚠️ 2026-10-03 后端文案已更正：放行条件由「当前身份必须是 MERCHANT_OWNER」改为
+  // ⚠️ 2026-10-02 后端文案已更正：放行条件由「当前身份必须是 MERCHANT_OWNER」改为
   //    「该账号在当前品牌下拥有 MERCHANT_OWNER 绑定」⇒ 不再引导用户"切换身份"
   //    （商家与店长进的是同一个工作台，用户无从感知两个身份）。详见 P1P2 §一.3。
   13016: '当前账号在该品牌下没有商家主体身份，无法查看结算账户与提现',

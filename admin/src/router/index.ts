@@ -104,7 +104,7 @@ const router = createRouter({
           path: 'delivery/ghost',
           name: 'DeliveryGhostInspect',
           component: () => import('@/views/delivery/ghost/index.vue'),
-          // ⚠️ 2026-10-03：title 从「幽灵单巡检」改为「订单异常巡检」（商家看不懂旧名）；
+          // ⚠️ 2026-10-02：title 从「幽灵单巡检」改为「订单异常巡检」（商家看不懂旧名）；
           // 路径必须保持 `/delivery/ghost`（后端 4 个待办类型的 route 深链依赖它）
           meta: { title: '订单异常巡检', permission: ['delivery:read'], roles: rolesForPath('/delivery/ghost'), requiresAuth: true },
         },
@@ -228,7 +228,7 @@ const router = createRouter({
           meta: { title: '接口调用计数', permission: ['audit:read'], roles: rolesForPath('/logs/apicount'), requiresAuth: true },
         },
         {
-          // ⚠️ 2026-10-03（P5）：物流签收兜底 —— **仅超管**。
+          // ⚠️ 2026-10-02（P5）：物流签收兜底 —— **仅超管**。
           // 物流单的资金释放锚点是快递签收时间，快递100 查不到时需人工补写；
           // 该写操作会决定商家何时能提现，且后端强制审计留痕。
           path: 'logistics/sign-pending',
@@ -237,7 +237,7 @@ const router = createRouter({
           meta: { title: '物流签收兜底', permission: ['audit:read'], roles: rolesForPath('/logistics/sign-pending'), requiresAuth: true },
         },
         {
-          // ⚠️ 2026-10-03（P7）：渠道账单对账 —— 只报不改（差异只落异常台账 + 告警）。
+          // ⚠️ 2026-10-02（P7）：渠道账单对账 —— 只报不改（差异只落异常台账 + 告警）。
           // ⚠️「渠道无账单」（code=1000）是**正常情况**，页面按中性提示展示。
           path: 'logs/channel-reconcile',
           name: 'ChannelReconcile',
@@ -245,7 +245,7 @@ const router = createRouter({
           meta: { title: '渠道账单对账', permission: ['audit:read'], roles: rolesForPath('/logs/channel-reconcile'), requiresAuth: true },
         },
         {
-          // ⚠️ 2026-10-03（P8）：资金日报 / 月报（只读）。
+          // ⚠️ 2026-10-02（P8）：资金日报 / 月报（只读）。
           // ⚠️ 日报由后端补齐 0 值日；月报由后端按日报汇总 ⇒ 前端**不要**本地累加。
           path: 'logs/fund-report',
           name: 'FundReport',

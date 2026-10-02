@@ -32,7 +32,7 @@ const commissionTarget = ref<MerchantVO | null>(null)
 /** 弹窗里的比例值；`null` = 保持不修改（提交时不带该字段）。 */
 const commissionInput = ref<number | null>(null)
 /**
- * 弹窗里的**物流单专用**让利比例（%，2026-10-03 P4 新增）。
+ * 弹窗里的**物流单专用**让利比例（%，2026-10-02 P4 新增）。
  *
  * ⚠️ `null` = **不修改 / 沿用品牌级**（提交时**不带**该字段）——
  * 后端语义是"不传 = 不修改"，而传值就要过 3~20 ⇒ **恢复"跟随品牌级"只能不传**，不能传 0。
@@ -43,7 +43,7 @@ const logisticsCommissionInput = ref<number | null>(null)
 function openCommissionDialog(row: MerchantVO): void {
   commissionTarget.value = row
   commissionInput.value = typeof row.commissionRate === 'number' ? row.commissionRate : null
-  // ⚠️ 物流单专用比例：后端 `MerchantVO` **已补齐该字段**（2026-10-03 晚 jar `870f9d98…`，
+  // ⚠️ 物流单专用比例：后端 `MerchantVO` **已补齐该字段**（2026-10-02 晚 jar `870f9d98…`，
   //    列表 + 详情共用 `toVO` ⇒ 两处都返回）。⚠️ 但该 VO 走 `@JsonInclude(NON_NULL)`
   //    ⇒ 值为 NULL（= 跟随品牌级）时**键被省略**，拿到的是 `undefined`（不是 `null`）
   //    ⇒ 故用 `typeof === 'number'` 判断（**不要**写 `=== null`）；读不到就留空，
@@ -256,7 +256,7 @@ onMounted(() => {
             <el-input-number v-model="commissionInput" :min="3" :max="20" :precision="2" :step="0.5" />
             <span class="commission-unit">%</span>
           </el-form-item>
-          <!-- ⚠️ 2026-10-03 新增（P4）：**物流单专用**让利比例。仅对物流单生效，自提/同城仍用上面的品牌级。 -->
+          <!-- ⚠️ 2026-10-02 新增（P4）：**物流单专用**让利比例。仅对物流单生效，自提/同城仍用上面的品牌级。 -->
           <el-form-item label="物流单专用">
             <el-input-number v-model="logisticsCommissionInput" :min="3" :max="20" :precision="2" :step="0.5" />
             <span class="commission-unit">%</span>

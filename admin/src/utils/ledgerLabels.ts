@@ -135,7 +135,7 @@ export const LEDGER_OPERATION_LABELS: Record<string, string> = {
   'INV-3_STOCK_WITHOUT_OPERATION': '不变式3：人造库存变动无后台操作留痕',
   'INV-4_LOGISTICS_WITHOUT_FULFILLMENT': '不变式4：查过物流但无履约状态留痕',
   /**
-   * ⚠️ 2026-10-03 新增（P9：不变式 4 → 8 条，异常台账会多出这两个 `operation`）。
+   * ⚠️ 2026-10-02 新增（P9：不变式 4 → 8 条，异常台账会多出这两个 `operation`）。
    *
    * ⚠️⚠️ **必须按 `operation` 码匹配，不要按后端文案匹配**：
    * 历史留痕的文案**曾经是错的**（早期版本把 INV-7 的说明"已完成的子单缺少结算快照…"

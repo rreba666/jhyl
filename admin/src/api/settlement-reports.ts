@@ -2,7 +2,7 @@ import { request } from './request'
 import { resolveDownloadFilename, saveBlob } from '@/utils/download'
 
 /**
- * 结算资金报表 + 渠道对账（P7 / P8，2026-10-03 新增）。
+ * 结算资金报表 + 渠道对账（P7 / P8，2026-10-02 新增）。
  *
  * ## P7 渠道账单对账
  * - `POST /api/admin/ledger/channel-reconcile`：把微信渠道账单与本地资金事实**逐笔比对**，

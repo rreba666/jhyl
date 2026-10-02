@@ -49,10 +49,10 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     // 后端 `/api/admin/notify/**` 为**超管 + 运营客服**专属：含跨商户信息面，且「测试发送」会消耗商家授权额度
     // ⇒ 商户管理员（ADMIN）**访问会 403**，矩阵里也不给他（菜单与路由同源，见文件头说明）。
     '/notify',
-    // 2026-10-03 物流单结算改造（P5/P7/P8）新增三页：
+    // 2026-10-02 物流单结算改造（P5/P7/P8）新增三页：
     // - `/logistics/sign-pending`：⚠️ **仅超管**（P5 §一 明确"仅超管"）—— 人工修正签收时间会决定资金释放锚点
     // - `/logs/channel-reconcile`、`/logs/fund-report`：中控财务向
-    //   ⚠️ 2026-10-03 按后端反馈 §五 修正：后端 `SUPER_OR_FINANCE_PREFIXES` ⇒ **超管 + 财务**，
+    //   ⚠️ 2026-10-02 按后端反馈 §五 修正：后端 `SUPER_OR_FINANCE_PREFIXES` ⇒ **超管 + 财务**，
     //   **客服 403**（原先误给客服，见下方 CUSTOMER_SERVICE 处的说明）。
     '/logistics/sign-pending', '/logs/channel-reconcile', '/logs/fund-report',
   ],
@@ -73,7 +73,7 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
     // 微信通知（订阅消息诊断）：后端只给**超管 + 运营客服**，客服是这条链路的日常使用方（答疑"店长收不到"）
     '/notify',
-    // ⚠️⚠️ 2026-10-03（后端《给前端的反馈-契约缺口补充》§五 Q-1）：
+    // ⚠️⚠️ 2026-10-02（后端《给前端的反馈-契约缺口补充》§五 Q-1）：
     //    `/api/admin/ledger/**` 在 `RoleGuardInterceptor` 里属于 `SUPER_OR_FINANCE_PREFIXES`
     //    ⇒ 放行条件为 **`SUPER_ADMIN || FINANCE`**，**客服访问会 403**。
     //    ⇒ 因此「渠道账单对账 / 资金报表」**不能给 CUSTOMER_SERVICE**（原按"超管+客服+财务"给是错的）。
@@ -81,7 +81,7 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
   ],
   FINANCE: [
     '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/audit', '/logs/ledger', '/shops',
-    // 2026-10-03（P7/P8）：渠道对账与资金报表是财务日常对账入口 ⇒ 必须给财务。
+    // 2026-10-02（P7/P8）：渠道对账与资金报表是财务日常对账入口 ⇒ 必须给财务。
     // ⚠️ **不含** `/logistics/sign-pending`（P5 明确仅超管）。
     '/logs/channel-reconcile', '/logs/fund-report',
   ],
@@ -107,7 +107,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/categories': '分类管理',
   '/brands': '商品品牌',
   '/delivery': '同城配送管理',
-  // ⚠️ 2026-10-03：菜单名从「幽灵单巡检」改为「**订单异常巡检**」——
+  // ⚠️ 2026-10-02：菜单名从「幽灵单巡检」改为「**订单异常巡检**」——
   //    「幽灵单」是后端内部叫法，入驻商家看不懂（用户实测反馈）；路径仍为 `/delivery/ghost`（后端 4 个待办类型的 route 深链依赖它）。
   '/delivery/ghost': '订单异常巡检',
   '/shop-console': '店铺运营',
@@ -129,7 +129,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/logs/audit': '操作追溯',
   '/logs/ledger': '留痕台账',
   '/logs/apicount': '接口调用计数',
-  // 2026-10-03 物流单结算改造（P5/P7/P8）
+  // 2026-10-02 物流单结算改造（P5/P7/P8）
   '/logistics/sign-pending': '物流签收兜底',
   '/logs/channel-reconcile': '渠道账单对账',
   '/logs/fund-report': '资金报表',
