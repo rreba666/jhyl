@@ -43,8 +43,11 @@ const logisticsCommissionInput = ref<number | null>(null)
 function openCommissionDialog(row: MerchantVO): void {
   commissionTarget.value = row
   commissionInput.value = typeof row.commissionRate === 'number' ? row.commissionRate : null
-  // ⚠️ 物流单专用比例：后端 `MerchantVO` **目前不返回该字段**（契约缺口，见 types/merchant.ts）
-  //    ⇒ 读不到就留空（留空提交 = 不修改，语义安全，不会误清值）。待后端补齐后自动回显。
+  // ⚠️ 物流单专用比例：后端 `MerchantVO` **已补齐该字段**（2026-10-03 晚 jar `870f9d98…`，
+  //    列表 + 详情共用 `toVO` ⇒ 两处都返回）。⚠️ 但该 VO 走 `@JsonInclude(NON_NULL)`
+  //    ⇒ 值为 NULL（= 跟随品牌级）时**键被省略**，拿到的是 `undefined`（不是 `null`）
+  //    ⇒ 故用 `typeof === 'number'` 判断（**不要**写 `=== null`）；读不到就留空，
+  //    留空提交 = 不修改（语义安全，不会误清商家的配置）。
   logisticsCommissionInput.value = typeof row.logisticsCommissionRate === 'number' ? row.logisticsCommissionRate : null
   commissionDialogVisible.value = true
 }

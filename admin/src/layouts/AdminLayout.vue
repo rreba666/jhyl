@@ -261,7 +261,7 @@ onUnmounted(() => {
              铃铛点进去 = 路由不存在）。超管 / 客服 / 商户管理员可见（商户只有自己门店的可见性）。 -->
         <el-menu-item v-if="canVisit('/delivery/ghost')" index="/delivery/ghost">
           <el-icon><Search /></el-icon>
-          <template #title>幽灵单巡检</template>
+          <template #title>订单异常巡检</template>
         </el-menu-item>
         <!-- 店铺运营：商户管理员 + 超管（营业状态/时间、门店价/门店库存/本店上下架） -->
         <el-menu-item v-if="canVisit('/shop-console')" index="/shop-console">
@@ -330,7 +330,7 @@ onUnmounted(() => {
           <el-menu-item v-if="canVisit('/logs/apicount')" index="/logs/apicount"><el-icon><TrendCharts /></el-icon><template #title>接口调用计数</template></el-menu-item>
           <!-- ⚠️ 2026-10-03 物流单结算改造（P5/P7/P8）：
                - 物流签收兜底：**仅超管**（人工修正签收时间 = 决定物流单资金释放锚点）
-               - 渠道账单对账 / 资金报表：中控财务向，与留痕台账同口径 -->
+               - 渠道账单对账 / 资金报表：中控财务向（⚠️ 后端为「超管 + 财务」，客服 403，见 permission.ts） -->
           <el-menu-item v-if="canVisit('/logistics/sign-pending')" index="/logistics/sign-pending"><el-icon><Van /></el-icon><template #title>物流签收兜底</template></el-menu-item>
           <el-menu-item v-if="canVisit('/logs/channel-reconcile')" index="/logs/channel-reconcile"><el-icon><Money /></el-icon><template #title>渠道账单对账</template></el-menu-item>
           <el-menu-item v-if="canVisit('/logs/fund-report')" index="/logs/fund-report"><el-icon><TrendCharts /></el-icon><template #title>资金报表</template></el-menu-item>

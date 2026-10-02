@@ -104,7 +104,9 @@ const router = createRouter({
           path: 'delivery/ghost',
           name: 'DeliveryGhostInspect',
           component: () => import('@/views/delivery/ghost/index.vue'),
-          meta: { title: '幽灵单巡检', permission: ['delivery:read'], roles: rolesForPath('/delivery/ghost'), requiresAuth: true },
+          // ⚠️ 2026-10-03：title 从「幽灵单巡检」改为「订单异常巡检」（商家看不懂旧名）；
+          // 路径必须保持 `/delivery/ghost`（后端 4 个待办类型的 route 深链依赖它）
+          meta: { title: '订单异常巡检', permission: ['delivery:read'], roles: rolesForPath('/delivery/ghost'), requiresAuth: true },
         },
         {
           path: 'shop-console',

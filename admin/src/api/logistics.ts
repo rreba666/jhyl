@@ -4,16 +4,19 @@ import { request } from './request'
  * 物流签收兜底（P5，2026-10-03 新增）。
  *
  * ## 背景
- * 物流单的资金释放锚点是**快递签收时间**（签收 + 释放天数）。但快递100 有时查不到签收、
- * 或拿到的是估算值 ⇒ 需要中控**人工兜底**：
+ * ⚠️ **2026-10-03 晚口径变更**（业务定案「**不能退款才能到账**」）：物流单的**资金释放主锚点**
+ * 是「**订单完成后 7 天**」；**签收时间只在"签收晚于订单完成"时起作用**（此时等「**签收 + 7 天**」，**只会更晚**）。
+ * 但快递100 有时**查不到签收**、或拿到的是**估算值** ⇒ 需要中控**人工兜底**把签收补准：
  * - `GET  /api/admin/logistics/sign-pending`：列出「已发货及之后（status 2/3/4）、有运单号、
  *   **尚无签收时间**」的物流单，**按发货时间升序**（越早发货越该先看）；
  * - `GET  /api/admin/logistics/sign-pending/count`：同口径 COUNT，用于**待办角标**（建议 5~10 分钟轮询）；
- * - `PUT  /api/admin/logistics/sign-time`：人工写真实签收时间 ⇒ 该时间成为**资金释放期锚点**。
+ * - `PUT  /api/admin/logistics/sign-time`：人工写真实签收时间（写入后 `signTimeEstimated` 置 0，视为真实值）。
  *
  * ⚠️⚠️ **本组接口仅超管（SUPER_ADMIN）可用**（P5 §一）⇒ 前端要按角色隐藏入口，且后端会拦。
  * ⚠️ `PUT sign-time` **强制审计留痕**（记录操作人与修正值）；`code=1000` 参数非法
  *   （**不得传未来时间**）、`code=4000` 订单不存在。
+ * ⚠️ `fallbackDays` **不传 = 15 天**；`pastFallbackDays = true` 只表示"发货已超过该天数"，
+ *   **不代表系统已写入估算签收时间**（估算由定时任务在发货满 15 天后写入）。
  */
 
 /** 后端统一响应体（沿用 `api/ledger.ts` 的写法）。 */
@@ -100,7 +103,7 @@ export async function getSignPendingCount(): Promise<number> {
 /**
  * 人工修正签收时间（**仅超管**）。
  *
- * ⚠️ 该时间会成为物流单**资金释放期的锚点**（签收 + 释放天数）⇒ 填错会直接影响商家何时能提现。
+ * ⚠️ 该时间**仅在签收晚于订单完成时**才影响资金释放（此时等「签收 + 7 天」）⇒ 填错会让释放时点算错。
  * ⚠️ 后端**强制审计留痕**；`signTime` 格式 `yyyy-MM-ddTHH:mm:ss` 且**不得是未来时间**。
  */
 export async function updateSignTime(orderNo: string, signTime: string): Promise<void> {

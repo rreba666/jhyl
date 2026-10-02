@@ -107,7 +107,9 @@ const ROUTE_LABELS: Record<string, string> = {
   '/categories': '分类管理',
   '/brands': '商品品牌',
   '/delivery': '同城配送管理',
-  '/delivery/ghost': '幽灵单巡检',
+  // ⚠️ 2026-10-03：菜单名从「幽灵单巡检」改为「**订单异常巡检**」——
+  //    「幽灵单」是后端内部叫法，入驻商家看不懂（用户实测反馈）；路径仍为 `/delivery/ghost`（后端 4 个待办类型的 route 深链依赖它）。
+  '/delivery/ghost': '订单异常巡检',
   '/shop-console': '店铺运营',
   '/shop-delivery': '配送工作台',
   '/shops': '门店管理',

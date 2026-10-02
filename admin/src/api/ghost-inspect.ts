@@ -81,7 +81,7 @@ export async function runGhostInspect(types?: string[]): Promise<GhostInspectDat
   const query = keys.length ? `?types=${encodeURIComponent(keys.join(','))}` : ''
   const data = unwrap(
     await request.get<GhostResponse<GhostInspectData>>(`/api/admin/order/ghost-inspect${query}`),
-    '幽灵单巡检执行失败',
+    '订单异常巡检执行失败',
   )
   const row = (data || {}) as Partial<GhostInspectData>
   return {

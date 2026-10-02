@@ -58,7 +58,8 @@ export function pickChildOrder(
   actionLabel: string,
 ): Promise<ChildOrderVO | null> {
   const list = Array.isArray(children) ? children : []
-  // ⚠️ 后端契约缺口：没有 id 的子单无法提交（见文件头说明）⇒ 不给选，避免用户点完再吃一个 1000 报错
+  // ✅ 后端已补齐 `id`（2026-10-03）⇒ 正常情况下 `selectable` 就是全量；
+  //    这里的过滤是**防御性兜底**（万一后端回滚或某条数据异常），保留不删。
   const selectable = list.filter((child) => child.id != null)
   if (!selectable.length) {
     if (list.length) {

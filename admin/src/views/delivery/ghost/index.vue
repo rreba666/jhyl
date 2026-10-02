@@ -66,6 +66,15 @@ const baselinedKeys = computed(() => new Set(metas.value.filter((meta) => meta.b
 const skippedKeysText = computed(() => (data.value?.skippedChecks || []).map((s) => s.key).join('、') || '—')
 
 /**
+ * 技术详情里的「无法识别的检查项」文本。
+ * ⚠️ 与 `skippedKeysText` 同理：推导放 script、不放模板（保持模板只做展示）。
+ */
+const unknownTypesText = computed(() => (data.value?.unknownTypes || []).join('、') || '—')
+
+/** 技术详情里的「本次实际检查的项」文本。 */
+const checkedTypesText = computed(() => (requestedTypes.value || []).join('、') || '—')
+
+/**
  * 是否存在盲区（未执行 / 未知 key）。
  * ⚠️ 为真时页面**不得**出现"体检通过/无异常"的结论。
  */
@@ -105,9 +114,10 @@ function severityTagType(severity: GhostSeverity): 'danger' | 'warning' | 'info'
 
 /** 样例归属 → 标签文案；`null` 返回空串（调用方据此不渲染标签）。 */
 function sampleKindLabel(kind: GhostSampleKind): string {
-  if (kind === 'NEW') return '新增'
-  if (kind === 'LEGACY') return '历史存量（已记账）'
-  if (kind === 'NEW_AND_LEGACY') return '新增 + 存量'
+  // ⚠️ 2026-10-03：这些文案**直接上屏给商家**，原先的"存量/已记账"商家看不懂 ⇒ 改为通俗说法
+  if (kind === 'NEW') return '新发现'
+  if (kind === 'LEGACY') return '历史记录（已登记）'
+  if (kind === 'NEW_AND_LEGACY') return '新发现 + 历史记录'
   return ''
 }
 
@@ -125,7 +135,7 @@ async function load(): Promise<void> {
   } catch (error) {
     // ⚠️ 保持 data=null：错误态绝不渲染成"0 条异常"（见文件头约束 3）
     data.value = null
-    loadError.value = error instanceof Error ? error.message : '幽灵单巡检执行失败'
+    loadError.value = error instanceof Error ? error.message : '订单异常巡检执行失败'
   } finally {
     loading.value = false
   }
@@ -155,8 +165,8 @@ watch(requestedTypes, () => {
   <section class="page-container page-enter">
     <div class="page-heading">
       <div>
-        <h1>幽灵单巡检</h1>
-        <p class="heading-sub">（商家视角：<strong>订单异常巡检</strong>）</p>
+        <h1>订单异常巡检</h1>
+        <p class="heading-sub">系统自动检查你的订单有没有"状态不正常"的情况（内部代号：幽灵单巡检）</p>
       </div>
       <el-button type="primary" :loading="loading" @click="load">重新巡检</el-button>
     </div>
@@ -225,19 +235,18 @@ watch(requestedTypes, () => {
       </el-collapse>
     </el-card>
 
-    <!-- 盲区 3：接口报错。⚠️ 对外用商家能懂的说法，技术原因收进折叠详情 -->
+    <!-- 盲区 3：接口报错。⚠️ 对外用商家能懂的说法；技术原因统一收进**页底**折叠区（不在默认可见处暴露表名/迁移号） -->
     <el-alert v-if="loadError" type="error" :closable="false" show-icon class="blind-alert">
-      <template #title>本次巡检没有跑成功，结果不可用</template>
+      <template #title>本次检查没有跑成功，结果不可用</template>
       <p class="blind-text">
         ⚠️ <strong>这是平台侧的问题，与你的店铺数据无关</strong> —— 不需要你做任何操作。
         页面显示"0 条异常"也不能当作"没有问题"。
       </p>
-      <p class="blind-text">请<strong>联系平台</strong>处理；技术详情见上方「给技术同学的详情」。</p>
-      <p class="blind-text tech-raw">原始错误：{{ loadError }}</p>
+      <p class="blind-text">请<strong>联系平台</strong>处理；技术原因见页面底部「给技术同学的详情」。</p>
     </el-alert>
 
     <template v-else>
-      <!-- 盲区 1：skippedChecks 非空（等价 executedTypes &lt; checkedTypes） -->
+      <!-- 盲区 1：skippedChecks 非空（= 有检查项没跑成） -->
       <el-alert
         v-if="data && data.skippedChecks.length"
         type="warning"
@@ -250,12 +259,9 @@ watch(requestedTypes, () => {
           ⚠️ <strong>平台侧问题，与你的店铺数据无关</strong>；这些项<strong>没有被检查</strong>，
           所以"没有异常"不代表这几项也没问题。请<strong>联系平台</strong>处理。
         </p>
-        <p class="blind-text tech-raw">
-          技术详情（表结构变更后 SQL 未同步）：<code>{{ skippedKeysText }}</code>
-        </p>
       </el-alert>
 
-      <!-- 盲区 2：unknownTypes 非空（key 拼错/已改名，没被巡检） -->
+      <!-- 盲区 2：unknownTypes 非空（检查项标识不识别） -->
       <el-alert
         v-if="data && data.unknownTypes.length"
         type="warning"
@@ -263,46 +269,43 @@ watch(requestedTypes, () => {
         show-icon
         class="blind-alert"
       >
-        <template #title>本次有 {{ data.unknownTypes.length }} 项检查项目无法识别，结果不完整</template>
+        <template #title>本次有 {{ data.unknownTypes.length }} 个检查项目无法识别，结果不完整</template>
         <p class="blind-text">
           ⚠️ <strong>平台侧配置问题，与你的店铺数据无关</strong>。请<strong>联系平台</strong>处理。
         </p>
-        <p class="blind-text tech-raw">
-          技术详情（key 不存在 / 已改名）：<code>{{ data.unknownTypes.join('、') }}</code>
-        </p>
       </el-alert>
 
-      <!-- 统计概览 -->
+      <!-- 统计概览（⚠️ 2026-10-03：文案全部改为商家能懂的说法，不再用"徽标/存量/深链"等内部词） -->
       <el-card v-if="data" shadow="never" class="summary-card">
         <div class="summary-row">
           <div class="summary-item">
-            <span class="summary-label">新增命中（徽标口径）</span>
+            <span class="summary-label">新发现（需要你关注）</span>
             <span class="summary-value" :class="{ danger: data.newTotal > 0 }">{{ data.newTotal }}</span>
           </div>
           <div class="summary-item">
-            <span class="summary-label">命中总数（含存量，仅展示）</span>
+            <span class="summary-label">全部记录（含历史，仅供参考）</span>
             <span class="summary-value muted">{{ data.total }}</span>
           </div>
           <div class="summary-item">
-            <span class="summary-label">本次巡检范围</span>
+            <span class="summary-label">本次检查项</span>
             <span class="summary-value">
               {{ data.checkedTypes }} / {{ data.allChecks }}
-              <el-tag v-if="scoped" size="small" type="info" effect="plain">深链指定项</el-tag>
+              <el-tag v-if="scoped" size="small" type="info" effect="plain">仅检查此项</el-tag>
             </span>
           </div>
           <div class="summary-item">
-            <span class="summary-label">实际执行成功</span>
+            <span class="summary-label">检查成功的项</span>
             <span class="summary-value" :class="{ warning: data.executedTypes < data.checkedTypes }">
               {{ data.executedTypes }}
             </span>
           </div>
           <div v-if="data.fixedTotal > 0" class="summary-item">
-            <span class="summary-label">本轮已自动收敛</span>
+            <span class="summary-label">系统已自动处理</span>
             <span class="summary-value">{{ data.fixedTotal }}</span>
           </div>
         </div>
         <p v-if="scoped" class="summary-hint">
-          正在只巡检指定的 {{ requestedTypes.length }} 项：
+          本次只检查指定的 {{ requestedTypes.length }} 项：
           <code>{{ requestedTypes.join('、') }}</code>
         </p>
       </el-card>
@@ -323,18 +326,18 @@ watch(requestedTypes, () => {
               <strong>{{ item.label }}</strong>
             </div>
             <div class="check-count">
-              <span class="count-main" :class="{ danger: item.newCount > 0 }">新增 {{ item.newCount }}</span>
+              <span class="count-main" :class="{ danger: item.newCount > 0 }">新发现 {{ item.newCount }}</span>
               <span v-if="showSplit(item)" class="count-sub">
-                共 {{ item.count }}（新增 {{ item.newCount }} / 存量 {{ item.legacyCount }}）
+                共 {{ item.count }}（新发现 {{ item.newCount }} / 历史 {{ item.legacyCount }}）
               </span>
               <span v-else class="count-sub">共 {{ item.count }}</span>
             </div>
           </div>
 
           <div class="check-tags">
-            <!-- 纯存量：灰色/中性，可折叠；绝不染红 -->
+            <!-- 纯历史：灰色/中性，可折叠；绝不染红 -->
             <el-tag v-if="item.newCount === 0 && item.count > 0" type="info" size="small">
-              历史存量，已记账，未新增
+              历史记录，已登记，非本次新发现
             </el-tag>
             <el-tag v-if="sampleKindLabel(item.sampleKind)" type="info" size="small" effect="plain">
               {{ sampleKindLabel(item.sampleKind) }}
@@ -343,30 +346,65 @@ watch(requestedTypes, () => {
 
           <p v-if="item.suggestion" class="suggestion">建议：{{ item.suggestion }}</p>
 
-          <!-- 自动修复口径：如实展示三态；⛔ 不提供"一键修复"按钮（后端也没有该接口） -->
+          <!-- 自动处理口径：如实展示三态；⛔ 不提供"一键修复"按钮（后端也没有该接口） -->
           <p v-if="item.fixed > 0" class="fix-note">
-            本轮已自动修复 {{ item.fixed }} 条<template v-if="item.fixNote">：{{ item.fixNote }}</template>
+            系统已自动处理 {{ item.fixed }} 条<template v-if="item.fixNote">：{{ item.fixNote }}</template>
           </p>
           <p v-else-if="item.autoFixable" class="fix-note">
-            {{ item.fixNote || '本轮无需修复（条件不满足）' }}
+            {{ item.fixNote || '本次无需处理（条件不满足）' }}
           </p>
-          <p v-else class="fix-note muted">只报不改，需人工处置</p>
+          <p v-else class="fix-note muted">只检查不修改，需人工处理</p>
 
           <div v-if="item.samples.length" class="samples">
-            <p class="samples-title">定位样例（最多 5 条，新增优先；纯文本请勿解析）</p>
+            <p class="samples-title">相关订单（最多 5 条）</p>
             <pre v-for="(sample, index) in item.samples" :key="index" class="sample-line">{{ sample }}</pre>
           </div>
         </el-card>
 
-        <!-- 空态：⚠️ 有盲区时不能说"体检通过" -->
+        <!-- 空态：⚠️ 有盲区时不能说"检查通过" -->
         <el-empty
           v-if="!sortedItems.length"
           :description="hasBlindSpot
-            ? '本轮未命中，但存在未执行的项（见上方黄色告警），体检不完整'
-            : '未命中任何巡检项'"
+            ? '本次未发现异常，但有检查项没跑成（见上方黄色提示），检查不完整'
+            : '未发现异常'"
         />
       </div>
     </template>
+
+    <!--
+      ⚠️ 2026-10-03：**技术详情统一收在这里**（页底折叠，默认收起）。
+      起因（两轴代码审查 + 用户实测反馈）：原先原始 error（含表名 `inspect_baseline`、迁移号 `V19007`）、
+      检查项 `key`、`unknownTypes` 都直接渲染在**默认可见**的告警正文里 ⇒ 商家看到"表结构变更后 SQL 未同步"
+      完全不知所云。⇒ 现在**商家可见处只留通俗说法**，技术原文一律下沉到本折叠区。
+    -->
+    <el-collapse v-if="data || loadError" class="tech-collapse">
+      <el-collapse-item name="tech">
+        <template #title>
+          <span class="tech-title">给技术同学的详情</span>
+        </template>
+        <template v-if="loadError">
+          <p class="blind-text tech-raw">接口原始错误：{{ loadError }}</p>
+          <p class="blind-text tech-raw">
+            常见原因：基线表 <code>inspect_baseline</code> 读不到（迁移 <code>V19007</code> 未执行 / 表被删）⇒ 请后端确认。
+          </p>
+        </template>
+        <template v-else-if="data">
+          <p class="blind-text tech-raw">
+            未执行的检查项：<code>{{ skippedKeysText }}</code>
+          </p>
+          <p class="blind-text tech-raw">
+            无法识别的项（key 不存在或已改名）：<code>{{ unknownTypesText }}</code>
+          </p>
+          <p class="blind-text tech-raw">
+            本次实际检查的项：<code>{{ checkedTypesText }}</code>
+          </p>
+          <p class="blind-text tech-raw">
+            口径说明：徽标与告警只统计 <code>newTotal</code> / <code>newCount</code>；
+            历史存量（基线化之前的记录）只展示、永不染红。接口 fail-fast 不降级。
+          </p>
+        </template>
+      </el-collapse-item>
+    </el-collapse>
   </section>
 </template>
 
@@ -375,6 +413,8 @@ watch(requestedTypes, () => {
 .heading-sub { margin: 4px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
 .explain-card { margin-bottom: 16px; }
 .explain-grid { display: flex; flex-direction: column; gap: 18px; }
+/* ⚠️ 每个问答块（模板里 3 处用到，必须有对应样式） */
+.explain-item { display: flex; flex-direction: column; }
 .explain-q { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--el-text-color-primary); }
 .explain-a { margin: 0; line-height: 1.8; color: var(--el-text-color-regular); }
 .explain-ul { margin: 6px 0 6px; padding-left: 20px; line-height: 1.9; }
@@ -384,7 +424,6 @@ watch(requestedTypes, () => {
 .tech-raw { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; word-break: break-all; }
 .blind-alert { margin-bottom: 16px; }
 .blind-text { margin: 6px 0 0; line-height: 1.7; }
-.blind-list { margin: 8px 0 0; padding-left: 20px; line-height: 1.8; }
 .summary-card { margin-bottom: 16px; }
 .summary-row { display: flex; flex-wrap: wrap; gap: 32px; }
 .summary-item { display: flex; flex-direction: column; gap: 6px; }

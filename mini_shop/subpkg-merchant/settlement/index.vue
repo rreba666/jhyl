@@ -529,7 +529,10 @@ function goBack(): void {
              ⇒ 用户明确要求：「**调整比例需要到 PC 商户后台**」这件事必须写明白。 -->
         <view class="card">
           <text class="card-title">让利比例（平台抽成）</text>
-          <text class="rate-value">{{ commissionRateText }}</text>
+          <!-- ⚠️ 2026-10-03（审查发现）：原先取不到比例时只显示光秃秃一个「—」，
+               商家不知道"没设置"还是"没加载"。⇒ 补「未设置」说明，与列表页口径一致。 -->
+          <text v-if="commissionRateText === '—'" class="rate-value rate-unset">未设置（跟随平台默认）</text>
+          <text v-else class="rate-value">{{ commissionRateText }}</text>
           <text class="rule-note">平台从每笔订单中抽取的比例，按商品金额计算；⚠️ 配送费全额归商家，不参与抽成。</text>
           <text class="rule-note">⚠️ 比例调整只对之后新下的订单生效；已完成订单按「下单当时」的比例结算，不会被追溯修改。</text>
           <text class="rule-note">⚠️ 商家端不能修改比例 —— 需要调整请到「PC 商户后台」，或联系平台。</text>
@@ -844,6 +847,8 @@ function goBack(): void {
   font-weight: 700;
   line-height: 60rpx;
 }
+/* 未设置时的占位文案（字号小一些，避免和真比例一样抢眼） */
+.rate-value.rate-unset { color: #86909c; font-size: 30rpx; font-weight: 600; }
 .total-grid {
   display: flex;
   flex-wrap: wrap;
@@ -864,13 +869,6 @@ function goBack(): void {
   margin-top: 6rpx;
   color: #86909c;
   font-size: 23rpx;
-}
-.commission-hint {
-  display: block;
-  margin-top: 4rpx;
-  color: #86909c;
-  font-size: 23rpx;
-  line-height: 36rpx;
 }
 .rule-line {
   display: block;
