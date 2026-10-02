@@ -68,8 +68,8 @@ const rules: FormRules = {
   //    而**商家端上架商品时根本没有分类这一项**（`subpkg-merchant/products/edit.vue` 不发 `categoryId`）
   //    ⇒ 原来那条必填会把运营**完全卡死**：一打开商家上架的商品就红、不选分类存不了。
   //    ⇒ 现在与后端语义对齐：**可留空**（空数组时整个字段不提交，见 buildPayload）。
-  //    📮 配套后端需求：`docs/26/10.02/后端需求-商家端商品默认分类门店商品-2026-10-02.md`
-  //       （后端建**禁用**分类「门店商品」，并在商家端保存时自动归类 + 回填存量）。
+  //    📮 配套后端需求：`docs/26/10.02/后端需求-商家端商品默认分类-2026-10-02.md`
+  //       （后端建**禁用**分类「默认分类」，并在商家端保存时自动归类 + 回填存量）。
   //    ⚠️ `type: 'array'` **必须保留** —— 它拦的是「传了非数组」，与是否必填无关。
   categoryIds: [{ type: 'array', trigger: 'change' }],
   mainImage: [{ required: true, message: '请上传商品主图', trigger: 'change' }],
@@ -701,12 +701,12 @@ onMounted(() => {
                 折叠成「+N」数字反而看不清到底选了哪些（用户 2026-09-30 明确要求）。
              `filterable` 保留，便于分类变多时快速定位。
              ⚠️⚠️ 2026-10-02：**改为选填**（原来必填）—— 商家端上架的商品没有分类，
-                必填会把运营卡死；契约为「可空」，后端会自动归入「门店商品」。 -->
+                必填会把运营卡死；契约为「可空」，后端会自动归入「默认分类」。 -->
         <el-form-item label="商品分类" prop="categoryIds">
           <el-select v-model="form.categoryIds" multiple filterable placeholder="选填（可多选）">
             <el-option v-for="option in categoryOptions" :key="option.id" :label="option.label" :value="option.id" />
           </el-select>
-          <p class="upload-hint">选填：商家在小程序上架的商品默认没有分类，后端会自动归入「门店商品」（该分类不在 C 端展示）</p>
+          <p class="upload-hint">选填：商家在小程序上架的商品默认没有分类，后端会自动归入「默认分类」（该分类不在 C 端展示）</p>
         </el-form-item>
         <el-form-item label="主图" prop="mainImage" class="form-item-full media-form-item">
           <ImageGridUpload :model-value="form.mainImage ? [form.mainImage] : []" :max="1" :uploading="mediaUploading" @upload="onMainImageUpload" @remove="form.mainImage = ''" />
