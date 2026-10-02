@@ -49,6 +49,10 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     // 后端 `/api/admin/notify/**` 为**超管 + 运营客服**专属：含跨商户信息面，且「测试发送」会消耗商家授权额度
     // ⇒ 商户管理员（ADMIN）**访问会 403**，矩阵里也不给他（菜单与路由同源，见文件头说明）。
     '/notify',
+    // 2026-10-03 物流单结算改造（P5/P7/P8）新增三页：
+    // - `/logistics/sign-pending`：⚠️ **仅超管**（P5 §一 明确"仅超管"）—— 人工修正签收时间会决定资金释放锚点
+    // - `/logs/channel-reconcile`、`/logs/fund-report`：中控财务向，与 `/logs/ledger` 同口径（超管/客服/财务）
+    '/logistics/sign-pending', '/logs/channel-reconcile', '/logs/fund-report',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
@@ -67,9 +71,15 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
     // 微信通知（订阅消息诊断）：后端只给**超管 + 运营客服**，客服是这条链路的日常使用方（答疑"店长收不到"）
     '/notify',
+    // 2026-10-03（P7/P8）：渠道对账与资金报表是中控**财务向**，与留痕台账同口径。
+    // ⚠️ **不含** `/logistics/sign-pending`（P5 明确仅超管）。
+    '/logs/channel-reconcile', '/logs/fund-report',
   ],
   FINANCE: [
     '/dashboard', '/merchant', '/invoices', '/profit', '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/audit', '/logs/ledger', '/shops',
+    // 2026-10-03（P7/P8）：渠道对账与资金报表是财务日常对账入口 ⇒ 必须给财务。
+    // ⚠️ **不含** `/logistics/sign-pending`（P5 明确仅超管）。
+    '/logs/channel-reconcile', '/logs/fund-report',
   ],
 }
 
@@ -113,6 +123,10 @@ const ROUTE_LABELS: Record<string, string> = {
   '/logs/audit': '操作追溯',
   '/logs/ledger': '留痕台账',
   '/logs/apicount': '接口调用计数',
+  // 2026-10-03 物流单结算改造（P5/P7/P8）
+  '/logistics/sign-pending': '物流签收兜底',
+  '/logs/channel-reconcile': '渠道账单对账',
+  '/logs/fund-report': '资金报表',
   '/settings': '业务设置',
   '/settings/sms-templates': '短信模板管理',
   '/settings/voice': '语音配置管理',

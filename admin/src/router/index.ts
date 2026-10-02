@@ -226,6 +226,31 @@ const router = createRouter({
           meta: { title: '接口调用计数', permission: ['audit:read'], roles: rolesForPath('/logs/apicount'), requiresAuth: true },
         },
         {
+          // ⚠️ 2026-10-03（P5）：物流签收兜底 —— **仅超管**。
+          // 物流单的资金释放锚点是快递签收时间，快递100 查不到时需人工补写；
+          // 该写操作会决定商家何时能提现，且后端强制审计留痕。
+          path: 'logistics/sign-pending',
+          name: 'LogisticsSignPending',
+          component: () => import('@/views/logistics/sign-pending.vue'),
+          meta: { title: '物流签收兜底', permission: ['audit:read'], roles: rolesForPath('/logistics/sign-pending'), requiresAuth: true },
+        },
+        {
+          // ⚠️ 2026-10-03（P7）：渠道账单对账 —— 只报不改（差异只落异常台账 + 告警）。
+          // ⚠️「渠道无账单」（code=1000）是**正常情况**，页面按中性提示展示。
+          path: 'logs/channel-reconcile',
+          name: 'ChannelReconcile',
+          component: () => import('@/views/logs/channel-reconcile.vue'),
+          meta: { title: '渠道账单对账', permission: ['audit:read'], roles: rolesForPath('/logs/channel-reconcile'), requiresAuth: true },
+        },
+        {
+          // ⚠️ 2026-10-03（P8）：资金日报 / 月报（只读）。
+          // ⚠️ 日报由后端补齐 0 值日；月报由后端按日报汇总 ⇒ 前端**不要**本地累加。
+          path: 'logs/fund-report',
+          name: 'FundReport',
+          component: () => import('@/views/logs/fund-report.vue'),
+          meta: { title: '资金报表', permission: ['audit:read'], roles: rolesForPath('/logs/fund-report'), requiresAuth: true },
+        },
+        {
           path: 'settings',
           name: 'Settings',
           component: () => import('@/views/settings/index.vue'),

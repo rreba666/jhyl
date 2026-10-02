@@ -1,4 +1,7 @@
 import { request } from './request'
+// ⚠️ 下载（解析 Content-Disposition + 造 <a> 触发）已抽到 utils 共享，
+//    因为资金日报导出（`api/settlement-reports.ts`）也要用同一套实现
+import { resolveDownloadFilename, saveBlob } from '@/utils/download'
 import type {
   AuditScope,
   LedgerOption,
@@ -222,31 +225,6 @@ export async function getLedgerStatus(): Promise<LedgerStatus> {
 }
 
 /** 从 `Content-Disposition` 解析导出文件名，取不到时用默认名。 */
-function resolveExportFilename(disposition: string): string {
-  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
-  if (utf8Match) {
-    try {
-      return decodeURIComponent(utf8Match[1])
-    } catch {
-      // 解码失败则继续尝试普通 filename
-    }
-  }
-  const plainMatch = /filename="?([^";]+)"?/i.exec(disposition)
-  return plainMatch ? plainMatch[1] : 'audit-ledger.csv'
-}
-
-/** 触发浏览器下载（Blob → 临时 <a>）。 */
-function saveBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
-}
-
 /**
  * `unified=true` 导出时**会被后端忽略**的筛选参数（`/export` 的接口说明原文）。
  * ⚠️ 这四项必须在提交前**主动剔除**：否则用户在界面上填了 block/operation/targetType/requestId、
@@ -286,7 +264,7 @@ export async function exportLedgerCsv(params: LedgerQueryParams, unified = false
     }
     throw new Error(message)
   }
-  saveBlob(response.data, resolveExportFilename(String(response.headers['content-disposition'] || '')))
+  saveBlob(response.data, resolveDownloadFilename(String(response.headers['content-disposition'] || ''), 'audit-ledger.csv'))
 }
 
 /**

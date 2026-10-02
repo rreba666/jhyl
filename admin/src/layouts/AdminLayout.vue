@@ -29,6 +29,8 @@ import {
   Van,
   Bicycle,
   TrendCharts,
+  // ⚠️ 2026-10-03（P7）：渠道账单对账菜单图标
+  Money,
 } from '@element-plus/icons-vue'
 
 import { useAuthStore } from '@/stores/auth'
@@ -73,7 +75,9 @@ const showHomepageMenu = computed(() => canVisit('/homepage') || canVisit('/anno
 /** 订单管理子菜单：任一子项可访问即显示。 */
 const showOrdersMenu = computed(() => canVisit('/orders') || canVisit('/orders/pickup') || canVisit('/orders/address-audit') || canVisit('/after-sale'))
 /** 日志管理子菜单：任一子项可访问即显示。 */
-const showLogsMenu = computed(() => canVisit('/logs/verify') || canVisit('/logs/audit') || canVisit('/logs/ledger') || canVisit('/logs/apicount'))
+const showLogsMenu = computed(() => canVisit('/logs/verify') || canVisit('/logs/audit') || canVisit('/logs/ledger') || canVisit('/logs/apicount')
+  // ⚠️ 2026-10-03（P5/P7/P8）新增三页也归在本分组下，否则超管/财务看不到它们
+  || canVisit('/logistics/sign-pending') || canVisit('/logs/channel-reconcile') || canVisit('/logs/fund-report'))
 
 /** 刷新当前管理员身份（从 /me 拉取角色/所属商户/权限点）。 */
 async function refreshCurrentAdmin(): Promise<void> {
@@ -324,6 +328,12 @@ onUnmounted(() => {
           <!-- 接口调用计数：平台级数据（全平台接口结构 + 任意商户 shopId + 调用明细）→ 仅超管；
                后端该模块尚未声明权限点，口径确认后再放开 -->
           <el-menu-item v-if="canVisit('/logs/apicount')" index="/logs/apicount"><el-icon><TrendCharts /></el-icon><template #title>接口调用计数</template></el-menu-item>
+          <!-- ⚠️ 2026-10-03 物流单结算改造（P5/P7/P8）：
+               - 物流签收兜底：**仅超管**（人工修正签收时间 = 决定物流单资金释放锚点）
+               - 渠道账单对账 / 资金报表：中控财务向，与留痕台账同口径 -->
+          <el-menu-item v-if="canVisit('/logistics/sign-pending')" index="/logistics/sign-pending"><el-icon><Van /></el-icon><template #title>物流签收兜底</template></el-menu-item>
+          <el-menu-item v-if="canVisit('/logs/channel-reconcile')" index="/logs/channel-reconcile"><el-icon><Money /></el-icon><template #title>渠道账单对账</template></el-menu-item>
+          <el-menu-item v-if="canVisit('/logs/fund-report')" index="/logs/fund-report"><el-icon><TrendCharts /></el-icon><template #title>资金报表</template></el-menu-item>
         </el-sub-menu>
         <!-- 业务设置：仅平台管理员 -->
         <el-menu-item v-if="canVisit('/settings')" index="/settings">
