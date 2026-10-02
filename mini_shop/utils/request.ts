@@ -265,6 +265,53 @@ export function uploadFile(filePath: string, name = 'file'): Promise<string> {
 }
 
 /**
+ * 下载后端文件（如结算单 CSV 导出），返回**微信临时文件路径**供 `uni.openDocument` / `uni.saveFile` 使用。
+ *
+ * ⚠️ 为什么必须有它（而不是在页面里直接 `uni.downloadFile`）：
+ * `API_BASE_URL` 与 `APP_KEY` 都是**本模块私有**（未导出），而导出类接口**需要鉴权头**
+ * （`Authorization` + `X-App-Key`）⇒ 在页面里手拼 URL/头必然漏掉鉴权，表现为 401 或下到一份错误页。
+ *
+ * ⚠️ 与 `request()` 的区别：这里**不解析响应体**（不是 JSON，是文件流），
+ * 只在 HTTP 状态码非 2xx 时按常见情况给出可读提示。
+ */
+export function downloadFile(url: string): Promise<{ tempFilePath: string }> {
+  return new Promise((resolve, reject) => {
+    if (!API_BASE_URL) {
+      reject(new ApiRequestError('未配置 VITE_API_BASE_URL，请检查 mini_shop 工程目录环境文件'))
+      return
+    }
+    const token = uni.getStorageSync('mini_shop_token')
+    const header: Record<string, string> = { 'X-App-Key': APP_KEY }
+    if (token) header.Authorization = `Bearer ${token}`
+    // ⚠️ 这里**刻意不写 `UniApp.DownloadFileOption` 之类的类型标注**：
+    //    mini_shop 是 HBuilderX-only、**没有 node_modules / 没有 TS 类型检查**，
+    //    引用可能不存在的全局类型反而会让编译报错（同 `utils/image-compress.ts` 的教训）。
+    uni.downloadFile({
+      url: `${API_BASE_URL}${url}`,
+      header,
+      success: (response: { statusCode: number; tempFilePath?: string }) => {
+        if (response.statusCode === 401) {
+          reject(new ApiRequestError('登录状态已失效，请重新登录后再试'))
+          return
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new ApiRequestError(`下载失败（HTTP ${response.statusCode}）`))
+          return
+        }
+        if (!response.tempFilePath) {
+          reject(new ApiRequestError('下载成功但未返回文件'))
+          return
+        }
+        resolve({ tempFilePath: response.tempFilePath })
+      },
+      fail: (error: { errMsg?: string }) => {
+        reject(new ApiRequestError(error.errMsg || '下载失败'))
+      },
+    })
+  })
+}
+
+/**
  * 把后端下发的 OSS Key / 相对路径拼成可访问图片 URL（图片代理三级缓存）。
  * 已是完整 http(s) 地址则原样返回。
  */

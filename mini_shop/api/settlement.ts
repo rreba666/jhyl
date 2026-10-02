@@ -75,6 +75,99 @@ export function getSettlementAccount(): Promise<SettlementAccountVO> {
   return request<SettlementAccountVO>({ url: '/api/merchant/settlement/account', method: 'GET' })
 }
 
+// ===== 结算单（P6，2026-10-03 新增）=====
+
+/**
+ * 结算单状态（对应后端 `status`）。
+ * - `PENDING` 待入账（订单未完成 / 未到释放期）
+ * - `CREDITED` 已入账（钱已到余额）
+ * - `REVERSED` 已作废（退款或关闭，**未入账过**）
+ */
+export type SettlementStatementStatus = 'PENDING' | 'CREDITED' | 'REVERSED'
+
+/**
+ * 一条结算单（对应后端 `StatementVO`）。
+ *
+ * ⚠️ 口径（P6 §三，**前端不要自己算**）：
+ * - **一子单一条**：跨商物流单拆成父单 + 子单，**父单不产生结算** ⇒
+ *   同一用户的一次下单可能对应**多条**结算单（每个商家一条）；
+ * - `merchantIncome`（**商家应得**）= `goodsAmount − commissionAmount + deliveryFee`，
+ *   ⚠️ **直接展示后端值**，前端自算容易与后端漂移；
+ * - `commissionRate` 是**下单时快照**的让利比例 ⇒ 后台改比例**不影响历史单据**；
+ * - `fulfillShopId`：⚠️ **物流单为 `null`**（没有履约门店）⇒ 展示门店时必须**判空**。
+ */
+export interface StatementVO {
+  orderNo: string
+  /** 配送方式：0 物流 / 1 自提 / 2 同城。 */
+  pickupType?: number
+  /** 配送方式中文（后端下发，直接展示）。 */
+  pickupTypeDesc?: string
+  /** 履约门店 ID；⚠️ 物流单为 null。 */
+  fulfillShopId?: number | null
+  /** 商品金额（用户实付中的商品部分，**已扣整单优惠**）。 */
+  goodsAmount?: number
+  /** 下单时快照的让利比例（%）。 */
+  commissionRate?: number
+  /** 平台抽成。 */
+  commissionAmount?: number
+  /** 配送费（**全额归商家，不抽成**）。 */
+  deliveryFee?: number
+  /** **商家应得** = 商品金额 − 抽成 + 配送费。 */
+  merchantIncome?: number
+  status?: SettlementStatementStatus | string
+  /** 状态中文（后端下发，直接展示）。 */
+  statusDesc?: string
+  creditedAt?: string | null
+  reversedAt?: string | null
+  /** 作废原因（⚠️ 作废单要能一眼看到）。 */
+  reversedReason?: string | null
+  /** 下单快照时间。 */
+  createTime?: string
+}
+
+/** 结算单分页结果（对应后端 `StatementPageVO`）。 */
+export interface StatementPageVO {
+  total?: number
+  page?: number
+  pageSize?: number
+  items?: StatementVO[]
+  /** ⚠️ **本页**「商家应得」合计（**不是全量**）。 */
+  sumMerchantIncome?: number
+  /** ⚠️ **本页**平台抽成合计（**不是全量**）。 */
+  sumCommissionAmount?: number
+}
+
+/**
+ * 分页查询结算单（`GET /api/merchant/settlement/statements`）。
+ * @param params.status 可选；**不传 = 全部**
+ */
+export function getSettlementStatements(params: {
+  status?: SettlementStatementStatus | ''
+  page?: number
+  pageSize?: number
+} = {}): Promise<StatementPageVO> {
+  const query = [
+    `page=${encodeURIComponent(String(params.page || 1))}`,
+    `pageSize=${encodeURIComponent(String(params.pageSize || 20))}`,
+  ]
+  // ⚠️ 空串 = 全部：转成"不传"这个参数，避免发出 `status=` 这种空参数
+  if (params.status) query.push(`status=${encodeURIComponent(params.status)}`)
+  return request<StatementPageVO>({ url: `/api/merchant/settlement/statements?${query.join('&')}`, method: 'GET' })
+}
+
+/**
+ * 结算单导出 URL（CSV，**UTF-8 带 BOM**，Excel 直接打开中文不乱码）。
+ *
+ * ⚠️ **只返回 URL**，实际下载请走 `downloadFile()`（`utils/request.ts`）——
+ * 该接口**需要鉴权头**，而 `API_BASE_URL` / `APP_KEY` 是 request 模块私有的。
+ * @param status ⚠️ 必须传**当前列表筛选的状态**（"与列表所见一致"）；空串 = 全部。
+ */
+export function buildSettlementStatementsExportUrl(status?: SettlementStatementStatus | ''): string {
+  return status
+    ? `/api/merchant/settlement/statements/export?status=${encodeURIComponent(status)}`
+    : '/api/merchant/settlement/statements/export'
+}
+
 // ===== 账户流水 =====
 
 /**

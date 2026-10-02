@@ -334,6 +334,14 @@
             "navigationBarTitleText": "提现详情",
             "navigationBarBackgroundColor": "#FFFFFF"
           }
+        },
+        {
+          "path": "settlement/statements",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "结算单",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
         }
       ]
     }

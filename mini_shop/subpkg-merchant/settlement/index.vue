@@ -357,6 +357,16 @@ function goWithdrawList(): void {
 }
 
 /**
+ * 结算单页（P6，2026-10-03 新增）。
+ *
+ * ⚠️ 与「账户流水」的区别：流水是**资金变动**（入账/退款/提现…），
+ * 结算是**按订单（拆单后按子单）一条**的明细（商品金额/抽成/配送费/商家应得/状态）⇒ 用于对账。
+ */
+function goStatements(): void {
+  uni.navigateTo({ url: '/subpkg-merchant/settlement/statements' })
+}
+
+/**
  * 去「账单」看品牌营业额（**无结算权限时的唯一退路**）。
  *
  * ⚠️ 店长/店员即使没有结算权限，**仍然可以**查看所属品牌（结算归属）的订单口径营业额，
@@ -532,6 +542,11 @@ function goBack(): void {
 
         <!-- 二级入口 -->
         <view class="entry-list">
+          <!-- ⚠️ 2026-10-03 新增（P6）：结算单 —— 按订单（拆单后按子单）逐条列出商品金额/抽成/配送费/商家应得，可导出 CSV 对账 -->
+          <view class="entry-item" @click="goStatements">
+            <text class="entry-label">结算单</text>
+            <text class="entry-arrow">›</text>
+          </view>
           <view class="entry-item" @click="goFlows">
             <text class="entry-label">账户流水</text>
             <text class="entry-arrow">›</text>
