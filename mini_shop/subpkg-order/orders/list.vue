@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, onMounted, ref } from 'vue'
-import { cancelOrder, fastRefundOrder, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
+import { cancelOrder, fastRefundOrder, getOrderDetail, getOrderList, receiveOrder, refundOrder, type OrderStatus, type OrderSummary } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单详情页共用同一套口径
 import { canFastRefundNow, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText } from '@/utils/refund-window'
 import { confirmReceiveDelivery, deliveryNodeText, getOrderProgress } from '@/api/delivery-order'
 import { getAfterSaleList, type AfterSaleRecord } from '@/api/after-sale'
 // 申请售后弹层的状态与提交（与订单详情页**共用**，见该文件头部说明为何抽出）
 import { useAfterSaleSubmit } from '@/utils/after-sale-submit'
+// 跨商拆单（P3）子订单工具。⚠️ 列表接口**只返回父单、不含 children** ⇒
+//    要判断"这是不是父单"必须**按需拉一次详情**（见下方 handleAfterSaleClick）。
+import { hasChildOrders as hasChildOrdersIn, pickChildOrder } from '@/utils/child-order'
 import { isApiRequestError } from '@/utils/request'
 // 幂等键生成（请求头 X-Request-Id）：同一笔秒退动作的连点/重试复用同一个值，见 utils/request-id.ts
 import { createRequestId } from '@/utils/request-id'
@@ -113,6 +116,34 @@ const {
     await load(true)
   },
 })
+
+/**
+ * 「申请售后」入口（列表页）。
+ *
+ * ⚠️⚠️ 为什么这里要多拉一次详情（P3 §2.3 + 列表接口的特性）：
+ * - 后端对**父单**（跨商拆单的订单）申请售后会直接拒（`code=1000`）；
+ * - 而 `GET /api/order/list` 为了性能**只返回父单、且不返回 `children`**
+ *   ⇒ 列表页**无法**从自身数据判断"是不是父单"，必须按需拉一次详情。
+ *
+ * ⇒ 流程：拉详情 → 无子单则按原样提交；有子单则让用户**选一个子单**再提交
+ *   （与详情页共用 `utils/child-order.ts`）。
+ */
+async function handleAfterSaleClick(order: OrderSummary): Promise<void> {
+  if (actionLoading.value) return
+  try {
+    const detail = await getOrderDetail(order.id)
+    const children = detail?.children
+    if (!hasChildOrdersIn(children)) {
+      openAfterSale(order.id)
+      return
+    }
+    const picked = await pickChildOrder(children, '申请售后')
+    if (picked?.id != null) openAfterSale(picked.id)
+  } catch (error) {
+    // ⚠️ 拉详情失败不能静默：否则用户点售后没反应，只会重复点
+    uni.showToast({ title: isApiRequestError(error) ? error.message : '订单加载失败，请重试', icon: 'none' })
+  }
+}
 
 /** 微信胶囊按钮位置，用于自定义导航栏精确定位。 */
 const menuTop = ref(0)
@@ -580,8 +611,9 @@ onShow(() => {
             <!-- ⚠️ 2026-10-03 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**
                  （旧逻辑"完成即不可申请"）⇒ 已完成订单原先在列表里**没有任何售后入口**。
                  ⚠️ 这里用独立 `v-if`，**不挂进上面按 pickupType 分组的 v-if/v-else-if 链**，
-                 以免影响既有按钮的互斥关系（三种配送方式都使用同一入口）。 -->
-            <text v-if="order.status === 4 && !processingOrderIds.has(String(order.id))" class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="openAfterSale(order.id)">申请售后</text>
+                 以免影响既有按钮的互斥关系（三种配送方式都使用同一入口）。
+                 ⚠️ P3 §2.3：跨商拆单的**父单**不能直接申请 ⇒ 点击时按需拉详情并让用户**选子单**。 -->
+            <text v-if="order.status === 4 && !processingOrderIds.has(String(order.id))" class="btn outline" :class="{ disabled: !!actionLoading }" @click.stop="handleAfterSaleClick(order)">申请售后</text>
           </view>
         </view>
       </template>

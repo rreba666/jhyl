@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref, watch } from 'vue'
-import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
+import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type ChildOrderVO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
 import { canFastRefundNow, isFastRefundGateClosed, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
@@ -19,6 +19,8 @@ import LoginGuide from '@/components/LoginGuide.vue'
 import RefundReasonSheet from '@/components/RefundReasonSheet.vue'
 // @ts-ignore uqrcode 为 UMD 单文件库（随分包 subpkg-order 打包，避免主包出现未使用的 JS 文件）
 import UQRCode from '@/subpkg-order/utils/uqrcode'
+// 跨商拆单（P3）子订单工具：判定 / 状态文案 / 让用户选子单（与订单列表页共用）
+import { childStatusText, hasChildOrders as hasChildOrdersIn, resolveTargetOrderId as resolveChildTargetOrderId } from '@/utils/child-order'
 
 const order = ref<OrderDetail | null>(null)
 const loading = ref(true)
@@ -57,6 +59,15 @@ const refundSheetVisible = ref(false)
 const refundSheetSubmitting = ref(false)
 const refundSheetError = ref('')
 /**
+ * 秒退实际作用的订单 ID。
+ *
+ * ⚠️ 为什么需要它：跨商拆单时用户选的是**子单**，而"填理由"弹层是异步打开的第二跳
+ * （先 ActionSheet 选子单 → 再开理由弹层）⇒ 必须把选中的目标**暂存**，
+ * 提交时用它（而不是 `order.value.id`，那会是父单 ⇒ 被后端拒 `code=1000`）。
+ * `null` = 尚未选择（提交时回退到订单自身 id，兼容无子单的情况）。
+ */
+const fastRefundTargetId = ref<number | string | null>(null)
+/**
  * 售后申请弹层（**已完成订单**用）。
  *
  * ⚠️ 2026-10-03：状态与提交逻辑已抽到 `utils/after-sale-submit.ts`（与订单列表页共用），
@@ -77,6 +88,25 @@ const {
     uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
   },
 })
+
+/**
+ * 是否**有子订单**（= 这是跨商拆单的**父单**）。
+ *
+ * ⚠️ P3：`children` 只在「跨商拆单的父单」上有值，**子单自身详情 / 单商订单为 `null`**
+ * ⇒ 展示与售后分流**都必须先判空**。
+ * 判定逻辑在 `utils/child-order.ts`（与订单列表页共用），这里只做响应式包装以便模板使用。
+ */
+const hasChildOrders = computed(() => hasChildOrdersIn(order.value?.children))
+
+/**
+ * 解析**本次退款/售后要作用在哪个订单上**（秒退 / 自助退款 / 售后三个入口共用）。
+ *
+ * ⚠️ P3 §2.3：对**父单**申请会被后端拒（`code=1000`）⇒ 有子单时必须先让用户**选子单**。
+ * ⚠️ 具体逻辑（含"后端没给子单 id 时优雅降级"）在 `utils/child-order.ts`，与列表页共用。
+ */
+function resolveTargetOrderId(actionLabel: string): Promise<number | string | null> {
+  return resolveChildTargetOrderId(order.value?.id, order.value?.children, actionLabel)
+}
 
 /** 地址修改申请表单，内容按当前用户和订单自动缓存。 */
 interface AddressChangeForm {
@@ -621,7 +651,10 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'
       return
     }
     if (type === 'refund') {
-      await refundOrder(order.value.id)
+      // ⚠️ P3 §2.3：跨商拆单的父单不能直接申请 ⇒ 先让用户选子单（无子单时原样返回自身 id）
+      const targetId = await resolveTargetOrderId('申请退款')
+      if (targetId == null) return
+      await refundOrder(targetId)
       uni.showToast({ title: '退款申请已提交', icon: 'success' })
       // 退款成功后跳转到退款售后分类，查看售后单进度
       uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
@@ -657,10 +690,26 @@ function showFastRefundGateTip(): void {
   })
 }
 
+/**
+ * 「申请售后」按钮入口：跨商拆单的父单**先选子单**，再开理由弹层。
+ * ⚠️ 父单直接被拒（`code=1000`），所以这一步不能省。
+ */
+async function handleAfterSaleClick(): Promise<void> {
+  const targetId = await resolveTargetOrderId('申请售后')
+  if (targetId == null) return
+  openAfterSale(targetId)
+}
+
 function openFastRefund(): void {
   if (!order.value || actionLoading.value) return
-  refundSheetError.value = ''
-  refundSheetVisible.value = true
+  // ⚠️ P3 §2.3：父单必须先选子单（秒退同样只受理子单）
+  void (async () => {
+    const targetId = await resolveTargetOrderId('立即退款')
+    if (targetId == null) return
+    fastRefundTargetId.value = targetId
+    refundSheetError.value = ''
+    refundSheetVisible.value = true
+  })()
 }
 
 /**
@@ -674,7 +723,7 @@ async function submitFastRefund(reason: string): Promise<void> {
   // 同一笔秒退动作复用同一个幂等键：已有则沿用（失败重试 / 连点），没有才新生成
   if (!fastRefundRequestId) fastRefundRequestId = createRequestId()
   try {
-    await fastRefundOrder(order.value.id, { requestId: fastRefundRequestId, reason })
+    await fastRefundOrder(fastRefundTargetId.value ?? order.value.id, { requestId: fastRefundRequestId, reason })
     // 成功后清空幂等键：本次动作已结束，下次退款重新生成
     fastRefundRequestId = ''
     refundSheetVisible.value = false
@@ -876,6 +925,26 @@ onUnload(() => {
         </view>
       </view>
 
+      <!-- ⚠️ 子订单分组（P3 §2.2）：跨商拆单的**父单**才有 children。
+           父单只承载支付与收货，**不发货、不结算、不受理售后** ⇒ 这里逐个子单展示
+           「子单号 / 状态 / 归属商家 / 本单分摊优惠 / 应付 / 运单号」，让用户知道"哪一单是谁发的"。
+           ⚠️ 子单自身详情与单商订单 children 为 null ⇒ 用 hasChildOrders 判空。 -->
+      <view v-if="hasChildOrders" class="card">
+        <text class="child-title">子订单（{{ (order?.children || []).length }} 个商家）</text>
+        <view v-for="child in order?.children || []" :key="child.orderNo" class="child-item">
+          <view class="child-head">
+            <text class="child-no">{{ child.orderNo }}</text>
+            <text class="child-status">{{ childStatusText(child.status) }}</text>
+          </view>
+          <view class="child-line"><text class="muted">归属商家</text><text>{{ child.settlementMerchantId == null ? '—' : '#' + child.settlementMerchantId }}</text></view>
+          <!-- ⚠️ P3 决策 2：子单上要显示「本单分摊优惠 ¥X」，否则用户不知道优惠是怎么分的 -->
+          <view class="child-line"><text class="muted">本单分摊优惠</text><text class="discount-text">-¥{{ Number(child.discountAmount || 0).toFixed(2) }}</text></view>
+          <view class="child-line"><text class="muted">应付</text><text>¥{{ Number(child.payAmount || 0).toFixed(2) }}</text></view>
+          <!-- ⚠️ 物流单才有运单号；自提/同城/未发货时为 null ⇒ 判空后不显示整行 -->
+          <view v-if="child.expressNo" class="child-line"><text class="muted">{{ child.expressCompany || '快递' }}</text><text>{{ child.expressNo }}</text></view>
+        </view>
+      </view>
+
       <!-- ⚠️ 秒退按钮的判据必须**调用** `canFastRefundNow(order)`：它是函数，模板里不加括号会被求值成"函数对象"（恒 truthy），
            于是窗口判断完全失效、任何"已支付未送达"的单都会显示「立即退款」（2026-09-22 修的 bug）。
            ⚠️ 2026-10-01：判据由「纯窗口函数」升级为下面这个**总判据**（叠加了闸门记录）—— 它在 30 分钟窗口之外，
@@ -886,7 +955,7 @@ onUnload(() => {
            可点则能给出解释（对应后端的 2013 错误码）。 -->
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">申请取消（需商家确认）</button>
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button><!-- ⚠️ 2026-10-03 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。⚠️ 用独立 v-if、不挂在上面那串 v-else-if 链上，避免影响既有按钮的互斥关系。⚠️ 窗口由后端判定（物流/同城＝完成后 7 天内），超期返回 8703 并展示后端文案。 -->
-        <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="openAfterSale(order?.id)">申请售后</button></view>
+        <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="handleAfterSaleClick()">申请售后</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->
@@ -963,6 +1032,16 @@ onUnload(() => {
 .item { display: flex; align-items: center; gap: 16rpx; padding: 16rpx 0; }.item-image { width: 84rpx; height: 84rpx; flex-shrink: 0; background: #e9e7dd; }.item-info { display: flex; flex: 1; flex-direction: column; gap: 8rpx; font-size: 25rpx; }.muted { color: #999; font-size: 22rpx; }
 .amount { margin-top: 10rpx; padding-top: 14rpx; border-top: 1px solid #f2f2f2; }.amount-line { display: flex; justify-content: space-between; padding: 10rpx 0; color: #8e8e8e; font-size: 24rpx; }.amount-line .discount-text { color: #d40000; }.amount-total { color: #222; font-weight: 700; }
 .actions { display: flex; gap: 16rpx; padding-bottom: 48rpx; }button { flex: 1; margin: 0; color: #fff; background: #222; border-radius: 6rpx; font-size: 26rpx; }button::after { border: 0; }.state { padding: 220rpx 24rpx; color: #999; text-align: center; }.error { color: #c44; }
+/* ⚠️ 子订单分组（P3 §2.2）：父单详情里逐个子单展示，用分隔线与「商品清单」卡区分 */
+.child-title { display: block; margin-bottom: 6rpx; color: #333; font-size: 27rpx; font-weight: 600; }
+.child-item { padding: 18rpx 0; border-bottom: 1px solid #f2f2f2; }
+.child-item:last-child { border-bottom: 0; }
+.child-head { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.child-no { color: #222; font-size: 25rpx; font-weight: 600; }
+.child-status { flex-shrink: 0; color: #916448; font-size: 23rpx; }
+.child-line { display: flex; justify-content: space-between; padding: 8rpx 0; color: #222; font-size: 24rpx; }
+/* ⚠️ 折扣色由 `.amount-line .discount-text` 限定在金额卡内 ⇒ 子单里要单独给色 */
+.child-line .discount-text { color: #d40000; }
 .qrcode-card { display: flex; flex-direction: column; align-items: center; padding: 30rpx 26rpx; }.qrcode-title { font-size: 28rpx; font-weight: 600; color: #333; margin-bottom: 20rpx; }.qr-grid { padding: 10rpx; background: #fff; border: 1rpx solid #e6e8eb; }.qr-row { display: flex; }.qr-cell { width: 10rpx; height: 10rpx; }.qr-cell.is-dark { background: #000; }.qrcode-code { margin-top: 16rpx; font-size: 30rpx; letter-spacing: 4rpx; color: #222; font-weight: 600; }.qrcode-tip { margin-top: 10rpx; font-size: 22rpx; color: #999; }
 .address-change-status { display: flex; flex-direction: column; gap: 8rpx; margin-top: 18rpx; padding-top: 18rpx; color: #916448; font-size: 23rpx; border-top: 1px solid #f2f2f2; }.address-change-reason { color: #a35c5c; line-height: 1.5; }.address-change-action { display: flex; align-items: center; justify-content: center; height: 68rpx; margin-top: 18rpx; color: #fff; background: #222; border-radius: 6rpx; font-size: 25rpx; }
 .address-change-mask { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .68); }

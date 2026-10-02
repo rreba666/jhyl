@@ -98,6 +98,47 @@ export interface OrderDetailItem {
   subtotal?: number
 }
 
+/**
+ * 子订单（对应后端 `ChildOrderVO`，2026-10-03 P3 跨商拆单新增）。
+ *
+ * ⚠️ 背景（P3 §一）：物流单允许「一个购物车混装多个商家的商品、一次支付、一个收货地址」，
+ * 后端在下单时按商**拆成父单 + N 个子单**：
+ * - **父单**：用户可见的那一笔订单，承载支付与收货信息，**不发货、不结算、不受理售后**；
+ * - **子单**：每个商一条，承载该商的商品、金额、发货、物流、售后、结算；
+ * - 单商订单 / 自提 / 同城 **不拆**（`children` 为 `null`）。
+ */
+export interface ChildOrderVO {
+  /**
+   * 子订单主键 ID。
+   *
+   * ⚠️⚠️ **后端契约缺口（2026-10-03 记录，已反馈）**：
+   * P3 §2.3 要求前端「**选具体子单**后再调 `POST /api/after-sale/submit`，**传子单的 `orderId`**」，
+   * 但 `api_doc.json` 的 `ChildOrderVO` **只给了 `orderNo`、没有 `id`**，
+   * 而退款/售后接口**只按 `{orderId}` 操作**（已确认不存在按 `orderNo` 的同类接口）
+   * ⇒ **前端拿不到子单 ID 就无法对子单申请**。
+   *
+   * 这里按**可选**声明，并让页面**优雅降级**（有 `id` 才可选子单，没有则给出明确提示），
+   * 待后端在 `ChildOrderVO` 补 `id` 后**无需改前端即可生效**。
+   */
+  id?: number
+  /** 子订单号。 */
+  orderNo: string
+  /** 结算归属商家 ID（`wx_merchant.id`）⇒ 前端据此映射商家名。 */
+  settlementMerchantId?: number
+  /** 子单状态（0待支付/1已支付/2已发货/3已收货/4已完成/5已关闭/6退款中/7已退款/8已核销）。 */
+  status?: number
+  /** 子单应付（已按原价占比分摊，含尾差）。⚠️ 各子单之和恒等于父单 `payAmount`（后端 INV-6）。 */
+  payAmount?: number
+  /** 该子单**分摊到的整单优惠**（P3 决策 2：子单上要显示「本单分摊优惠 ¥X」）。 */
+  discountAmount?: number
+  /** 该子单商品原价小计。 */
+  totalAmount?: number
+  /** 该子单各自的物流公司。 */
+  expressCompany?: string | null
+  /** 该子单各自的运单号。 */
+  expressNo?: string | null
+}
+
 export interface OrderDetail extends OrderSummary {
   remark?: string
   pickupShopId?: number
@@ -106,6 +147,14 @@ export interface OrderDetail extends OrderSummary {
   pickupCode?: string
   /** 自提二维码内容（形如 {PICKUP_BASE_URL}?c=自提码），前端据此生成二维码。 */
   pickupUrl?: string
+  /**
+   * 子订单列表（**跨商拆单的父单才有**；每商一条，含各自金额与物流）。
+   *
+   * ⚠️ 子单自身详情 / 单商订单 ⇒ **`null`** ⇒ 展示前**必须判空**。
+   * ⚠️ 对**父单**（有子单的订单）申请售后会被后端拒（`code=1000`）⇒
+   * 前端**必须**从 `children[]` 里让用户**选具体子单**再提交（秒退/自助退款同理）。
+   */
+  children?: ChildOrderVO[] | null
 }
 
 /** C 端提交订单地址修改申请的请求体。 */
