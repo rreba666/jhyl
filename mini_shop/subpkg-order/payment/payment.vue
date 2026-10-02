@@ -1454,6 +1454,66 @@ function isOrderPaid(status: unknown): boolean {
   return [1, 2, 3, 4, 8].includes(Number(status))
 }
 
+/**
+ * 支付成功后，**尽最大努力**跳到订单详情页。
+ *
+ * ## ⚠️⚠️ 为什么需要这么"兜"（2026-10-01 经 7 轮真机排查得出）
+ *
+ * 本页在「刚完成支付」这个时刻调 uni 的路由 API，会反复抛
+ * `Cannot read properties of undefined (reading 'index')`：
+ * - 栈**全部落在本分包产物**（`subpkg-order/app-service.js` / `payment.js`），
+ *   而**全项目源码搜 `.index` 零命中** ⇒ 是打包进来的 **uni/Vue 页面运行时**在读它；
+ * - 报错**位置每次都不一样**（观测到列号 `20240 / 20643 / 20646 / 20927 / 20950 / 21198`，
+ *   覆盖 `showToast` / `redirectTo` / `navigateTo` / `setTimeout` 内）⇒
+ *   **不是"某个 API 用错了"，而是这个时刻的页面栈上下文整体不可靠**；
+ * - ⚠️⚠️ **最要命的一点**：这些 API 是**同步抛错**的，而 `fail` 回调**不会触发**
+ *   ⇒ 原来那套 `navigateTo → redirectTo → reLaunch` 的 `fail` 降级链**形同虚设**；
+ * - ⚠️ 且未捕获的异常会被**微信自动弹窗**展示给用户（截图里那个英文弹窗就是它，
+ *   不是我们的 `showModal`）。
+ *
+ * ⇒ 因此改为：**逐个 API 都就地 `try/catch`**，任何一个"受理成功"（同步没抛）就停止；
+ *   若同步抛错则试下一个；三个都抛错才提示用户（并强调钱已付、勿重复支付）。
+ *   ⚠️ 同时也接 `fail` 回调：偏好 API **同步没抛但异步失败**的情况也能继续往下试。
+ */
+function jumpToOrderDetail(detailUrl: string): void {
+  // ⚠️ 顺序按"页面栈操作从小到大"排：`navigateTo` 只 push、`redirectTo` 关当前页、
+  //    `reLaunch` 清空整个栈 —— 操作越少越不容易踩到上面那个上下文问题。
+  const attempts: ReadonlyArray<{ name: string; run: (onFail: () => void) => void }> = [
+    { name: 'navigateTo', run: (onFail) => uni.navigateTo({ url: detailUrl, fail: onFail }) },
+    { name: 'redirectTo', run: (onFail) => uni.redirectTo({ url: detailUrl, fail: onFail }) },
+    { name: 'reLaunch', run: (onFail) => uni.reLaunch({ url: detailUrl, fail: onFail }) },
+  ]
+
+  /** 从第 index 个开始尝试；全部失败则提示"钱已付"。 */
+  const attemptAt = (index: number): void => {
+    if (index >= attempts.length) {
+      // ⚠️ 三个路由 API 都失败：页面栈上下文已坏，只能明确告知（防止用户重复支付）
+      try {
+        uni.showModal({
+          title: '支付已完成',
+          content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
+          showCancel: false,
+          confirmText: '知道了',
+        })
+      } catch (error) {
+        // 连提示都失败就只能记日志了 —— 支付结果本身已经成功，不再上抛
+        recordPayError(error, { step: 'paid-modal-throw', nonFatal: true, paidAlready: true })
+      }
+      return
+    }
+    const attempt = attempts[index]
+    try {
+      attempt.run(() => attemptAt(index + 1))
+    } catch (error) {
+      // ⚠️ **同步抛错**（真机上的实际表现）：`fail` 不会触发，只能在这里接着试下一个
+      recordPayError(error, { step: `jump-${attempt.name}-throw`, nonFatal: true, paidAlready: true })
+      attemptAt(index + 1)
+    }
+  }
+
+  attemptAt(0)
+}
+
 /** 统一提交支付成功后的发票，并按支付来源决定留在当前页还是跳转订单详情。 */
 async function completePayment(currentOrderId: string, stayOnPage: boolean): Promise<void> {
   // ⚠️ 2026-09-30：**第一件事就上锁** —— 支付到此已成功，无论后续发票/跳转是否顺利，
@@ -1509,49 +1569,7 @@ async function completePayment(currentOrderId: string, stayOnPage: boolean): Pro
     // ⚠️ 先切「支付成功」态：既给用户明确反馈（此场景 toast 不可用，见上方注释），
     //    又**禁掉支付按钮** —— 防止用户停在结算页再次点击支付（重复下单风险）。
     paymentSucceeded.value = true
-    /**
-     * ⚠️⚠️ 2026-10-01 **第六轮真机定位**（收敛的关键）：
-     *
-     * 真机堆栈明确显示错误发生在 **`<setTimeout callback function>`** 内：
-     * ```
-     * at Function.<anonymous> (subpkg-order/app-service.js:1779:20643)
-     * at <setTimeout callback function>
-     * ```
-     * ⚠️ 且这次 **`fail` 回调也没有触发** ⇒ 路由 API **既不成功也不失败**，用户卡在结算页。
-     *
-     * ⇒ 三条结论：
-     *   ① **不能在 `setTimeout` 回调里调路由 API** —— 该时机下 uni ↔ 基础库的页面栈上下文
-     *      已经不可靠（这正是 `reading 'index'` 的由来）。原来那个 500ms 延迟是为了等 toast
-     *      显示，而 **toast 在此时机根本不工作**（见上）⇒ 延迟毫无收益、纯是故障源，**去掉**。
-     *   ② 首选改用 **`uni.navigateTo`**：它只 **push** 新页、**不关闭当前页**，
-     *      页面栈操作最少，最不容易踩到上面那个上下文问题。
-     *      ⚠️ 代价是结算页仍在栈里 —— 所以**必须先切「支付成功」态**（已做），
-     *      否则用户返回后还能再点支付 ⇒ 重复下单（2026-09-30「连下三单」的成因）。
-     *   ③ 降级链保留：`navigateTo` → `redirectTo` → `reLaunch` → 明确告知"钱已付、勿重复支付"。
-     *      ⚠️ 每一级都只用 **`fail` 回调**判断（`fail` 才是路由成败的权威信号）。
-     */
-    uni.navigateTo({
-      url: detailUrl,
-      fail: () => {
-        uni.redirectTo({
-          url: detailUrl,
-          fail: () => {
-            uni.reLaunch({
-              url: detailUrl,
-              fail: () => {
-                // 三级都失败（理论上不会）：至少明确告知钱已付，防止重复支付
-                uni.showModal({
-                  title: '支付已完成',
-                  content: '订单已支付成功，但页面跳转失败。请返回「我的订单」查看，切勿重复支付。',
-                  showCancel: false,
-                  confirmText: '知道了',
-                })
-              },
-            })
-          },
-        })
-      },
-    })
+    jumpToOrderDetail(detailUrl)
     return
   }
 
