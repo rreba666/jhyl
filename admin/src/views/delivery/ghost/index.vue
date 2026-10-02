@@ -20,6 +20,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getGhostCheckMetas, runGhostInspect } from '@/api/ghost-inspect'
+// ⚠️ 2026-10-02：商家版说明字典 + 内联 Markdown 处理（后端字符串里带 `**粗体**`，直接渲染会上屏）
+import { ghostMerchantCopyFor, renderInlineMarkdown, stripMarkdown } from '@/utils/ghostMerchantCopy'
 import type {
   GhostCheckMeta,
   GhostInspectData,
@@ -323,7 +325,8 @@ watch(requestedTypes, () => {
               <el-tag :type="severityTagType(item.severity)" size="small" effect="plain">
                 {{ severityLabel(item.severity) }}
               </el-tag>
-              <strong>{{ item.label }}</strong>
+              <!-- ⚠️ 2026-10-02：标题用**前端维护的商家版说明**，不用后端 label（label 混着 to_value/trace_id/status=4 等技术词） -->
+              <strong class="check-name">{{ ghostMerchantCopyFor(item.key).what }}</strong>
             </div>
             <div class="check-count">
               <span class="count-main" :class="{ danger: item.newCount > 0 }">新发现 {{ item.newCount }}</span>
@@ -344,14 +347,23 @@ watch(requestedTypes, () => {
             </el-tag>
           </div>
 
-          <p v-if="item.suggestion" class="suggestion">建议：{{ item.suggestion }}</p>
+          <!--
+            ⚠️⚠️ 2026-10-02：这里原来是 `建议：{{ item.suggestion }}`，直接渲染**后端的工程师报告**
+            （含 autoFixable / affected_rows / OrderStateTransitionInterceptor / trace_id / 测试类名，
+            且带 10 处 `**粗体**` Markdown 会原样上屏）⇒ 商家完全看不懂。
+            ⇒ 现在改为：① 商家版「你该做什么」用前端字典；② 技术原文进折叠区。
+          -->
+          <p class="advice">
+            <span class="advice-label">你该做什么：</span>
+            <span v-html="renderInlineMarkdown(ghostMerchantCopyFor(item.key).todo)" />
+          </p>
 
           <!-- 自动处理口径：如实展示三态；⛔ 不提供"一键修复"按钮（后端也没有该接口） -->
           <p v-if="item.fixed > 0" class="fix-note">
-            系统已自动处理 {{ item.fixed }} 条<template v-if="item.fixNote">：{{ item.fixNote }}</template>
+            系统已自动处理 {{ item.fixed }} 条<template v-if="item.fixNote">：{{ stripMarkdown(item.fixNote) }}</template>
           </p>
           <p v-else-if="item.autoFixable" class="fix-note">
-            {{ item.fixNote || '本次无需处理（条件不满足）' }}
+            {{ item.fixNote ? stripMarkdown(item.fixNote) : '本次无需处理（条件不满足）' }}
           </p>
           <p v-else class="fix-note muted">只检查不修改，需人工处理</p>
 
@@ -359,6 +371,32 @@ watch(requestedTypes, () => {
             <p class="samples-title">相关订单（最多 5 条）</p>
             <pre v-for="(sample, index) in item.samples" :key="index" class="sample-line">{{ sample }}</pre>
           </div>
+
+          <!-- ⚠️ 2026-10-02：**技术原文**收进每张卡的折叠区（默认收起）。
+               后端的 `label` / `suggestion` 是写给工程师的（字段名、类名、trace_id、测试名…），
+               商家可见区只放前端维护的商家版文案（见 utils/ghostMerchantCopy.ts）。 -->
+          <el-collapse class="item-tech">
+            <el-collapse-item name="tech">
+              <template #title>
+                <span class="tech-title">给技术同学的详情（这一项到底怎么了）</span>
+              </template>
+              <p class="blind-text tech-raw">
+                <strong>巡检项标识：</strong><code>{{ item.key }}</code>
+              </p>
+              <p class="blind-text tech-raw">
+                <strong>后端原始标题：</strong><span v-html="renderInlineMarkdown(item.label)" />
+              </p>
+              <p v-if="item.suggestion" class="blind-text tech-raw">
+                <strong>后端原始建议：</strong><span v-html="renderInlineMarkdown(item.suggestion)" />
+              </p>
+              <p class="blind-text tech-raw">
+                <strong>自动处理：</strong>autoFixable=<code>{{ item.autoFixable }}</code>
+                · fixed=<code>{{ item.fixed }}</code>
+                · severity=<code>{{ item.severity }}</code>
+                · sampleKind=<code>{{ item.sampleKind || '—' }}</code>
+              </p>
+            </el-collapse-item>
+          </el-collapse>
         </el-card>
 
         <!-- 空态：⚠️ 有盲区时不能说"检查通过" -->
@@ -445,7 +483,11 @@ watch(requestedTypes, () => {
 .count-main.danger { color: var(--el-color-danger); }
 .count-sub { color: var(--el-text-color-secondary); font-size: 12px; }
 .check-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.suggestion { margin: 10px 0 0; line-height: 1.7; }
+/* ⚠️ 2026-10-02：商家版「你该做什么」；.suggestion 已随后端原文一起移入折叠区 */
+.check-name { line-height: 1.6; }
+.advice { margin: 12px 0 0; line-height: 1.7; }
+.advice-label { font-weight: 600; color: var(--el-text-color-primary); }
+.item-tech { margin-top: 12px; }
 .fix-note { margin: 8px 0 0; color: var(--el-color-success); font-size: 13px; }
 .fix-note.muted { color: var(--el-text-color-secondary); }
 .samples { margin-top: 12px; padding: 10px 12px; background: var(--el-fill-color-light); border-radius: 6px; }
