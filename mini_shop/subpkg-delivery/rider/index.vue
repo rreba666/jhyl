@@ -755,8 +755,18 @@ onUnload(() => {
             <!--
               配送中：地图卡（设计稿 06 的 Frame 133）
               设计稿这里是静态示意图；实现改用**微信原生 <map>**：门店 / 收货点打点 + 骑手当前位置，
-              视野由 include-points 自动缩放。map 是原生组件、会盖住普通节点，所以卡上气泡必须用
-              <cover-view> 写在 map 内部（气泡里的文字也只能是 cover-view）。
+              视野由 include-points 自动缩放。
+
+              ⚠️⚠️ 2026-10-02 修「气泡不跟地图走」：
+                  **原来两个气泡写成了 `<map>` 的子节点**，而本页的 map 位于
+                  `<scroll-view class="list" scroll-y>` 之内 —— 微信小程序里
+                  **`cover-view` 嵌在「滚动容器 + 原生组件」组合内时，滚动过程中覆盖层不与地图同步**，
+                  表现为「气泡钉在页面上、一滚就错位」（用户实测反馈）。
+                  ⇒ 现在把两个 `cover-view` **移到 `<map>` 之外**（仍是它的兄弟节点、仍在 `.map-card` 内）：
+                    · `cover-view` 本身就能覆盖原生组件，**不要求必须做它的子节点**；
+                    · 作为兄弟节点后不再受"滚动容器内原生组件"的同步问题影响；
+                    · ⚠️ 仍必须是 `cover-view`（普通 `<view>` 会被原生 map 盖住看不见）；
+                    · ⚠️ 两个覆盖层都加 `pointer-events: none`，避免挡住地图拖动/缩放。
             -->
             <view v-if="activeTab === 'delivering' && hasMapData(task)" class="map-card">
               <map
@@ -766,16 +776,16 @@ onUnload(() => {
                 :markers="mapMarkers(task)"
                 :include-points="mapPoints(task)"
                 :scale="14"
-              >
-                <cover-view class="map-eta">
-                  <cover-view class="map-eta-dot" />
-                  <cover-view class="map-eta-text">预计 {{ deliverEta(task) }} 送达</cover-view>
-                </cover-view>
-                <cover-view class="map-distance">
-                  <cover-view class="map-distance-text">距离目的地还有</cover-view>
-                  <cover-view class="map-distance-km">{{ distanceOnly(task) }}km</cover-view>
-                </cover-view>
-              </map>
+              />
+              <!-- ⚠️ 两个气泡：在 map **外面**（兄弟节点），见上方说明 -->
+              <cover-view class="map-eta">
+                <cover-view class="map-eta-dot" />
+                <cover-view class="map-eta-text">预计 {{ deliverEta(task) }} 送达</cover-view>
+              </cover-view>
+              <cover-view class="map-distance">
+                <cover-view class="map-distance-text">距离目的地还有</cover-view>
+                <cover-view class="map-distance-km">{{ distanceOnly(task) }}km</cover-view>
+              </cover-view>
             </view>
             <!-- v-if / v-else-if 必须相邻（中间不放注释），所以这里的说明写在分支内部 -->
             <view v-else-if="activeTab === 'delivering'" class="map-card map-card-empty">
@@ -868,15 +878,18 @@ onUnload(() => {
 /* 订单缺坐标时的占位（灰底 + 说明） */
 .map-card-empty { display: flex; align-items: center; justify-content: center; background: #f6f7f9; }
 .map-empty-text { color: #86909c; font-size: 24rpx; }
-/* 下面两个气泡是 <cover-view>：只能盖在 map 之上，且只支持有限 CSS（flex / 定位 / 背景 / 圆角 / 字体 / 内外边距） */
-.map-eta { position: absolute; top: 23rpx; left: 23rpx; display: flex; flex-direction: row; align-items: center; height: 50rpx; padding: 0 14rpx; border-radius: 8rpx; background: #fff4e8; }
+/* 下面两个气泡是 <cover-view>：用来盖在原生 map 之上（⚠️ 必须留在 map **外面**，
+   否则在 scroll-view 内滚动时不会与地图同步 —— 见模板里的说明）。
+   只支持有限 CSS（flex / 定位 / 背景 / 圆角 / 字体 / 内外边距）。
+   ⚠️ pointer-events: none 是必需的：否则这块透明区域会吃掉地图的拖动/缩放手势。 */
+.map-eta { position: absolute; top: 23rpx; left: 23rpx; display: flex; flex-direction: row; align-items: center; height: 50rpx; padding: 0 14rpx; border-radius: 8rpx; background: #fff4e8; pointer-events: none; }
 .map-eta-dot { width: 12rpx; height: 12rpx; margin-right: 8rpx; border-radius: 50%; background: #ff5500; }
 .map-eta-text { color: #ff5500; font-size: 27rpx; }
 /* 距离气泡：改到**左下角**。
    原来水平居中（top: 90rpx + left: 50% + 负半宽），正好压在地图中央的路线上（用户反馈"挡住地图了"）；
    现在贴左下：顶部留给「预计送达」，右下留给骑手图标，地图主体完整可见。
    cover-view 对 transform 支持不稳，所以仍用「固定宽度」写法，只换定位。 */
-.map-distance { position: absolute; bottom: 23rpx; left: 23rpx; display: flex; flex-direction: row; align-items: center; justify-content: center; width: 340rpx; height: 58rpx; border-radius: 9999rpx; background: #fff; }
+.map-distance { position: absolute; bottom: 23rpx; left: 23rpx; display: flex; flex-direction: row; align-items: center; justify-content: center; width: 340rpx; height: 58rpx; border-radius: 9999rpx; background: #fff; pointer-events: none; }
 .map-distance-text { color: #1d2129; font-size: 21rpx; }
 /* 距离数值在稿中是 11px/510 橙色（同一文本节点里的字符级样式） */
 .map-distance-km { margin-left: 6rpx; color: #ff5500; font-size: 21rpx; font-weight: 500; }
