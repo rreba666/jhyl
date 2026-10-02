@@ -404,11 +404,12 @@ async function runBatchPrepare(): Promise<void> {
       ⇒ 以**实测/用户反馈**为准（用户 2026-10-02 明确：「物流单看不见，即使在商家端订单管理页也看不见」）。
       根因（后端《后端答复-商家端4项问题与附录-2026-09-30》§五）：物流单 `merchant_id` 为 NULL，
       **不存在唯一履约门店** ⇒ 按门店过滤的查询取不到它；后端当时未修。
-      ⇒ 物流单的查看与发货目前都只在**平台中控后台**（`POST /api/admin/order/ship/{orderId}`）。
+      ⇒ 物流单**在本列表看不到**，但**发货仍由商户自己**在 **PC 商户后台 →「普通订单」**操作
+        （`ADMIN` 角色有 `/orders` 权限，实测 `GET /api/admin/order/list` 返回 200；接口 `POST /api/admin/order/ship/{orderId}`）。
       ⚠️ 已就此契约描述与实际不一致反馈后端（待其更新 api_doc 或修复实现）。
     -->
     <view class="list-note">
-      <text>物流单暂不在此列表展示，请以平台后台为准</text>
+      <text>物流单暂不在此列表展示；发货请到电脑端「商户后台 → 普通订单」操作</text>
     </view>
 
     <!-- 列表 -->
