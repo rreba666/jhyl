@@ -535,7 +535,7 @@ function goBack(): void {
           <text v-else class="rate-value">{{ commissionRateText }}</text>
           <text class="rule-note">平台从每笔订单中抽取的比例，按商品金额计算；⚠️ 配送费全额归商家，不参与抽成。</text>
           <text class="rule-note">⚠️ 比例调整只对之后新下的订单生效；已完成订单按「下单当时」的比例结算，不会被追溯修改。</text>
-          <text class="rule-note">⚠️ 商家端不能修改比例 —— 需要调整请到「PC 商户后台」，或联系平台。</text>
+          <text class="rule-note">⚠️ 商家端不能修改比例 —— 需要调整请**联系平台**（由平台在后台设置）。</text>
         </view>
 
         <!-- 提现规则 + 阻断原因（原因直接展示后端原文） -->
