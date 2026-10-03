@@ -56,3 +56,40 @@ export async function deleteAdminCategory(id: string): Promise<void> {
   const response = await request.delete<CategoryResponse<null>>(`/api/admin/category/${id}`)
   unwrapResponse(response, '分类删除失败')
 }
+
+// ============================================================================
+// 「默认分类」（系统分类）—— 2026-10-03 新增
+// ============================================================================
+
+/**
+ * 系统分类（「默认分类」）的 ID。
+ *
+ * 来源：后端《前端对接-商家端商品默认分类-2026-10-03.md》——
+ * 商家端保存商品时，若该商品**当前完全没有分类**，后端自动归入 `id = 99901` 的「默认分类」。
+ *
+ * ⚠️ 该分类是**禁用态**（`status = 0`）⇒ **C 端不展示**、中控「含禁用」**能看到能选**。
+ * ⚠️ **不要删除它**：删了商家上架的商品就无法自动归类（后端每日自检报 `INV-11`）。
+ */
+export const SYSTEM_CATEGORY_ID = '99901'
+
+/** 系统分类的名称（ID 判不出来时按它兜底）。 */
+export const SYSTEM_CATEGORY_NAME = '默认分类'
+
+/**
+ * 是否「系统分类」（即默认分类）。
+ *
+ * ⚠️ 判定顺序很关键：
+ * 1. **先按 ID**（后端约定 `99901`）—— 最准；
+ * 2. **再按名称兜底** —— 万一后端调整了 ID，页面上的「（系统）」标识与防误删**不会同时失效**。
+ *
+ * 用途：① 分类管理页标「（系统）」并**禁用删除/编辑**；② 商品编辑的分类下拉里加同样标识，
+ * 避免运营误以为这是自己建的分类。
+ */
+export function isSystemCategory(
+  category?: { id?: string | number | null; name?: string | null } | null,
+): boolean {
+  if (!category) return false
+  const id = category.id == null ? '' : String(category.id)
+  if (id && id === SYSTEM_CATEGORY_ID) return true
+  return String(category.name ?? '').trim() === SYSTEM_CATEGORY_NAME
+}

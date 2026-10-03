@@ -15,6 +15,8 @@ import { getAdminGoodsBrands } from '@/api/brand'
 import { getShops, getEnabledShops } from '@/api/shop'
 import type { Shop } from '@/types/shop'
 import { getAdminProductDetail } from '@/api/product'
+// ⚠️ 2026-10-03：系统分类（「默认分类」）判定 —— 分类下拉标「（系统）」，见 flattenCategories
+import { isSystemCategory } from '@/api/category'
 import { Delete, Edit, View } from '@element-plus/icons-vue'
 
 const store = useProductStore()
@@ -209,9 +211,15 @@ function syncDefaultFunds(): void {
  *
  * ⚠️ **2026-09-30 扁平化**：分类是**扁平一层**（后端实测无 `parent_id`）⇒
  *    去掉了原先的递归展开与 `parent` 前缀拼接（那种"一级 / 二级"的展示永远不会出现）。
+ * ⚠️ **2026-10-03**：系统分类（「默认分类」，后端 id `99901`、**禁用态**）要标「（系统）」——
+ *    它是商家端上架商品**未选分类**时由**后端自动归入**的，运营容易误以为是自己建的。
+ *    ⚠️ 但**绝不能把它过滤掉**：它是那些商品的**真实归属**，必须能在下拉里回显与保留。
  */
 function flattenCategories(nodes: CategoryNode[]): Array<{ id: string; label: string }> {
-  return nodes.map((node) => ({ id: String(node.id), label: node.name }))
+  return nodes.map((node) => ({
+    id: String(node.id),
+    label: isSystemCategory({ id: node.id, name: node.name }) ? `${node.name}（系统）` : node.name,
+  }))
 }
 
 /**

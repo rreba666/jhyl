@@ -2,6 +2,8 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useCategoryStore } from '@/stores/category'
+// ⚠️ 2026-10-03：系统分类（默认分类）判定 —— 用于标「（系统）」并禁用编辑/删除
+import { isSystemCategory } from '@/api/category'
 import type { AdminCategory, AdminCategorySaveDTO, CategoryStatus } from '@/types/category'
 import { CircleCheck, CircleClose, Delete, Edit } from '@element-plus/icons-vue'
 
@@ -60,17 +62,28 @@ onMounted(() => {
 
 <template>
   <section class="page-container">
-    <div class="page-heading"><div><h1>分类管理</h1><p>维护商品分类（**扁平一层**，无父子层级）。</p></div><div><el-button @click="store.fetchList">刷新</el-button><el-button type="primary" @click="openForm()">新增分类</el-button></div></div>
+    <div class="page-heading"><div><h1>分类管理</h1><p>维护商品分类（扁平一层，无父子层级）。</p></div><div><el-button @click="store.fetchList">刷新</el-button><el-button type="primary" @click="openForm()">新增分类</el-button></div></div>
     <el-card shadow="never" class="content-card">
       <el-table v-loading="store.loading" :data="store.list" row-key="id" border>
         <!-- ⚠️ 2026-09-30 删除「分类 ID」列：分类不多、运营看的是名称，
              把数据库主键摆在第一列只会占位置、且容易被误当成"排序依据"之类的业务字段。 -->
-        <el-table-column prop="name" label="分类名称" min-width="180" />
+        <!-- ⚠️ 2026-10-03：系统分类（「默认分类」）要标出来 ——
+             它由后端在「商家端上架商品未选分类」时自动归入，运营容易误以为是自己建的。 -->
+        <el-table-column label="分类名称" min-width="180">
+          <template #default="{ row }">
+            <span>{{ row.name }}</span>
+            <el-tag v-if="isSystemCategory(row)" size="small" type="info" class="system-tag">系统</el-tag>
+          </template>
+        </el-table-column>
         <!-- ⚠️ 2026-09-30 删除「父级 ID」列：分类为扁平一层、后端无 parent_id，
              这一列的值恒为 '0' 且填了也不生效，只会误导运营。 -->
         <el-table-column prop="sortOrder" label="排序" width="90" />
         <el-table-column label="状态" width="150"><template #default="{ row }"><div class="category-status"><el-button class="category-status-button" :class="row.enabled === 1 ? 'is-enabled' : 'is-disabled'" :type="row.enabled === 1 ? 'success' : 'info'" circle :aria-label="row.enabled === 1 ? '启用状态' : '禁用状态'"><el-icon><CircleCheck v-if="row.enabled === 1" /><CircleClose v-else /></el-icon></el-button><span class="category-status-label" :class="row.enabled === 1 ? 'is-enabled' : 'is-disabled'">{{ row.enabled === 1 ? '启用' : '禁用' }}</span></div></template></el-table-column>
-        <el-table-column label="操作" fixed="right" width="170"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="openForm(row)"><el-icon><Edit /></el-icon>编辑</el-button><el-button size="small" type="danger" :loading="store.deleting" @click="remove(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column>
+        <!-- ⚠️⚠️ 2026-10-03：系统分类（「默认分类」）**禁止编辑与删除**。
+             后端《前端对接-商家端商品默认分类-2026-10-03》§二.2 明确「不要删除它」：
+             删了之后**商家端上架的商品就无法自动归类**（后端每日自检会报 `INV-11`），
+             而改名会破坏它的识别（前端按 id/名称判定）。⇒ 这里直接拦住，而不是等自检报出来。 -->
+        <el-table-column label="操作" fixed="right" width="200"><template #default="{ row }"><div class="operator-actions"><el-button size="small" type="primary" @click="openForm(row)" :disabled="isSystemCategory(row)"><el-icon><Edit /></el-icon>编辑</el-button><el-button size="small" type="danger" :loading="store.deleting" @click="remove(row)" :disabled="isSystemCategory(row)"><el-icon><Delete /></el-icon>删除</el-button></div></template></el-table-column>
       </el-table>
       <el-empty v-if="!store.loading && !store.list.length" description="暂无分类数据" />
     </el-card>
@@ -94,6 +107,8 @@ onMounted(() => {
 .category-status-button.is-enabled { --el-button-bg-color: #a07c1f; --el-button-border-color: #a07c1f; --el-button-hover-bg-color: #b8912f; --el-button-hover-border-color: #b8912f; --el-button-active-bg-color: #8f6a18; --el-button-active-border-color: #8f6a18; color: #fff; }
 .category-status-button.is-disabled { --el-button-bg-color: #606266; --el-button-border-color: #606266; --el-button-hover-bg-color: #73767a; --el-button-hover-border-color: #73767a; --el-button-active-bg-color: #4b4d50; --el-button-active-border-color: #4b4d50; color: #fff; }
 .category-status-label { font-size: 13px; line-height: 28px; }
+/* 系统分类（「默认分类」）标识：中性灰，明确它不由运营维护 */
+.system-tag { margin-left: 8px; }
 .category-status-label.is-enabled { color: #d4a843; }
 .category-status-label.is-disabled { color: var(--vben-muted); }
 </style>
