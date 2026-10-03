@@ -43,7 +43,7 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
     // 短信模板管理 / 语音配置管理：后端 `/api/admin/sms/**`、`/api/admin/voice/**` 都是超管专属（非超管 403）
     '/settings/sms-templates', '/settings/voice',
-    // 功能模块开关（2026-10-02 新增）：**仅超管** —— 模块启停是平台级功能开关（影响 C 端所有用户），
+    // 功能模块开关（2026-10-03 新增）：**仅超管** —— 模块启停是平台级功能开关（影响 C 端所有用户），
     // 且停用带 `pathPatterns` 的模块会**拦截后端接口**（实测 `delivery` 含 `/api/merchant/**`）。
     // ⇒ 商户管理员（ADMIN）不给：菜单与路由同源，他既看不到菜单、也进不来。
     '/settings/modules',

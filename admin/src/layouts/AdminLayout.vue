@@ -31,7 +31,7 @@ import {
   TrendCharts,
   // ⚠️ 2026-10-02（P7）：渠道账单对账菜单图标
   Money,
-  // ⚠️ 2026-10-02：功能模块开关菜单图标
+  // ⚠️ 2026-10-03：功能模块开关菜单图标
   Switch,
 } from '@element-plus/icons-vue'
 

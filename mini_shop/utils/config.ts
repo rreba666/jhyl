@@ -24,7 +24,7 @@ export type ModuleKey =
   | 'promotion'  // 分销推广
   | 'aftersale'  // 售后
   | 'invoice'    // 发票
-  // ⚠️ 2026-10-02 新增：**商家入驻入口**的显隐开关（用户要求由后台控制；仅隐藏入口，
+  // ⚠️ 2026-10-03 新增：**商家入驻入口**的显隐开关（用户要求由后台控制；仅隐藏入口，
   //    不拦截任何接口 ⇒ 后端建该模块时 `pathPatterns` 应留空）。见 pages/mine/mine.vue。
   | 'merchant'
 

@@ -40,7 +40,7 @@ import {
   type SettlementWithdrawRulesVO,
 } from '@/api/settlement'
 import { isApiRequestError, resolveImageUrl, uploadFile } from '@/utils/request'
-// ⚠️ 2026-10-02 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
+// ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
 import WithdrawRulesSheet from '@/components/WithdrawRulesSheet.vue'
 
 const statusBarHeight = ref(0)
@@ -56,7 +56,7 @@ const submitting = ref(false)
 /** 非品牌主体（13016）：整页只显示提示，不渲染账户与表单（店长/店员误入）。 */
 const notMerchantOwner = ref(false)
 /**
- * 「提现说明」弹层显隐（2026-10-02）。
+ * 「提现说明」弹层显隐（2026-10-03）。
  * ⚠️ 微信审核要求提现页**清晰展示提现规则**（可提现额度 / 每日提现次数 / 提现时间 / 到账时间）
  * ⇒ 入口放在「可提现余额」右侧，点开是 `WithdrawRulesSheet`（完整规则 + 规则速览）。
  */
@@ -457,7 +457,7 @@ function goBack(): void {
         <!-- 账户卡片：可提现 / 待结算 / 冻结中 / 欠款（四金额务必分清，P1P2 §一.1） -->
         <view class="account-card">
           <text class="account-subject">{{ account.subjectName || '我的商户' }}</text>
-          <!-- ⚠️ 2026-10-02 新增：微信审核要求「提现页面清晰展示提现规则（可提现额度、每日提现次数、
+          <!-- ⚠️ 2026-10-03 新增：微信审核要求「提现页面清晰展示提现规则（可提现额度、每日提现次数、
                提现时间、到账时间等）」⇒ 在「可提现余额」**右侧**加「提现说明」入口，点开是完整规则弹层。 -->
           <view class="account-label-row">
             <text class="account-label">可提现余额（元）</text>
@@ -647,7 +647,7 @@ function goBack(): void {
       </template>
     </scroll-view>
 
-    <!-- ⚠️ 2026-10-02 新增：提现说明弹层（微信审核要求，详见 WithdrawRulesSheet.vue 顶部说明）。
+    <!-- ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求，详见 WithdrawRulesSheet.vue 顶部说明）。
          放在 scroll-view **之外** —— 它是 fixed 定位的全屏遮罩，脱离滚动容器更稳定。
          ⚠️ 可提现额度传的是**真实余额**（computed），不是写死的文案。 -->
     <WithdrawRulesSheet
@@ -762,7 +762,7 @@ function goBack(): void {
   color: rgba(255, 255, 255, 0.9);
   font-size: 25rpx;
 }
-/* ⚠️ 2026-10-02：「可提现余额」标签与「提现说明」入口同一行 ⇒ 上间距改由外层 row 承担 */
+/* ⚠️ 2026-10-03：「可提现余额」标签与「提现说明」入口同一行 ⇒ 上间距改由外层 row 承担 */
 .account-label-row {
   display: flex;
   align-items: center;

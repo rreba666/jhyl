@@ -63,12 +63,12 @@ const initialDetailImages = ref<string[]>([])
 const initialSortOrder = ref(0)
 const rules: FormRules = {
   name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
-  // ⚠️⚠️ 2026-10-02 改为**选填**（原来写的是 `required: true` + `min: 1`）：
+  // ⚠️⚠️ 2026-10-03 改为**选填**（原来写的是 `required: true` + `min: 1`）：
   //    契约 `MerchantProductSaveDTO.categoryId` 明确「**可空：后台可后续归类**」，
   //    而**商家端上架商品时根本没有分类这一项**（`subpkg-merchant/products/edit.vue` 不发 `categoryId`）
   //    ⇒ 原来那条必填会把运营**完全卡死**：一打开商家上架的商品就红、不选分类存不了。
   //    ⇒ 现在与后端语义对齐：**可留空**（空数组时整个字段不提交，见 buildPayload）。
-  //    📮 配套后端需求：`docs/26/10.02/后端需求-商家端商品默认分类-2026-10-02.md`
+  //    📮 配套后端需求：`docs/26/10.03/后端需求-商家端商品默认分类-2026-10-03.md`
   //       （后端建**禁用**分类「默认分类」，并在商家端保存时自动归类 + 回填存量）。
   //    ⚠️ `type: 'array'` **必须保留** —— 它拦的是「传了非数组」，与是否必填无关。
   categoryIds: [{ type: 'array', trigger: 'change' }],
@@ -700,7 +700,7 @@ onMounted(() => {
              ⚠️ **刻意不加 `collapse-tags`** —— 分类本来就不多，选了几个就全部显示出来，
                 折叠成「+N」数字反而看不清到底选了哪些（用户 2026-09-30 明确要求）。
              `filterable` 保留，便于分类变多时快速定位。
-             ⚠️⚠️ 2026-10-02：**改为选填**（原来必填）—— 商家端上架的商品没有分类，
+             ⚠️⚠️ 2026-10-03：**改为选填**（原来必填）—— 商家端上架的商品没有分类，
                 必填会把运营卡死；契约为「可空」，后端会自动归入「默认分类」。 -->
         <el-form-item label="商品分类" prop="categoryIds">
           <el-select v-model="form.categoryIds" multiple filterable placeholder="选填（可多选）">
