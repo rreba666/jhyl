@@ -112,7 +112,7 @@ function close(): void {
           </view>
           <view class="wrs-summary-row">
             <text class="wrs-summary-key">到账时间</text>
-            <text class="wrs-summary-val">平台财务审核通过后由平台人工转账打款（非自动到账）</text>
+            <text class="wrs-summary-val">审核通过后 1~7 个工作日到账（人工转账，非自动到账）</text>
           </view>
         </view>
 
@@ -138,17 +138,18 @@ function close(): void {
           <text class="wrs-section-title">三、提现时间</text>
           <text class="wrs-line">· 申请提交时间：随时可提交（7×24），无固定开放时段</text>
           <text class="wrs-line">· 平台处理时间：财务在工作时间审核并安排打款，非工作时间的申请顺延到下一个工作时间处理</text>
-          <text class="wrs-line">· 到账时间不受提现申请时间影响，以平台实际打款时间为准</text>
+          <text class="wrs-line">· 申请时间不影响时效：无论何时提交，均在审核通过后 1~7 个工作日内完成打款</text>
         </view>
 
         <!-- 四、到账时间 -->
         <view class="wrs-section">
           <text class="wrs-section-title">四、到账时间</text>
-          <text class="wrs-line">· 打款方式：平台财务审核通过后人工转账打款（不是自动到账）</text>
+          <text class="wrs-line">· 到账时效：平台财务审核通过后，1~7 个工作日内完成打款（遇法定节假日顺延）</text>
+          <text class="wrs-line">· 打款方式：平台财务审核通过后由平台人工转账打款（不是自动到账）</text>
           <text class="wrs-line">· 申请流程：提交申请 → 待财务审核 → 审核通过（待打款） → 打款完成</text>
           <text class="wrs-line">· 进度查询：在「提现记录」中查看每一笔提现的当前状态</text>
           <text class="wrs-line">· ⚠️ 被驳回或打款失败：冻结金额立即解冻，回到可提现余额，可重新申请</text>
-          <text class="wrs-line">· 如长时间停留在「待审核 / 待打款」，可联系平台核实</text>
+          <text class="wrs-line">· 如超过 7 个工作日仍未到账，可联系平台核实</text>
         </view>
 
         <!-- 五、提现要求 -->
