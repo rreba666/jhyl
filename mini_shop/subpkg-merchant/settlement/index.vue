@@ -40,6 +40,8 @@ import {
   type SettlementWithdrawRulesVO,
 } from '@/api/settlement'
 import { isApiRequestError, resolveImageUrl, uploadFile } from '@/utils/request'
+// ⚠️ 2026-10-02 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
+import WithdrawRulesSheet from '@/components/WithdrawRulesSheet.vue'
 
 const statusBarHeight = ref(0)
 /** 内容区顶部留白 = 状态栏 + 自定义导航栏高度（与 bill/index.vue 同口径）。 */
@@ -53,6 +55,12 @@ const loading = ref(false)
 const submitting = ref(false)
 /** 非品牌主体（13016）：整页只显示提示，不渲染账户与表单（店长/店员误入）。 */
 const notMerchantOwner = ref(false)
+/**
+ * 「提现说明」弹层显隐（2026-10-02）。
+ * ⚠️ 微信审核要求提现页**清晰展示提现规则**（可提现额度 / 每日提现次数 / 提现时间 / 到账时间）
+ * ⇒ 入口放在「可提现余额」右侧，点开是 `WithdrawRulesSheet`（完整规则 + 规则速览）。
+ */
+const withdrawRulesVisible = ref(false)
 
 // ===== 提现申请表单（**金额只有一个输入框**） =====
 const amountText = ref('')
@@ -449,7 +457,14 @@ function goBack(): void {
         <!-- 账户卡片：可提现 / 待结算 / 冻结中 / 欠款（四金额务必分清，P1P2 §一.1） -->
         <view class="account-card">
           <text class="account-subject">{{ account.subjectName || '我的商户' }}</text>
-          <text class="account-label">可提现余额（元）</text>
+          <!-- ⚠️ 2026-10-02 新增：微信审核要求「提现页面清晰展示提现规则（可提现额度、每日提现次数、
+               提现时间、到账时间等）」⇒ 在「可提现余额」**右侧**加「提现说明」入口，点开是完整规则弹层。 -->
+          <view class="account-label-row">
+            <text class="account-label">可提现余额（元）</text>
+            <view class="account-rules-entry" @click="withdrawRulesVisible = true">
+              <text class="account-rules-text">提现说明</text>
+            </view>
+          </view>
           <text class="account-value">{{ formatSettlementAmount(account.availableBalance) }}</text>
           <!-- ⚠️ 提现按钮只认可提现余额；待结算是"已支付但未满释放期"的钱，到点才进可提现 -->
           <view class="account-sub">
@@ -631,6 +646,18 @@ function goBack(): void {
         <view v-if="loading" class="loading-tip">加载中…</view>
       </template>
     </scroll-view>
+
+    <!-- ⚠️ 2026-10-02 新增：提现说明弹层（微信审核要求，详见 WithdrawRulesSheet.vue 顶部说明）。
+         放在 scroll-view **之外** —— 它是 fixed 定位的全屏遮罩，脱离滚动容器更稳定。
+         ⚠️ 可提现额度传的是**真实余额**（computed），不是写死的文案。 -->
+    <WithdrawRulesSheet
+      v-model="withdrawRulesVisible"
+      :available-balance="availableBalance"
+      :invoice-image-min="imageMin"
+      :invoice-image-max="imageMax"
+      :has-active-withdraw="!!rules.hasActiveWithdraw"
+      :block-reason="rules.blockReason || null"
+    />
   </view>
 </template>
 
@@ -735,11 +762,31 @@ function goBack(): void {
   color: rgba(255, 255, 255, 0.9);
   font-size: 25rpx;
 }
+/* ⚠️ 2026-10-02：「可提现余额」标签与「提现说明」入口同一行 ⇒ 上间距改由外层 row 承担 */
+.account-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 19rpx;
+}
 .account-label {
   display: block;
-  margin-top: 19rpx;
   color: rgba(255, 255, 255, 0.88);
   font-size: 25rpx;
+}
+/* 「提现说明」入口按钮：半透明白描边胶囊 —— 压在橙色渐变卡上也要清晰可见（审核要求规则入口显眼） */
+.account-rules-entry {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 44rpx;
+  padding: 0 20rpx;
+  border: 2rpx solid rgba(255, 255, 255, 0.66);
+  border-radius: 9999rpx;
+}
+.account-rules-text {
+  color: #ffffff;
+  font-size: 23rpx;
 }
 .account-value {
   display: block;
