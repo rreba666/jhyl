@@ -93,9 +93,9 @@ async function onToggle(row: ModuleConfigEntity, value: string | number | boolea
   if (nextEnabled === 0 && patterns.length > 0) {
     try {
       await ElMessageBox.confirm(
-        `停用「${row.moduleName}」后，后端会拦截以下接口路径（不只是隐藏小程序入口）：\n\n`
+        `停用「${row.moduleName}」后，以下接口路径会被拦截：\n\n`
           + patterns.join('\n')
-          + '\n\n确认停用吗？',
+          + '\n\n⚠️ 后端目前尚未接入拦截器，所以现在不会真的生效；接入后即会拦截。确认停用吗？',
         '停用会影响后端接口',
         { confirmButtonText: '确认停用', cancelButtonText: '取消', type: 'warning' },
       )
@@ -132,10 +132,13 @@ onMounted(load)
       </template>
 
       <el-alert type="info" :closable="false" show-icon class="intro-alert">
-        <template #title>停用模块会隐藏小程序对应入口；若该模块配置了接口路径，后端还会拦截这些接口</template>
+        <template #title>停用模块会隐藏小程序对应入口；表格里的「接口路径」是后端预留的拦截清单，<strong>目前不拦请求</strong></template>
         <div class="intro-lines">
-          <div>· 本次需求：停用 <code>merchant</code> 即可隐藏小程序「我的 → 商家入驻」入口（该模块不应配置接口路径，只做显隐）。</div>
-          <div>· ⚠️ <code>delivery</code> 的接口路径含 <code>/api/merchant/**</code> ⇒ 停用它会连商家端接口一起拦掉，非必要不要关。</div>
+          <div>· 本次需求：停用 <code>merchant</code> 即可隐藏小程序「我的 → 商家入驻」入口（该模块的路径为<strong>空</strong>，只做显隐）。</div>
+          <!-- ⚠️⚠️ 2026-10-03 后端更正：`path_patterns` 的消费方 `ModuleConfigServiceImpl.resolveModuleByPath()`
+               **没有任何调用方** ⇒ **目前不拦任何接口**，只用于后台展示。
+               ⚠️ 但仍要保持为空：这是**潜在陷阱** —— 哪天接入拦截器，配上 `/api/merchant/**` 这类路径就会真的拦掉商家端。 -->
+          <div>· ⚠️ 「接口路径」的用途：后端 <code>path_patterns</code> <strong>目前尚未接入拦截器</strong>，所以停用模块<strong>不会真的拦请求</strong>（当前只用于本页展示）。但一旦接入便会生效 ⇒ <strong>只做显隐的模块请保持为空</strong>（<code>merchant</code> 已是空）。</div>
           <div>· <code>basic</code> 为必买模块，不可停用（开关已置灰）。</div>
         </div>
       </el-alert>
