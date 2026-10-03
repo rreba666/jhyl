@@ -259,6 +259,17 @@ const router = createRouter({
           meta: { title: '业务设置', roles: rolesForPath('/settings'), requiresAuth: true },
         },
         {
+          // 功能模块开关（2026-10-02 新增）：运营在此**启停 V2 模块**，从而控制小程序入口显隐
+          // （本次需求：关掉 `merchant` 即隐藏小程序「我的 → 商家入驻」）。
+          // ⚠️ **仅超管**：模块启停是**平台级**功能开关（影响 C 端所有用户），商户管理员不应能改。
+          // ⚠️ 停用带 `pathPatterns` 的模块会**拦截后端接口**（不只是隐藏入口）
+          //    ⇒ 页面已把影响面显示出来，并对带路径的模块做**二次确认**。
+          path: 'settings/modules',
+          name: 'SettingsModules',
+          component: () => import('@/views/settings/modules/index.vue'),
+          meta: { title: '功能模块开关', roles: rolesForPath('/settings/modules'), requiresAuth: true },
+        },
+        {
           // 短信模板管理。⚠️ 仅超管：后端该接口对非超管返回 403（`/api/admin/sms/**` 是超管专属）。
           path: 'settings/sms-templates',
           name: 'SettingsSmsTemplates',

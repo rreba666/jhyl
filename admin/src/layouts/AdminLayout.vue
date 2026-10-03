@@ -31,6 +31,8 @@ import {
   TrendCharts,
   // ⚠️ 2026-10-02（P7）：渠道账单对账菜单图标
   Money,
+  // ⚠️ 2026-10-02：功能模块开关菜单图标
+  Switch,
 } from '@element-plus/icons-vue'
 
 import { useAuthStore } from '@/stores/auth'
@@ -339,6 +341,11 @@ onUnmounted(() => {
         <el-menu-item v-if="canVisit('/settings')" index="/settings">
           <el-icon><Setting /></el-icon>
           <template #title>业务设置</template>
+        </el-menu-item>
+        <!-- 功能模块开关：仅超管（模块启停是平台级开关；且停用带 pathPatterns 的模块会**拦截后端接口**） -->
+        <el-menu-item v-if="canVisit('/settings/modules')" index="/settings/modules">
+          <el-icon><Switch /></el-icon>
+          <template #title>功能模块开关</template>
         </el-menu-item>
         <!-- 短信模板管理：仅超管（后端 /api/admin/sms/** 对非超管 403） -->
         <el-menu-item v-if="canVisit('/settings/sms-templates')" index="/settings/sms-templates">

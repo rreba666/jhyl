@@ -106,10 +106,21 @@ const menuItems = [
   // 协议页本身（pages/user-agreement、pages/privacy）保留不动 —— 必须仍然可达。
 ]
 
-/** 功能菜单可见性按模块开关过滤：发票记录→invoice，其余条目不受模块控制（basic/通用）。客服项单独渲染（微信原生客服）。 */
+/**
+ * 功能菜单可见性按模块开关过滤：发票记录→invoice，商家入驻→merchant，其余条目不受模块控制（basic/通用）。
+ * 客服项单独渲染（微信原生客服）。
+ *
+ * ⚠️ 2026-10-02 新增 `merchant` 键（用户要求「商家入驻按钮要由后台管理系统控制显隐，
+ *    有时需要关闭这个功能，隐藏按钮是成本最低的做法」）：
+ *    · 走**独立**模块键，**绝不能**搭 `delivery`/`pickup` —— 实测 `delivery` 的 pathPatterns
+ *      含 `/api/merchant/**`，关掉它会**拦截商家端接口**，影响远不止一个按钮；
+ *    · `isModuleEnabled` 在「配置为空 / 找不到该 key」时**兜底 true**
+ *      ⇒ 后端还没建 `merchant` 模块时**线上行为完全不变**（不会误隐藏）；
+ *    · 后端加一行模块数据、后台关掉它，这个入口立即消失。
+ */
 const visibleMenuItems = computed(() => {
   const modules = moduleConfig.value
-  const moduleOf: Record<string, string> = { invoice: 'invoice' }
+  const moduleOf: Record<string, string> = { invoice: 'invoice', 'merchant-apply': 'merchant' }
   return menuItems.filter((item) => {
     if (item.key === 'service') return false
     // 已是某商家身份 → 隐藏「商家入驻」（一人一商家，重复入驻会返回 7316）
