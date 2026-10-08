@@ -288,12 +288,18 @@ export function canFastRefundNow(
  *    后端的 `message` 天然带着**当时的**准确口径（含同城生鲜的 48 小时与"质量问题走人工"）。
  * 2. **但仍要按 `code` 分流去向**（`error.message` 只说明"为什么不行"，不说明"那该怎么办"）：
  *    `2011` / `2012` / `2014` ⇒ 引导去「**售后申请（人工审核）**」；
- *    `2013` / `8703` ⇒ `action: 'none'`（**不引导、不跳页**，只如实说明）；
- *    ⚠️ `2013`（已备货完成/已出餐）**不再**引导「申请取消 → 商家审核」——
- *    用户 2026-10-08 **决策 A**：本批**不做 C 端取消申请入口**（全仓无任何地方调用
- *    `POST /api/delivery/orders/{orderNo}/cancel-request`，详情页那个「申请取消（需商家确认）」
- *    按钮也只是弹提示）⇒ 再承诺"可提交取消申请"就是**指向一条不存在的路**。
- *    它现在的正确去向 = **联系客服处理**（写进 `hint`，与后端"质量问题走人工"的口径一致）。
+ *    `2013` ⇒ 引导去「**申请取消**」（`action: 'cancel-request'`）；
+ *    `8703` ⇒ `action: 'none'`（**不引导、不跳页**，只如实说明）。
+ *    ⚠️ **2026-10-08 第二次修订（本批 §2.1 补上 C 端取消申请入口后）**：
+ *    同一天早些时候曾因「C 端没有取消申请入口」把 `2013` 改成 `action: 'none'` +
+ *    「请联系客服处理」（当时叫"决策 A"）。**现在那个入口已经做出来了**
+ *    （`api/delivery-order.ts` 的 `requestCancelDelivery`），而**后端契约原文一直要求**
+ *    「自 `WAIT_ASSIGN`（备货完成）起秒退关闭，返回 `code=2013`，**前端应引导用户走取消申请**」
+ *    ⇒ 恢复 `2013 → 'cancel-request'`，否则后端指引的这条路在前端仍然是断的。
+ *    ⚠️ 注意 `2013` 的适用面**比**"能申请取消"**宽**：它自 `WAIT_ASSIGN` 起就返回，
+ *       但**已取货后**（`PICKED_UP` / `DELIVERING` / `NEARBY`）后端不接受取消申请
+ *       （契约：「已取货后取消请走售后申请」）⇒ 那种情况下页面**不要**用本表的 `hint`，
+ *       改用 {@link CANCEL_UNAVAILABLE_AFTER_PICKUP_HINT}（见订单详情页的按钮分叉）。
  * 3. **`2012` 是账号级闸门**（今日次数已用完，影响当天**所有**订单）⇒ 必须调用
  *    {@link markFastRefundDailyQuotaExhausted}；其余是**订单级** ⇒ {@link markFastRefundBlocked}。
  *    这条判据原先在**两个页面各写一遍**（列表页 / 详情页），已踩过"只修一处"的坑。
@@ -304,7 +310,9 @@ export function canFastRefundNow(
 export type FastRefundGateAction =
   /** 引导去「售后申请（人工审核）」。 */
   | 'after-sale'
-  /** 只如实展示文案（含"请联系客服"），不额外引导、不跳页。 */
+  /** 引导去「申请取消」（同城单，由商家审核；对应后端 `cancel-request` 接口）。 */
+  | 'cancel-request'
+  /** 只如实展示文案，不额外引导、不跳页。 */
   | 'none'
 
 /** {@link resolveFastRefundGate} 的判定结果。 */
@@ -335,10 +343,16 @@ const FAST_REFUND_GATE_FALLBACK: Record<number, string> = {
 const FAST_REFUND_GATE_RULES: Record<number, { action: FastRefundGateAction; hint: string; accountLevel?: boolean }> = {
   2011: { action: 'after-sale', hint: '请提交售后申请（人工审核）' },
   2012: { action: 'after-sale', hint: '请提交售后申请（人工审核）', accountLevel: true },
-  // ⚠️ 2026-10-08 决策 A：**不引导「申请取消」**（C 端没有该入口，承诺了也走不通）
-  //    ⇒ `action: 'none'`，去向只写在文案里（联系客服）。与 8703 的区别：
-  //    8703 是"连售后窗口都关了"，2013 是"还能走人工售后，但直接退款不行"。
-  2013: { action: 'none', hint: '请联系客服处理' },
+  // ⚠️ 2026-10-08 **第二次修订**：本批补上了 C 端「申请取消」入口（`requestCancelDelivery`），
+  //    所以这里恢复成后端契约要求的去向「引导走取消申请」——
+  //    同一天早些时候的"决策 A"（改成 `none` + 联系客服）**已作废**，那是在入口还不存在时的临时口径。
+  //    与 8703 的区别仍然成立：8703 是"连售后窗口都关了"，2013 是"直接退款不行，但还能走
+  //    取消申请 / 人工售后"。
+  //    ⚠️⚠️ `hint` 的措辞**必须同时覆盖"未取货"与"已取货"**：`2013` 自 `WAIT_ASSIGN` 起就返回，
+  //       但后端明确「**已取货后**取消请走售后申请」⇒ 若只写"可提交取消申请"，
+  //       处在 `PICKED_UP` / `DELIVERING` / `NEARBY` 的用户会去找一个**页面上不存在**的按钮
+  //       （那正是本文件存在的意义：不允许"死路引导"）。所以这里把两种情形一次说清。
+  2013: { action: 'cancel-request', hint: '未取货可提交取消申请，已取货请申请售后或联系客服' },
   2014: { action: 'after-sale', hint: '请提交售后申请（人工审核）' },
   // ⚠️ 售后窗口也已关闭 ⇒ **不引导**，只展示后端文案（见上方类型注释）
   8703: { action: 'none', hint: '' },

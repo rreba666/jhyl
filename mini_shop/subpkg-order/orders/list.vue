@@ -161,6 +161,13 @@ const bodyTop = computed(() => menuTop.value + menuHeight.value)
  *   3. 所以列表页拿订单对象上的 `deliveryStatus` 与 `'DELIVERED'` 直接比较**永远为假** ——
  *      同城订单的「确认收货」按钮从来不出现、状态文案也总是回落到「已支付」（用户反馈的 P0）。
  *   4. 唯一可靠口径：`GET /api/delivery/orders/{orderNo}/progress` 的 `node`（送达后该接口仍可查）。
+ *   5. ⚠️ 2026-10-08（§2.1）补充：`progress` 的 `node` 枚举里**没有 `CANCEL_REQUESTED`**
+ *      （逐字核对 `api_doc.json` 的 `DeliveryProgressVO.node`）⇒ **列表页天生显示不了「取消申请中」**，
+ *      只能显示「履约中」。**这不是漏渲染**，所以：
+ *      · ⛔ 不要在这里新增"拿 `deliveryStatus` 比 `CANCEL_REQUESTED`"的判定（列表接口恒为 null）；
+ *      · ⛔ 也不要为此改 `progressNodeMap` 或伪造一个节点；
+ *      · ✅ 「取消申请中」的 UI 只由**订单详情**接口驱动（见 `detail.vue` 的 `isCancelRequested`）。
+ *      若产品要求列表也显示，正确做法是**让后端在 `progress`/列表接口下发该节点**，而不是前端猜。
  * 注意这里是普通对象（用 `progressNodeMap[orderNo]` 取值），不是 ES `Map`。
  */
 const progressNodeMap = ref<Record<string, string>>({})

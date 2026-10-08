@@ -12,6 +12,7 @@ import type {
   ManualVerifyDTO,
   OrderAddressUpdateDTO,
   OrderRefundDTO,
+  OrderRefundOptions,
   ExpressTrace,
   WxShippingRetryResult,
 } from '@/types/order'
@@ -85,9 +86,31 @@ export async function shipOrder(orderId: string, payload: OrderShipDTO): Promise
   unwrapResponse(response, '订单发货失败')
 }
 
-/** 提交客服人工全额退款申请。 */
-export async function refundOrder(orderId: string, payload: OrderRefundDTO): Promise<void> {
-  const response = await request.post<OrderResponse<null>>(`/api/admin/order/${orderId}/refund`, payload)
+/**
+ * 提交客服人工全额退款申请。
+ *
+ * ⚠️⚠️ **URL 字面量 `/api/admin/order/${orderId}/refund` 不得改写**
+ *    （`admin/tests/openapi-alignment.contract.ps1` 用 `IndexOf` 精确串钉住它）
+ *    ⇒ 新增的 query 参数必须走 `request.post` 的**第三参**，不要拼进 URL。
+ *
+ * @param options **超窗豁免**（2026-10-08 新增，非默认路径）：
+ *   `windowOverride=true` + `overrideReason` ⇒ 后端落 `after_sale_order.window_override=1` /
+ *   `override_reason`、写中央留痕 `AFTER_SALE_WINDOW_OVERRIDE`，审核/质检不再因超窗自动驳回；
+ *   `windowOverride=true` 却不给理由 ⇒ 后端返回 `1000`；不传 ⇒ **与改造前完全一致**（超窗仍 `8703`）。
+ *   ⚠️ 只在真的需要破例时传（默认不传，避免把"正常退款"也标成豁免而污染留痕）。
+ */
+export async function refundOrder(orderId: string, payload: OrderRefundDTO, options?: OrderRefundOptions): Promise<void> {
+  const params: Record<string, string | boolean> = {}
+  if (options?.windowOverride) {
+    params.windowOverride = true
+    // ⚠️ 理由由调用方保证非空（页面上是必填）；这里不做兜底文案 —— 编一个理由就是伪造留痕。
+    if (options.overrideReason) params.overrideReason = options.overrideReason
+  }
+  const response = await request.post<OrderResponse<null>>(
+    `/api/admin/order/${orderId}/refund`,
+    payload,
+    Object.keys(params).length ? { params } : undefined,
+  )
   unwrapResponse(response, '订单退款失败')
 }
 

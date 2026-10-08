@@ -24,6 +24,15 @@ export const useAuthStore = defineStore('auth', () => {
   const isPlatformAdmin = computed(() => role.value === 'SUPER_ADMIN')
   /** 是否商户管理员（ADMIN）。 */
   const isMerchantAdmin = computed(() => role.value === 'ADMIN')
+  /**
+   * 是否客服（CUSTOMER_SERVICE）。
+   *
+   * ⚠️ 用途（2026-10-08）：**「超窗豁免」勾选框只在客服角色显示**（前端自律）——
+   *    后端**不做角色级限制**（沿用既有中控角色），靠"必填理由 + 中央留痕
+   *    `AFTER_SALE_WINDOW_OVERRIDE`"约束。所以这里**只是展示层收敛**，不是权限校验：
+   *    ⛔ 不要把它当成"非客服就一定不能豁免"的依据，也别在后端已放行时用它去拦请求。
+   */
+  const isCustomerService = computed(() => role.value === 'CUSTOMER_SERVICE')
 
   /** 将登录结果写入响应式状态和本地存储。 */
   function setLoginData(loginData: AdminLoginVO): void {
@@ -98,6 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isPlatformAdmin,
     isMerchantAdmin,
+    isCustomerService,
     setLoginData,
     applyCurrentAdmin,
     refreshCurrentAdmin,

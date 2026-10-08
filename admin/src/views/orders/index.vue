@@ -3,17 +3,27 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { useOrderStore } from '@/stores/order'
+import { useAuthStore } from '@/stores/auth'
 import { useTodoStore } from '@/stores/todo'
 import DataTable from '@/components/DataTable.vue'
-import type { Order, OrderAddressUpdateDTO, OrderPickupType, OrderRefundDTO, OrderStatus } from '@/types/order'
+import type { Order, OrderAddressUpdateDTO, OrderPickupType, OrderRefundDTO, OrderRefundOptions, OrderStatus } from '@/types/order'
 import { isVerifiedStatus } from '@/utils/orderRules'
 import { retryWxShipping } from '@/api/order'
 import { copyToClipboard } from '@/utils/clipboard'
 import { Box, CircleCheck, CopyDocument, Delete, RefreshLeft, View } from '@element-plus/icons-vue'
 
 const store = useOrderStore()
+const authStore = useAuthStore()
 const todoStore = useTodoStore()
 const route = useRoute()
+/**
+ * 是否客服角色 —— 决定「超窗豁免」勾选框是否显示。
+ *
+ * ⚠️ 这是**前端自律**（后端不做角色级限制，沿用既有中控角色）：文案里已写明
+ *    "将跳过售后时间窗限制、理由记入审计留痕"，真正的约束靠"理由必填 + 中央留痕"。
+ * ⚠️ `role` 可能是空串（未登录/信息未回填）⇒ 此时不显示勾选框（保守）。
+ */
+const isCustomerService = computed(() => authStore.isCustomerService)
 const selected = ref<Order[]>([])
 const statusTab = ref<string>('')
 const detailVisible = ref(false)
@@ -31,7 +41,12 @@ const shipForm = reactive({ expressCompany: '', expressCompanyCode: '', expressN
 const batchShipForm = reactive({ expressCompany: '', expressCompanyCode: '', expressNo: '' })
 const verifyForm = reactive({ orderId: '', orderNo: '', code: '' })
 const addressForm = reactive<OrderAddressUpdateDTO>({ receiverName: '', receiverPhone: '', receiverAddress: '' })
-const refundForm = reactive({ orderId: '', orderNo: '', reason: '' })
+/**
+ * 客服人工退款表单。
+ * ⚠️ `windowOverride` / `overrideReason`（2026-10-08 超窗豁免）：**只在客服角色**显示，
+ *    提交时作为 **query 参数**走（见 `api/order.ts` 的 `refundOrder` 与契约陷阱说明）。
+ */
+const refundForm = reactive({ orderId: '', orderNo: '', reason: '', windowOverride: false, overrideReason: '' })
 const dateRange = ref<[string, string] | null>(null)
 const orderNoInput = ref('')
 const shipRules: FormRules = {
@@ -273,6 +288,9 @@ function openRefund(order: Order): void {
   refundForm.orderId = order.id
   refundForm.orderNo = order.orderNo
   refundForm.reason = ''
+  // ⚠️ 豁免开关必须**每次重置**：上一次给某单破的例绝不能顺手带到下一单（那是无留痕理由的越权）
+  refundForm.windowOverride = false
+  refundForm.overrideReason = ''
   refundVisible.value = true
 }
 
@@ -284,10 +302,27 @@ async function submitRefund(): Promise<void> {
     ElMessage.warning('退款原因不能超过 200 个字符')
     return
   }
+  // ⚠️ 超窗豁免：勾了就必须写理由（后端 `windowOverride=true` 无理由会返回 1000）。
+  //    这里**前端先拦**，避免把一次必然失败的请求发出去；理由直接进中央留痕，不能替用户编。
+  const overrideReason = refundForm.overrideReason.trim()
+  const windowOverride = isCustomerService.value && refundForm.windowOverride
+  if (windowOverride && !overrideReason) {
+    ElMessage.warning('勾选「超窗豁免」后必须填写豁免理由')
+    return
+  }
   try {
-    await ElMessageBox.confirm(`确认对订单“${refundForm.orderNo}”执行全额退款吗？退款将通过微信异步到账，请确认。`, '客服人工退款二次确认', { type: 'warning', confirmButtonText: '确认退款', cancelButtonText: '取消' })
+    await ElMessageBox.confirm(
+      windowOverride
+        ? `确认对订单“${refundForm.orderNo}”**跳过售后时间窗限制**执行全额退款吗？豁免理由将记入审计留痕；审核仍需人工判断。`
+        : `确认对订单“${refundForm.orderNo}”执行全额退款吗？退款将通过微信异步到账，请确认。`,
+      '客服人工退款二次确认',
+      { type: 'warning', confirmButtonText: '确认退款', cancelButtonText: '取消' },
+    )
     const payload: OrderRefundDTO = { reason: reason || null }
-    await store.refund(refundForm.orderId, payload)
+    const options: OrderRefundOptions | undefined = windowOverride
+      ? { windowOverride: true, overrideReason }
+      : undefined
+    await store.refund(refundForm.orderId, payload, options)
     refundVisible.value = false
     ElMessage.success('退款申请已提交')
   } catch (error) {
@@ -747,7 +782,17 @@ onMounted(() => {
     </el-dialog>
 
     <el-dialog v-model="refundVisible" title="客服人工退款" width="560px" append-to-body>
-      <el-form label-width="90px"><el-form-item label="订单号"><el-input v-model="refundForm.orderNo" disabled /></el-form-item><el-form-item label="退款原因"><el-input v-model="refundForm.reason" type="textarea" :rows="4" maxlength="200" show-word-limit placeholder="请输入退款原因，可为空" /></el-form-item></el-form>
+      <el-form label-width="90px"><el-form-item label="订单号"><el-input v-model="refundForm.orderNo" disabled /></el-form-item><el-form-item label="退款原因"><el-input v-model="refundForm.reason" type="textarea" :rows="4" maxlength="200" show-word-limit placeholder="请输入退款原因，可为空" /></el-form-item><!-- 超窗豁免（2026-10-08 新增）：⚠️ 只在客服角色显示（后端不做角色级限制，靠理由 + 留痕约束） -->
+        <el-form-item v-if="isCustomerService" label="超窗豁免">
+          <div class="refund-override">
+            <el-checkbox v-model="refundForm.windowOverride">该单已超出售后时间窗，仍要受理</el-checkbox>
+            <p class="refund-override-tip">将跳过售后时间窗限制，理由会记入审计留痕；审核仍需人工判断。</p>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="isCustomerService && refundForm.windowOverride" label="豁免理由" required>
+          <el-input v-model="refundForm.overrideReason" type="textarea" :rows="3" maxlength="200" show-word-limit placeholder="如：质量问题，到货即腐烂，已电话核实" />
+        </el-form-item>
+      </el-form>
       <template #footer><el-button @click="refundVisible = false">取消</el-button><el-button type="warning" :loading="store.refunding" @click="submitRefund">确认退款</el-button></template>
     </el-dialog>
 
@@ -767,6 +812,9 @@ onMounted(() => {
 .order-product { display: flex; align-items: center; gap: 10px; }
 .order-image { width: 38px; height: 38px; border-radius: 4px; flex-shrink: 0; }
 .order-filter-form .el-form-item { margin-bottom: 0; }
+/* 超窗豁免（客服人工退款弹窗）：勾选框 + 风险说明 —— 说明必须常显，不能只藏在 tooltip 里 */
+.refund-override { line-height: 1.5; }
+.refund-override-tip { margin: 4px 0 0; color: #e6a23c; font-size: 12px; }
 .order-filter-form .el-date-editor { width: 280px; }
 .order-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .operator-actions { display: flex; align-items: center; gap: 6px; white-space: nowrap; }

@@ -159,6 +159,46 @@ export async function auditMyCancel(shopId: number | string | undefined, orderNo
   )
 }
 
+/**
+ * **运营强制完成同城订单**（`POST /api/admin/delivery/my/orders/{orderNo}/force-complete`，2026-10-08 新增）。
+ *
+ * ## 为什么需要它
+ * 同城「送达 + 48 小时自动完成」**以有配送凭证为前提**：骑手没补凭证、用户也不确认时，订单会一直停在
+ * 「已送达」，而结算释放期以**完成时间**为锚 ⇒ **商家资金不释放**。本接口给运营一个有留痕的收口入口
+ * （对应巡检项 `DELIVERED_48H_NO_PROOF`）。
+ *
+ * ## 约束（不满足直接拒，前端据此决定按钮是否可点）
+ * | 条件 | 不满足时 |
+ * |---|---|
+ * | 同城配送单且存在 | `1404 订单不存在或不是同城配送订单` |
+ * | 属操作者数据范围 | `1004` |
+ * | `deliveryStatus === 'DELIVERED'` | `13003`（状态已变化，刷新） |
+ * | `reason` 非空 | `1000` |
+ *
+ * ⚠️ **`shopId` 不能省**：商户管理员单门店时后端可自动取（本函数允许留空），
+ *    但**平台岗（超管/客服）必须显式传**，否则 `1000 请指定门店`（与同族接口一致）。
+ * ⚠️ 本接口**不会立刻给商家打钱**（只推进状态）—— 提示文案见
+ *    `utils/deliveryStatus.ts` 的 `FORCE_COMPLETE_HINT`，页面上必须如实展示。
+ *
+ * @param reason    必填，进中央留痕 `operation=ORDER_FORCE_COMPLETE`
+ * @param requestId 可选幂等键（连点/重试复用同一个，避免重复推进）
+ */
+export async function forceCompleteMyOrder(
+  shopId: number | string | undefined,
+  orderNo: string,
+  reason: string,
+  requestId?: string,
+): Promise<void> {
+  unwrap(
+    await request.post<ShopDeliveryResponse<null>>(
+      `/api/admin/delivery/my/orders/${encodeURIComponent(orderNo)}/force-complete`,
+      { reason, requestId: requestId || undefined },
+      { params: shopQuery(shopId) },
+    ),
+    '强制完成失败',
+  )
+}
+
 // ===== 商户侧订单流转（接单 → 开始备货 → 备货完成；备货完成后才可安排配送） =====
 
 /**

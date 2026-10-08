@@ -114,8 +114,32 @@ export interface OrderSummary {
    * 送达状态：**物流订单是数字**（0=已发货(运输中) / 1=已送达(待确认收货)）；
    * **同城配送订单是字符串**（配送节点，如 `DELIVERED` / `COMPLETED`）。
    * 两个形态口径不同，判断前务必先看 `pickupType`（2026-09-19 全流程实测）。
+   *
+   * ⚠️⚠️ **同城节点的字符串枚举只在**`订单详情`**接口下发**：`GET /api/order/list`
+   * （**列表**）给的是 `Integer` 且仅物流单有值，同城单**恒为 `null`**
+   * ⇒ 「取消申请中」这类履约态**只能由详情接口驱动**（详见 `utils/refund-window.ts` 的端点差异表）。
+   *
+   * 完整取值（契约 `OrderDetailVO.deliveryStatus`，2026-10-08 已补 `CANCEL_REQUESTED` 并逐字核对）：
+   * `WAIT_ACCEPT / ACCEPTED / PREPARING / WAIT_ASSIGN / ASSIGNED / PICKED_UP / DELIVERING /
+   *  NEARBY / DELIVERED / COMPLETED / CANCELLED / CANCEL_REQUESTED / EXCEPTION`。
    */
   deliveryStatus?: number | string
+  /**
+   * 取消申请**提交时刻**（ISO，如 `2026-10-08T15:40:14`）。
+   *
+   * ⚠️ **仅 `deliveryStatus === 'CANCEL_REQUESTED'` 时非空**；申请被同意/驳回后后端会把它
+   * 变回 `null`（按状态收敛）⇒ 前端**不需要**清理本地缓存，也不要拿它当"曾经申请过"的历史判据。
+   * 依据：W8 文档 §2.2（迁移 `shop/V8038`）。
+   */
+  cancelRequestedAt?: string | null
+  /**
+   * **系统自动同意**的截止时刻（ISO）。仅 `CANCEL_REQUESTED` 时非空，与 {@link cancelRequestedAt} 同生同灭。
+   *
+   * ⛔ **展示它、不要自己算**：阈值（未备货 30 分钟 / 已备货·配送中 180 分钟）由后端在**申请那一刻**
+   * 按当时的履约态定档落库，与自动同意任务同源同刻 —— 前端若写死天数/分钟数，运维调档后必然漂。
+   * 依据：W8 文档 §2.2 第 1 条「不要写死阈值」。
+   */
+  cancelAutoApproveAt?: string | null
 }
 
 export interface OrderDetailItem {
@@ -265,6 +289,21 @@ export function getOrderList(params: { page?: number; pageSize?: number; statuse
 /** 查询订单详情。 */
 export function getOrderDetail(orderId: number | string): Promise<OrderDetail> {
   return request<OrderDetail>({ url: `/api/order/detail/${orderId}`, method: 'GET' })
+}
+
+/**
+ * 查询订单详情（**按订单号**，`GET /api/order/detail-by-no/{orderNo}`）。
+ *
+ * ⚠️ 与 {@link getOrderDetail} **同构**（`OrderDetailVO`），差别只在入参：
+ * 一个按订单 ID、一个按订单号。**推荐在提交取消申请之后用它** ——
+ * 那条调用（`POST /api/delivery/orders/{orderNo}/cancel-request`）手里正好是 `orderNo`，
+ * 用本函数可以省掉「orderNo → orderId」的额外一跳（W8 文档 §2.1 明确推荐）。
+ *
+ * ⚠️ `orderNo` 必须是**子单号**：跨商拆单的父单会落到 `4000 订单不存在或不属于当前用户`
+ *    （子单号取详情的 `children[].orderNo`）。
+ */
+export function getOrderDetailByNo(orderNo: string): Promise<OrderDetail> {
+  return request<OrderDetail>({ url: `/api/order/detail-by-no/${encodeURIComponent(orderNo)}`, method: 'GET' })
 }
 
 /** 获取自提二维码信息（独立接口，核销/退款/超期关闭后 pickupCode 置 null）。 */

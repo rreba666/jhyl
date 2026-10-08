@@ -158,6 +158,15 @@ export async function setShopProductStatus(productId: number | string, status: 0
  * - `spuShopPrice` / `skuShopPrice` / `spuShopStock` / `skuShopStock` **为 `null` 表示该级未设置**
  *   —— ⚠️ **不要当成 0**（0 是"设成了 0"，null 是"没设、在回退"）；
  * - `effectiveStock` = 可售 = 生效门店库存 − 已锁定（下限 0）。
+ *
+ * ## ⚠️ `NONE` 的准确语义（W8 §4.1 原文，2026-10-08 补；与商家端 `mini_shop/api/merchant.ts` 同口径）
+ * 1. **触发条件 = 三级全空**：既无 SKU 级门店设置、也无 SPU 级门店设置，**且商品本体值也为空**；
+ * 2. 此时 `price` / `stock` 的生效值是 **`null`**（**不是 0**！`0` 是"设成了 0"）⇒ 占位符「—」正合适；
+ * 3. 后端实现注释原文：**「理论不可达：商品价/库存必有值；仅作防御性返回值」**
+ *    ⇒ 可在代码注释里标注"**预留值，当前不会出现**"；
+ * 4. ⛔ 它**不代表**"规格被禁用 / 无库存"：禁用规格根本不出现在 `/skus` 结果里，
+ *    无库存由 `effectiveStock = 0` 表达。
+ * ⇒ **不需要**为 `NONE` 做任何特殊分支（契约明确）；继续用「—」（若想更明确可用「待设置」）。
  */
 export interface ShopSkuPriceVO {
   skuId: number

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref, watch } from 'vue'
-import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type ChildOrderVO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
+import { cancelOrder, fastRefundOrder, getAddressChangeRequest, getOrderDetail, getOrderDetailByNo, getPickupCode, receiveOrder, refundOrder, submitAddressChangeRequest, type AddressChangeRequestDTO, type ChildOrderVO, type OrderAddressChangeRequest, type OrderDetail, type PickupCodeVO } from '@/api/order'
 // 秒退窗口判断（支付后 30 分钟内可免审核立即退款）——与订单列表页共用同一套口径
 import { canFastRefundNow, isFastRefundGateClosed, markFastRefundBlocked, markFastRefundDailyQuotaExhausted, refundStatusOverrideText, resolveFastRefundGate } from '@/utils/refund-window'
 import { getEnabledShops, type EnabledShop } from '@/api/shop'
 import { getAfterSaleList } from '@/api/after-sale'
 // 申请售后弹层的状态与提交（与订单列表页**共用**，见该文件头部说明为何抽出）
 import { useAfterSaleSubmit } from '@/utils/after-sale-submit'
-import { confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
+import { canRequestCancelByDeliveryNode, confirmReceiveDelivery, deliveryNodeText, getDeliveryPickupCode, getOrderProofs, getOrderProgress, requestCancelDelivery, type DeliveryProgress, type DeliveryProofVO } from '@/api/delivery-order'
 import { getAuth, isLoggedIn } from '@/utils/auth'
 import { isApiRequestError, resolveImageUrl } from '@/utils/request'
 // 幂等键生成（请求头 X-Request-Id）：同一笔秒退动作的连点/重试复用同一个值，见 utils/request-id.ts
@@ -377,6 +377,125 @@ const expectedClock = computed(
   () => String(deliveryProgress.value?.expectedDeliverAt || '').match(/\d{2}:\d{2}/)?.[0] || '',
 )
 
+/* ------------------------------------------------------------------ *
+ * 取消申请（同城单；2026-10-08 W8 §2.1 新增 C 端入口）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 是否处于「**取消申请中**」（已提交、等商家审核）。
+ *
+ * ⚠️⚠️ **判据只取后端下发的 `deliveryStatus`，不依赖任何本地 state**（W8 §2.2 第 2 条）——
+ *    这样**刷新页面 / 退出重进后状态不丢**，也不需要写本地缓存与清理逻辑。
+ * ⚠️ 必须限定 `pickupType === 2`：物流单的 `deliveryStatus` 是**数字**（0/1），
+ *    拿它比字符串虽然比不中，但显式限定更清楚地表达"这是同城专属履约态"。
+ */
+const isCancelRequested = computed(
+  () => order.value?.pickupType === 2 && order.value?.deliveryStatus === 'CANCEL_REQUESTED',
+)
+
+/**
+ * 当前是否**可以提交**「取消申请」。
+ *
+ * ⚠️ 四个条件缺一不可（尤其第 4 条，**不能**拿 `isFastRefundGateClosed` 代替）：
+ * ① 同城单；② 交易态仍是履约中（`status === 1`，取消只对未完结的单有意义）；
+ * ③ 尚未提交过（已在 `CANCEL_REQUESTED` 就只展示、不再给按钮）；
+ * ④ **骑手未取货**（`canRequestCancelByDeliveryNode`）—— 后端契约明写
+ *    「已取货后取消请走售后申请」，而秒退闸门的关闭集合**包含**已取货的节点
+ *    ⇒ 用它当判据会让已取货的单也冒出按钮，点了必被拒（见该函数的注释）。
+ */
+const canRequestCancel = computed(
+  () => order.value?.pickupType === 2
+    && order.value?.status === 1
+    && !isCancelRequested.value
+    && canRequestCancelByDeliveryNode(order.value?.deliveryStatus),
+)
+
+/**
+ * 把后端下发的时间串格式化成 `MM-DD HH:mm`（拿不到返回**空串**，由模板整行不渲染）。
+ * ⚠️ 与 `expectedClock` 一样只做"截取展示"，**不做任何时间推算**（阈值一律由后端定档下发）。
+ */
+function formatCancelTime(value?: string | null): string {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const matched = text.replace('T', ' ').match(/^\d{4}-(\d{2})-(\d{2})[ ](\d{2}):(\d{2})/)
+  return matched ? `${matched[1]}-${matched[2]} ${matched[3]}:${matched[4]}` : text
+}
+
+/** 「申请时间」（仅取消申请中展示）。 */
+const cancelRequestedText = computed(() => (isCancelRequested.value ? formatCancelTime(order.value?.cancelRequestedAt) : ''))
+/**
+ * 「预计自动同意时间」。
+ * ⛔ **直接展示后端 `cancelAutoApproveAt`**（申请时定档落库、与自动同意任务同源同刻）——
+ *    前端**不得**写死 30 分钟 / 3 小时 / 180 分钟之类的阈值（W8 §2.2 第 1 条明令）。
+ */
+const cancelAutoApproveText = computed(() => (isCancelRequested.value ? formatCancelTime(order.value?.cancelAutoApproveAt) : ''))
+
+/** 取消申请弹层（复用秒退的理由弹层组件：同样的必填理由 + 快捷标签 + 失败不关弹层）。 */
+const cancelSheetVisible = ref(false)
+const cancelSheetSubmitting = ref(false)
+const cancelSheetError = ref('')
+
+/** 打开取消申请弹层（按钮只在 {@link canRequestCancel} 为真时渲染，这里再兜一层）。 */
+function openCancelRequest(): void {
+  if (!order.value || cancelSheetSubmitting.value) return
+  if (!canRequestCancel.value) {
+    uni.showToast({ title: '当前订单状态不支持申请取消', icon: 'none' })
+    return
+  }
+  cancelSheetError.value = ''
+  cancelSheetVisible.value = true
+}
+
+/**
+ * 提交取消申请（理由来自弹层 `confirm`，**已过校验与清洗**）。
+ *
+ * ⚠️ 两种结果必须分开提示（W8 §2.1 表格）：
+ * - 订单仍在 `WAIT_ACCEPT` ⇒ 后端**不进审核**、直接取消 + **全额退款** ⇒ 提示「已取消，退款原路退回」；
+ * - 其余 ⇒ 进入 `CANCEL_REQUESTED` ⇒ 展示申请时间与自动同意时间。
+ * ⚠️ **不在这里"猜"结果**：一律先 `load()` 重拉详情，再按**刷新后的真实 `deliveryStatus`** 决定提示
+ *    （乐观提示会在"其实走了另一条分支"时骗用户）。
+ */
+async function submitCancelRequest(reason: string): Promise<void> {
+  const current = order.value
+  const orderNo = String(current?.orderNo || '')
+  if (!current || !orderNo || cancelSheetSubmitting.value) return
+  const orderId = String(current.id)
+  cancelSheetSubmitting.value = true
+  cancelSheetError.value = ''
+  try {
+    await requestCancelDelivery(orderNo, reason)
+    cancelSheetVisible.value = false
+    // ⚠️ 用订单号重拉（手里正好是 orderNo，少一跳）；两个端点同构，见 `load` 的注释
+    await load(orderId, true, orderNo)
+    if (isCancelRequested.value) {
+      uni.showToast({ title: '取消申请已提交，商家未处理将自动同意', icon: 'none', duration: 3000 })
+    } else if (order.value?.deliveryStatus === 'CANCELLED' || [5, 7].includes(Number(order.value?.status))) {
+      // `WAIT_ACCEPT` 直接取消 + 全额退款（也兼容审核通过后的终态）
+      uni.showToast({ title: '已取消，退款原路退回', icon: 'none', duration: 3000 })
+    } else {
+      uni.showToast({ title: '取消申请已提交', icon: 'none' })
+    }
+  } catch (error) {
+    // 状态已被他方推进（如骑手刚取货）：关弹层 + 刷新，让页面按**真实状态**重新给按钮
+    if (isApiRequestError(error) && Number(error.code) === 13003) {
+      cancelSheetVisible.value = false
+      uni.showToast({ title: '订单状态已变化，已为你刷新', icon: 'none', duration: 3000 })
+      await load(orderId, true, orderNo)
+      return
+    }
+    // 订单不存在 / 不是本人（传了父单号也会落到这里）：关弹层并如实说明，重试没有意义
+    if (isApiRequestError(error) && Number(error.code) === 4000) {
+      cancelSheetVisible.value = false
+      uni.showToast({ title: error.message || '订单不存在或不属于当前用户', icon: 'none', duration: 3000 })
+      return
+    }
+    // 其余（1000 参数 / 1002 数据不存在 / 网络）：留在弹层里让用户改理由重试
+    cancelSheetError.value = error instanceof Error ? error.message : '取消申请提交失败，请稍后重试'
+  } finally {
+    cancelSheetSubmitting.value = false
+  }
+}
+
 /**
  * 顶部状态横幅文案。
  * ⚠️ 同城订单优先显示**配送节点**（配送中/已送达…）—— 原来的「已支付」是交易状态，
@@ -490,10 +609,23 @@ function callRider(): void {
   uni.makePhoneCall({ phoneNumber: phone })
 }
 
-async function load(orderId: string, silent = false): Promise<void> {
+/**
+ * 拉取订单详情 + 各附属面板。
+ *
+ * @param orderId 订单 ID（页面主键，附属接口都按它查）
+ * @param silent  静默刷新（不显示 loading 骨架、失败不覆盖错误页）
+ * @param byOrderNo **按订单号**拉详情时传子单号 —— 走 `GET /api/order/detail-by-no/{orderNo}`
+ *        （与按 ID 的那个接口**同构**，都是 `OrderDetailVO`）。
+ *
+ * ⚠️ 为什么提交取消申请后要传它：那条接口（`POST /api/delivery/orders/{orderNo}/cancel-request`）
+ *    手里**正好只有 `orderNo`**，而订单详情页的其它附属接口都是按 `orderId` 走的
+ *    ⇒ 用 `detail-by-no` 刷新可以省掉"orderNo → orderId"的额外一跳（W8 §2.1 推荐用法）。
+ *    两者返回同构，`order.value` 的结构与模板都不需要分叉。
+ */
+async function load(orderId: string, silent = false, byOrderNo = ''): Promise<void> {
   if (!silent) loading.value = true
   try {
-    order.value = await getOrderDetail(orderId)
+    order.value = byOrderNo ? await getOrderDetailByNo(byOrderNo) : await getOrderDetail(orderId)
     await Promise.all([loadPickupCode(orderId), loadPickupShop(), loadAfterSaleFlag(orderId), loadAddressChangeRequest(orderId), loadDeliveryProgress(order.value?.orderNo), loadDeliveryProofs(order.value?.orderNo), loadDeliveryPickupCode()])
   }
   catch (error) { if (!silent) errorMessage.value = error instanceof Error ? error.message : '订单详情加载失败' }
@@ -690,9 +822,13 @@ const FAST_REFUND_GATE_CLOSED_CODE = 2013
  * ⚠️ 2026-10-08 修（口径漂移）：文案**不再在本页硬编码**，改从
  *    `utils/refund-window.ts` 的闸门表取（`resolveFastRefundGate(2013)`）——
  *    本页原先自拼的那句与共享表里的说法**已经不一致**，两处各写一份必然再漂。
- * ⚠️ 用户 2026-10-08 **决策 A**：本批不做 C 端「取消申请」入口（全仓无人调用
- *    `POST /api/delivery/orders/{orderNo}/cancel-request`）⇒ `2013` 的 `action` 是 `'none'`，
- *    文案只引导「联系客服处理」。这里**仍然只弹提示、不跳页**（用户可见行为不变）。
+ * ⚠️⚠️ 2026-10-08 **第二次修订**：本批补上了 C 端「申请取消」入口
+ *    （`api/delivery-order.ts` 的 `requestCancelDelivery`）—— 同一天早些时候的"决策 A"
+ *    （不做入口、`2013` 只引导联系客服）**已作废**，闸门表里 `2013` 的去向恢复为
+ *    `'cancel-request'`，其 `hint` 同时覆盖"未取货可申请取消 / 已取货走售后或客服"两种情形。
+ * ⚠️ 本函数**只负责"已取货 / 异常"这类不能申请取消的状态**（`!canRequestCancel`）：
+ *    未取货时模板渲染的是「**申请取消**」按钮（直接进 `openCancelRequest`），不会走到这里。
+ *    ⇒ 这里**仍然只弹提示、不跳页**（与改造前的用户可见行为一致）。
  */
 function showFastRefundGateTip(): void {
   const gate = resolveFastRefundGate(FAST_REFUND_GATE_CLOSED_CODE)
@@ -756,11 +892,11 @@ async function submitFastRefund(reason: string): Promise<void> {
     // ⚠️ 为什么改成走共享判定 `resolveFastRefundGate`：
     //    ① Step2 把同城时效起算点改成「送达次日 0 点」并新增生鲜 48 小时分叉
     //       ⇒ **前端不再自己拼时间口径**，一律展示后端 `message`（后端带着当时的准确口径）；
-    //    ② 去向按 `code` 判：**只有 `action === 'after-sale'` 才跳「售后申请（人工审核）」**；
-    //       `2013`（已备货/已出餐）与 `8703`（售后窗口也已关闭）都是 `action: 'none'` ——
-    //       前者只引导「联系客服处理」（用户 2026-10-08 决策 A：本批**不做** C 端取消申请入口，
-    //       全仓无人调用 `POST /api/delivery/orders/{orderNo}/cancel-request`，再承诺就是死路）；
-    //       后者连售后窗口都关了，更不能把用户引到售后去白跑一趟；
+    //    ② 去向按 `code` 判：`action === 'after-sale'` ⇒ 跳「售后申请（人工审核）」；
+    //       `action === 'cancel-request'`（`2013` 已备货/已出餐）⇒ **不跳页，改为刷新详情**
+    //       —— 刷新后按钮会按**真实履约节点**重算：未取货的会自己长出「申请取消」按钮，
+    //          已取货的则落到「无法直接退款？查看原因」（后端"已取货后取消请走售后申请"）；
+    //       `8703`（售后窗口也已关闭）⇒ `action: 'none'`，连售后都不该引导，只如实展示；
     //    ③ `2012` 是**账号级**闸门，必须记「今日次数已用完」，否则按钮会复活、用户陷入死循环。
     //    这段判据原先与列表页各写一份（已踩过"只修一处"的坑），现在两页共用同一定义。
     if (isApiRequestError(error)) {
@@ -771,10 +907,11 @@ async function submitFastRefund(reason: string): Promise<void> {
         refundSheetVisible.value = false
         fastRefundRequestId = ''
         uni.showToast({ title: gate.text, icon: 'none', duration: 3000 })
-        // ⚠️ 只有「去售后申请」（`action === 'after-sale'`）才跳分类：
-        //    `2013`（已备货/已出餐 ⇒ 只引导联系客服）与 `8703`（"窗口已关闭"）都是 `action: 'none'`，
-        //    它们都不属于售后入口，跳过去会把用户引错地方（原 2013 分支的既有结论，保留）。
+        // ⚠️ 只有「去售后申请」（`action === 'after-sale'`）才跳分类；
+        //    2013 改为**刷新详情**（让「申请取消」入口按真实节点出现）；`8703` 什么都不做
+        //    （它表示售后窗口也已关闭，把用户引去售后只会白跑一趟）。
         if (gate.action === 'after-sale') uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
+        else if (gate.action === 'cancel-request') await load(String(order.value?.id || ''), true, String(order.value?.orderNo || ''))
         return
       }
     }
@@ -838,8 +975,10 @@ onUnload(() => {
       <view class="status-banner"><text class="status-banner-text">{{ bannerText }}</text></view>
 
       <!-- 同城配送进度 + 骑手（仅有配送数据时展示；进度只展示不伪造） -->
-      <!-- 同城订单但还没有配送进度时，也给一句阶段文案（否则整块消失，看不出到哪一步） -->
-      <view v-if="!deliveryProgress && pendingDeliveryStage" class="delivery-card">
+      <!-- 同城订单但还没有配送进度时，也给一句阶段文案（否则整块消失，看不出到哪一步）
+           ⚠️ 「取消申请中」**排除**在这里：它由下面那张专用卡片承载（含申请时间与自动同意时间），
+              两处都渲染会出现两块一模一样的「取消申请中」。 -->
+      <view v-if="!deliveryProgress && pendingDeliveryStage && !isCancelRequested" class="delivery-card">
         <text class="delivery-stage">{{ pendingDeliveryStage }}</text>
       </view>
       <view v-if="deliveryProgress" class="delivery-card">
@@ -858,6 +997,17 @@ onUnload(() => {
             <text class="delivery-call" @click="copyRiderPhone">复制号码</text>
           </view>
         </view>
+      </view>
+
+      <!-- 取消申请中（同城单；2026-10-08 §2.1 新增）
+           ⚠️ 两个时间**全部来自后端**（`cancelRequestedAt` / `cancelAutoApproveAt`），
+              前端⛔**不得**写死 30 分钟 / 3 小时之类的阈值 —— 阈值由后端在申请那一刻按当时履约态定档落库。
+           ⚠️ 字段只在 `CANCEL_REQUESTED` 时非空；即便后端漏发，这里也只是整行不渲染，不会显示 0 或"未知时间"。 -->
+      <view v-if="isCancelRequested" class="delivery-card">
+        <text class="delivery-stage">{{ deliveryNodeText(order?.deliveryStatus) }}</text>
+        <view v-if="cancelRequestedText" class="cancel-line"><text class="cancel-label">申请时间</text><text class="cancel-value">{{ cancelRequestedText }}</text></view>
+        <view v-if="cancelAutoApproveText" class="cancel-line"><text class="cancel-label">系统处理</text><text class="cancel-value">预计 {{ cancelAutoApproveText }} 前系统自动同意</text></view>
+        <text class="cancel-tip">商家同意或驳回后会通知你；到期仍未处理，系统将自动同意并退款。</text>
       </view>
 
       <!-- 送达照片（骑手送达时拍的，用户本人可看；小程序不能给个人发消息，这里只能看凭证）
@@ -957,12 +1107,14 @@ onUnload(() => {
            ⚠️ 2026-10-01：判据由「纯窗口函数」升级为下面这个**总判据**（叠加了闸门记录）—— 它在 30 分钟窗口之外，
               还叠加了「被后端闸门拒过（2011/2014）」与「今日次数已用完（2012）」两个记录，
               这样被拒一次后按钮会自动落到下面的「申请退款」（人工审核），不再死循环。 -->
-      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><!-- 同城单已过履约闸门（已出餐/已派单/配送中）→ 置灰并改为「无法直接退款？查看原因」（2026-10-08：原为「申请取消（需商家确认）」，但用户决策 A 明确本批不做 C 端取消申请入口，点了只会弹提示 ⇒ 标签必须如实说明"只是解释原因"）。
+      <view class="actions"><button v-if="order?.status === 0 && !isCancelRequested" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2 && !isCancelRequested" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery && !isCancelRequested" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="isCancelRequested" class="is-gate-closed" disabled>{{ deliveryNodeText(order?.deliveryStatus) }}</button><button v-else-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><button v-else-if="order?.status === 1 && !canConfirmDelivery && canRequestCancel" :disabled="actionLoading" @click="openCancelRequest()">申请取消</button><!-- 同城单已过履约闸门且**不能申请取消**（骑手已取货 / 异常）→ 置灰仍可点，只为解释原因。
+            ⚠️ 标签保持「无法直接退款？查看原因」：这时确实**没有**可走的一键动作（后端契约：「已取货后取消请走售后申请」）⇒
+               写成「申请取消」会指向一条走不通的路。未取货的情形已由上面的「申请取消」分支接走，不会落到这里。
            ⚠️ 用 class 置灰而**不用 disabled**：disabled 会让点击彻底无效，用户不知道为什么；
            可点则能给出解释（对应后端的 2013 错误码）。 -->
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">无法直接退款？查看原因</button>
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button><!-- ⚠️ 2026-10-02 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。⚠️ 用独立 v-if、不挂在上面那串 v-else-if 链上，避免影响既有按钮的互斥关系。⚠️ 窗口由后端判定（物流/同城＝完成后 7 天内），超期返回 8703 并展示后端文案。 -->
-        <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="handleAfterSaleClick()">申请售后</button></view>
+        <button v-if="order?.status === 4 && !processingAfterSale && !isCancelRequested" :disabled="actionLoading" @click="handleAfterSaleClick()">申请售后</button></view>
     </scroll-view>
 
     <!-- 地址修改申请表单：只创建审核申请，不直接更新订单地址。 -->
@@ -988,6 +1140,21 @@ onUnload(() => {
       :submitting="refundSheetSubmitting"
       :error-message="refundSheetError"
       @confirm="submitFastRefund"
+    />
+
+    <!-- 取消申请理由弹层（同城单；与秒退共用同一个理由输入组件）
+         ⚠️ 文案必须与秒退**区分**：这里提交的是**取消申请**，走商家审核，
+            **不是**"立即原路退款"（只有待接单时后端才会直接取消并全额退款）。
+         ⚠️ 提交失败**不关弹层**：理由不丢，改完可直接重试。 -->
+    <RefundReasonSheet
+      v-model="cancelSheetVisible"
+      title="申请取消订单"
+      subtitle="提交后由商家审核；商家未在承诺时间内处理，系统会自动同意并退款。待接单的订单可直接取消并全额退款。"
+      submit-text="提交申请"
+      placeholder="请填写取消原因（必填）"
+      :submitting="cancelSheetSubmitting"
+      :error-message="cancelSheetError"
+      @confirm="submitCancelRequest"
     />
 
     <!-- 售后申请弹层（**已完成订单**用）：⚠️ 与秒退的文案必须区分 ——
@@ -1032,6 +1199,11 @@ onUnload(() => {
 .delivery-rider { display: flex; align-items: center; justify-content: space-between; margin-top: 16rpx; }
 .delivery-rider-name { color: #4e5969; font-size: 26rpx; }
 .delivery-call { color: #ff5500; font-size: 26rpx; }
+/* 取消申请卡片：申请时间 / 预计自动同意时间（值来自后端，见模板注释） */
+.cancel-line { display: flex; justify-content: space-between; gap: 20rpx; margin-top: 14rpx; font-size: 25rpx; }
+.cancel-label { flex-shrink: 0; color: #86909c; }
+.cancel-value { flex: 1; text-align: right; color: #1f2329; }
+.cancel-tip { display: block; margin-top: 14rpx; color: #86909c; font-size: 22rpx; line-height: 1.5; }
 .card { margin-bottom: 18rpx; padding: 26rpx; background: #fff; border-radius: 10rpx; }
 .line { display: flex; justify-content: space-between; gap: 24rpx; padding: 18rpx 0; color: #555; font-size: 25rpx; border-bottom: 1px solid #f2f2f2; }.line:last-child { border-bottom: 0; }.right { flex: 1; text-align: right; }
 .pickup-status-row { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; padding: 18rpx 0; color: #916448; font-size: 23rpx; border-bottom: 1px solid #f2f2f2; }.pickup-refresh { flex-shrink: 0; color: #222; text-decoration: underline; }

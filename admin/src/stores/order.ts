@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
 import { deleteOrder, getOrderDetail, getOrderTrace, getOrders, manualVerifyOrder, refundOrder, restoreOrder, shipOrder, updateOrderAddress } from '@/api/order'
-import type { ExpressTrace, ManualVerifyDTO, OrderAddressUpdateDTO, OrderDetail, OrderPageResult, OrderPickupType, OrderQueryParams, OrderRefundDTO, OrderShipDTO, OrderStatus } from '@/types/order'
+import type { ExpressTrace, ManualVerifyDTO, OrderAddressUpdateDTO, OrderDetail, OrderPageResult, OrderPickupType, OrderQueryParams, OrderRefundDTO, OrderRefundOptions, OrderShipDTO, OrderStatus } from '@/types/order'
 import { runBatch } from '@/utils/runBatch'
 
 export const useOrderStore = defineStore('order', () => {
@@ -74,11 +74,16 @@ export const useOrderStore = defineStore('order', () => {
     }
   }
 
-  /** 提交人工退款后刷新列表和当前订单详情。 */
-  async function refund(orderId: string, payload: OrderRefundDTO): Promise<void> {
+  /**
+   * 提交人工退款后刷新列表和当前订单详情。
+   *
+   * @param options **超窗豁免**（`windowOverride` / `overrideReason`，2026-10-08 新增）：
+   *   不传 = 与改造前完全一致（超窗 `8703`）。透传给 `refundOrder` 的 query，**不进 body**。
+   */
+  async function refund(orderId: string, payload: OrderRefundDTO, options?: OrderRefundOptions): Promise<void> {
     refunding.value = true
     try {
-      await refundOrder(orderId, payload)
+      await refundOrder(orderId, payload, options)
       await fetchList()
       if (detail.value?.id === orderId) await fetchDetail(orderId)
     } finally {

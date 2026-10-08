@@ -11,7 +11,15 @@ export interface DeliveryProgress {
   progress?: number | null
   /** 阶段文案（如「配送中」）。 */
   stage?: string
-  /** 节点枚举：WAIT_ACCEPT/ACCEPTED/PREPARING/WAIT_ASSIGN/ASSIGNED/PICKED_UP/DELIVERING/NEARBY/DELIVERED/COMPLETED。 */
+  /**
+   * 节点枚举：WAIT_ACCEPT/ACCEPTED/PREPARING/WAIT_ASSIGN/ASSIGNED/PICKED_UP/DELIVERING/NEARBY/DELIVERED/COMPLETED/CANCELLED/EXCEPTION。
+   *
+   * ⚠️⚠️ **本接口的 `node` 不下发 `CANCEL_REQUESTED`**（2026-10-08 逐字核对 `api_doc.json`
+   *    `DeliveryProgressVO.node` 的枚举原文，里面**没有**这个值）⇒ 「取消申请中」**只能**由
+   *    订单**详情**接口的 `deliveryStatus` 驱动（见 `api/order.ts` 的 `OrderSummary.deliveryStatus`
+   *    与 `utils/refund-window.ts` 的端点差异表）。
+   *    ⛔ 列表页想显示它**不能**拿 `node` 去比字符串 —— 那里判不出来，宁可不显示也不要瞎猜。
+   */
   node?: string
   /** 预计剩余分钟。 */
   estimatedRemainingMinutes?: number | null
@@ -61,6 +69,40 @@ export function confirmReceiveDelivery(orderNo: string): Promise<void> {
 }
 
 /**
+ * **申请取消**同城订单（`POST /api/delivery/orders/{orderNo}/cancel-request`，C 端用户 token）。
+ *
+ * ## 为什么必须有它（2026-10-08 补，**推翻当天早些时候的「决策 A」**）
+ * 秒退在上线备货后关闭并返回 `2013`，后端契约（`api_doc.json` 的
+ * `POST /api/order/refund/fast/{orderId}` 描述原文）写着「前端应引导用户走取消申请
+ * （`POST /api/delivery/orders/{orderNo}/cancel-request`，由商家审核、可按门店策略扣费）」——
+ * 而 C 端**此前零调用**（全仓无人调过这个接口）⇒ 那句引导**指向一条不存在的路**，
+ * 用户被引导过去只会弹一句"请联系客服"（见 `utils/refund-window.ts` 的闸门表沿革注释）。
+ * 现在把这个入口补上，`2013` 的去向才是真的走得通。
+ *
+ * ## 行为要点（W8 文档 §2.1 / §2.4）
+ * - **幂等**：已在 `CANCEL_REQUESTED` 或已 `CANCELLED` ⇒ **按成功返回**（连点 / 重试都安全）；
+ * - **特例**：订单仍在 `WAIT_ACCEPT`（待接单）时**不进商家审核**，直接取消 + **全额退款**
+ *   ⇒ 调用方应提示「已取消，退款原路退回」（与"取消申请中"是两种结果，**别用同一句文案**）；
+ * - 其余档位进入**商家审核**，超过后端落库的 `cancelAutoApproveAt` 会**由系统自动同意并退款**
+ *   （给用户发通知）⇒ 前端只展示后端下发的时间，**不要自己算阈值**。
+ *
+ * ## ⚠️ `orderNo` 必须是**子单号**
+ * 跨商拆单场景传父单会返回 `4000 订单不存在或不属于当前用户`；子单号取自详情的 `children[].orderNo`。
+ *
+ * @param orderNo 子订单号
+ * @param reason  取消原因（可选，≤255 字；不传时后端记为"用户取消"）
+ */
+export function requestCancelDelivery(orderNo: string, reason?: string): Promise<void> {
+  const trimmed = String(reason ?? '').trim()
+  return request<void>({
+    url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/cancel-request`,
+    method: 'POST',
+    // ⚠️ 不传 reason 时**整个字段省略**（后端按"用户取消"记账）；传 `{ reason: '' }` 与 `undefined` 语义不同
+    data: trimmed ? { reason: trimmed } : {},
+  })
+}
+
+/**
  * 同城配送节点 → 中文文案（用户端订单列表/详情展示用）。
  * ⚠️ 同城订单的订单状态很长一段时间都是「已支付/履约中」，**看不出配送进度** ——
  * 用户端列表因此直接改用这里的配送节点文案（与商家端口径一致）。
@@ -82,11 +124,55 @@ export const DELIVERY_NODE_TEXT: Record<string, string> = {
   COMPLETED: '已完成',
   EXCEPTION: '配送异常',
   CANCELLED: '配送已取消',
+  /**
+   * 用户已提交取消申请、等商家审核（`OrderDetailVO.deliveryStatus` 的枚举值之一）。
+   *
+   * ⚠️⚠️ **这一条是"必须补 key"的典型**（2026-10-08）：本表原先缺它 ⇒
+   *    `deliveryNodeText('CANCEL_REQUESTED', fallback)` 会**回落到订单 `statusDesc`**，
+   *    而该订单的交易态是「履约中(1)」⇒ 用户看到的是「**履约中**」而不是「取消申请中」，
+   *    完全看不出自己刚提交的申请（见 `deliveryNodeText` 的回落实现）。
+   * ⚠️ 调用方有两处：订单详情页 `bannerText`（传详情的 `deliveryStatus`）与
+   *    `pendingDeliveryStage`。**不是**给 `progress.node` 用的（那个接口不下发该值，见 `DeliveryProgress.node`）。
+   * ⚠️ 用户侧口径是「取消申请中」；**商家端/中控是「取消待审核」**（`mini_shop/api/merchant.ts`
+   *    的 `DELIVERY_STATUS_TEXT` 与 `admin/src/utils/deliveryStatus.ts`）—— 两边视角不同，别改齐。
+   */
+  CANCEL_REQUESTED: '取消申请中',
 }
 
 /** 同城订单的状态文案：按配送节点取，取不到时回退到订单自身的状态文案。 */
 export function deliveryNodeText(node?: string | number | null, fallback = ''): string {
   return DELIVERY_NODE_TEXT[String(node || '')] || fallback
+}
+
+/**
+ * **骑手尚未取货**的履约节点 —— 这些节点下可以提交「取消申请」（由商家审核）。
+ *
+ * ⚠️⚠️ 为什么必须单独判一次（2026-10-08，别把 `isFastRefundGateClosed` 当等价条件）：
+ * 后端契约（`api_doc.json` 的 `POST /api/delivery/orders/{orderNo}/cancel-request` 描述原文）写着
+ * 「待接单直接取消全额退；已接单未取货进入商家审核（`CANCEL_REQUESTED`），驳回自动恢复。
+ * **已取货后取消请走售后申请**」。
+ * 而秒退的「履约闸门」（{@link FAST_REFUND_CLOSED_DELIVERY_STATUSES}）**范围更大** ——
+ * 它把 `PICKED_UP` / `DELIVERING` / `NEARBY` 也算了进去（那些状态秒退同样关闭）。
+ * ⇒ 两个集合**不等价**：闸门关闭 ≠ 能申请取消。拿闸门当判据会让「已取货」的单也冒出
+ *   「申请取消」按钮，用户点了必然被后端拒。
+ *
+ * ⚠️ `EXCEPTION` **刻意不在**本集合里：异常单可能已取货、也可能未取货，前端判不出来
+ *    ⇒ **fail-closed**（不给取消入口，引导联系客服），宁可让用户找客服，也不给一个可能失败的按钮。
+ */
+export const CANCEL_REQUESTABLE_NODES: readonly string[] = [
+  'WAIT_ACCEPT',
+  'ACCEPTED',
+  'PREPARING',
+  'WAIT_ASSIGN',
+  'ASSIGNED',
+]
+
+/**
+ * 该履约节点下是否可提交「取消申请」。
+ * ⚠️ 只判节点；调用方仍需判 `pickupType === 2`（同城）与订单状态（见订单详情页的 `canRequestCancel`）。
+ */
+export function canRequestCancelByDeliveryNode(node?: string | number | null): boolean {
+  return CANCEL_REQUESTABLE_NODES.includes(String(node || ''))
 }
 
 /** 同城收货码的原始返回形态（见下方 `normalizeDeliveryPickupCode` 的兼容说明）。 */

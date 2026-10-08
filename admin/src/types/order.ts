@@ -106,6 +106,24 @@ export interface OrderRefundDTO {
   reason?: string | null
 }
 
+/**
+ * 客服人工退款的**附加 query 参数**（2026-10-08「超窗豁免通道」新增）。
+ *
+ * ⚠️ 与请求体 `OrderRefundDTO` **分开**：这两个值走 **URL query**（`windowOverride` /
+ *    `overrideReason`），不是 body；混进 body 后端收不到（`api_doc.json` 里它们是
+ *    `in: query` 的两个 parameter）。
+ *
+ * ⚠️ **不传 = 与改造前完全一致**（超窗仍返回 `8703`）⇒ 默认路径不要传，避免把正常退款也标成豁免。
+ * ⚠️ `windowOverride=true` 时后端**要求** `overrideReason` 非空，否则 `1000`
+ *    （"窗口豁免必须填写理由"）；理由会进中央留痕 `AFTER_SALE_WINDOW_OVERRIDE`。
+ */
+export interface OrderRefundOptions {
+  /** 是否豁免售后时间窗（仅"超时但依法可退"，如质量问题）。默认不传 = `false`。 */
+  windowOverride?: boolean
+  /** 豁免理由（`windowOverride=true` 时必填）。 */
+  overrideReason?: string
+}
+
 /** 物流轨迹节点，后端返回顺序即为展示顺序。 */
 export interface TraceItem {
   time: string
