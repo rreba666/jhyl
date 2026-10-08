@@ -13,6 +13,11 @@ export type OrderStatus = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
  * ⇒ 超出配送范围仍然可以下单。所以把 key 改名 ⇒ **旧草稿自然失效**（读不到 ⇒ 用户重新填一次地址）。
  *
  * 接受的代价：正在填写、还没提交的地址草稿会丢一次（**安全优先**，宁可让用户重填，也不放行超范围订单）。
+ *
+ * ⚠️ **2026-10-08 追补（后端 coordinateSource 闸门）**：坐标还必须带**可信来源**才可用
+ * （见 `utils/coordinate-source.ts`）。`_v2` 草稿是在"只有坐标、还没有来源"的那版前端写入的
+ * ⇒ 里面即便有坐标**也没有来源**。这**不需要**再升版：读取侧（`address/edit.vue` 与
+ * `payment.vue`）对"有坐标没来源"一律按「**没有坐标**」处理 ⇒ 用户被如实要求重新地图选点。
  */
 export const ADDRESS_DRAFT_KEY = 'payment_address_draft_v2'
 /** 配送方式：0=物流 1=线下自提 2=同城配送（占位，本期不开放下单）。 */
@@ -35,10 +40,25 @@ export interface CreateOrderDTO {
   receiverProvince?: string
   receiverCity?: string
   receiverDistrict?: string
-  /** 收货地址纬度（GCJ-02）——**同城配送必填**，前端定位获取。 */
+  /**
+   * 收货地址纬度（GCJ-02）—— **同城配送必填**。
+   * ⛔ 只能来自收货地址自身的**地图选点**（自动定位拿到的是"用户当前在哪"，与收货地址无关，
+   *    不得当作收货坐标 —— 2026-10-08 P1 履约事故根因）。
+   */
   receiverLat?: number
-  /** 收货地址经度（GCJ-02）——**同城配送必填**。 */
+  /** 收货地址经度（GCJ-02）—— **同城配送必填**（来源要求同 `receiverLat`）。 */
   receiverLng?: number
+  /**
+   * 收货坐标的**来源**（后端白名单 `MAP_PICK` / `WECHAT_ADDRESS`，大小写/空白不敏感）。
+   *
+   * ⛔ 2026-10-08 起**同城配送必填**：后端只认白名单，缺失或任何其它值（`MANUAL_INPUT` /
+   *   `AUTO_LOCATE` / 未知）一律 fail-closed（试算 `failCode=NO_COORDINATE`；下单 **`13026`**
+   *   `DELIVERY_RECEIVER_COORDINATE_REQUIRED`「收货地址未定位，请在地图上选点后再下单」）。
+   * ⛔ 与 `receiverLat/receiverLng` **同生同灭**（all-or-nothing）：绝不发"有来源没坐标"
+   *   或"有坐标没来源"的请求（后者后端会拒，前者是伪造）。
+   * 取值见 `utils/coordinate-source.ts`。
+   */
+  coordinateSource?: string
   remark?: string
   pickupType: PickupType
   pickupShopId?: number

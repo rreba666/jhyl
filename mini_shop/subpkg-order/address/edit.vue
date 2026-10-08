@@ -25,6 +25,7 @@ import {
   updateAddress,
   type AddressEntity,
 } from '@/api/address'
+import { COORDINATE_SOURCE_MAP_PICK, normalizeCoordinateSource } from '@/utils/coordinate-source'
 import { validateMobile, validateText } from '@/utils/input-validation'
 
 interface AddressDraft {
@@ -36,6 +37,15 @@ interface AddressDraft {
   district: string
   latitude?: number
   longitude?: number
+  /**
+   * 坐标**来源**（后端白名单，取值见 `utils/coordinate-source.ts`）。
+   *
+   * ⛔ 与 `latitude/longitude` **同生同灭**：本页**只有** `pickOnMap`（地图选点）会写它，
+   *    写坐标的同时写 `MAP_PICK`；自动定位与微信地址导入都**不写坐标**，因此也**不写来源**。
+   * ⛔ 绝不伪造：微信地址接口不返回经纬度 ⇒ 即使来源白名单里有 `WECHAT_ADDRESS`，
+   *    本页也**不会**写它（没有真坐标就声明微信来源 = 主动谎报）。
+   */
+  coordinateSource?: string
 }
 
 /** 编辑/新增的地址 ID：0 = 新增（地址簿模式）。 */
@@ -53,8 +63,11 @@ const bookEmpty = ref(false)
 /**
  * 是否已经**由用户在地图上选点**拿到了坐标（用于给「地图选点」按钮加一个已选中的态）。
  * ⛔ 自动定位不再写坐标，所以这里为 false 时，这条地址就是**真的没有**坐标。
+ * ⚠️ 2026-10-08：坐标还必须带**可信来源**才算数 —— 升级前写入的旧草稿可能"有坐标没来源"
+ *    （见 `initForm` 的说明），那种坐标来路不明，这里也显示成「点击地图选点」。
  */
-const hasCoordinate = computed(() => form.latitude != null && form.longitude != null)
+const hasCoordinate = computed(() => form.latitude != null && form.longitude != null
+  && !!normalizeCoordinateSource(form.coordinateSource))
 
 const regionValue = computed(() => [form.province, form.city, form.district].filter(Boolean))
 const regionText = computed(() => (regionValue.value.length === 3 ? regionValue.value.join(' ') : '请选择所在地区'))
@@ -67,7 +80,13 @@ onLoad((options) => {
   pageMode.value = String(query.mode || '') === 'payment' ? 'payment' : 'book'
   const id = Number(query.id || 0)
   if (Number.isSafeInteger(id) && id > 0) addressId.value = id
-  void initForm()
+  /**
+   * `pick=map`：确认订单页在「同城配送缺可信坐标」时用这个参数**直达地图选点**。
+   * 这是用户点「去地图选点」按钮后的跳转 ⇒ 属于用户手势链路内，可以自动拉起选点；
+   * 表单回填**完成之后**才拉起（用户取消选点也不会丢掉已带入的地址）。
+   */
+  const autoPickMap = String(query.pick || '') === 'map'
+  void initForm().then(() => { if (autoPickMap) pickOnMap() })
 })
 
 /** 进入页面时初始化表单：地址簿模式按 id 回填，支付模式读草稿。 */
@@ -77,6 +96,12 @@ async function initForm(): Promise<void> {
     try {
       const draft = uni.getStorageSync(ADDRESS_DRAFT_KEY) as AddressDraft | ''
       if (draft && typeof draft === 'object') Object.assign(form, draft)
+      // ⛔ 2026-10-08：升级前写入的草稿可能**有坐标却没有来源**（那版前端还没有来源概念）。
+      //    这种坐标来路不明 ⇒ 一律按「没有坐标」处理（不继承、不上报、不回写），
+      //    让用户重新在地图上选点。**绝不能**替它补一个来源（那是伪造来源）。
+      if (!normalizeCoordinateSource(form.coordinateSource) || form.latitude == null || form.longitude == null) {
+        clearCoordinate()
+      }
     } catch { /* 忽略 */ }
     void locate()
     return
@@ -181,6 +206,10 @@ function pickOnMap(): void {
     success: (res) => {
       form.latitude = Number(res.latitude)
       form.longitude = Number(res.longitude)
+      // ⛔⛔ 坐标与**来源**必须一起写（后端 2026-10-08 起只认白名单内的来源）：
+      //     这是本页**唯一**能声明 `MAP_PICK` 的地方 —— 因为坐标确实是用户在这里手动选的。
+      //     永远不要为了"让请求通过"而给别处来的坐标补上这个来源（那是伪造来源）。
+      form.coordinateSource = COORDINATE_SOURCE_MAP_PICK
       const address = String(res.address || '').trim()
       const pointName = String(res.name || '').trim()
       const parsed = parseRegion(address)
@@ -197,6 +226,16 @@ function pickOnMap(): void {
 }
 
 /**
+ * 清空表单里的坐标**与来源**（all-or-nothing）。
+ *
+ * ⛔ 刻意用 `Object.assign` 写 `undefined`，**不**直接给表单的经纬度字段赋值 ——
+ *    契约断言"直接赋值"的写法全库只出现一次（就是 `pickOnMap`，唯一合法坐标写入点）。
+ */
+function clearCoordinate(): void {
+  Object.assign(form, { latitude: undefined, longitude: undefined, coordinateSource: undefined })
+}
+
+/**
  * 授权微信地址：调微信原生地址簿，一键带入用户在微信里保存的收货地址。
  *
  * ⚠️ 三个必须知道的点：
@@ -205,6 +244,8 @@ function pickOnMap(): void {
  *    所以导入后**必须**用上方「地图选点」明确选一次收货点，否则同城配送会如实要求去选点。
  *    ⛔ 旧的坐标兜底写法（拿不到就用别的位置顶上）**已删除** —— 那等于**伪造数据**给后端，
  *    会让范围校验失效（这正是「手动输入地址、超范围也能下单」的成因）。⛔ 不要再加回来。
+ *    ⛔ 2026-10-08：同时**清掉上一条地址留下的坐标来源** —— 后端只认白名单来源，
+ *    留着它、或给这次导入补一个"微信来源"，都是在**谎报坐标出处**。没有真坐标 ⇒ 没有来源。
  * 2. **字段名与微信原生不同**：`uni.chooseAddress` 把微信的 `provincialName` 统一成了 **`provinceName`**
  *    （见 uni-app 官方文档「uni.chooseAddress」），所以这里两个名字都读一遍以兼容。
  * 3. **新版选择器的详细地址在 `detailInfoNew`**（微信小程序专属），旧字段 `detailInfo` 可能为空 ——
@@ -214,6 +255,11 @@ function pickOnMap(): void {
 function chooseWechatAddress(): void {
   uni.chooseAddress({
     success: (res) => {
+      // ⛔⛔ 先把表单里**上一个地址**留下的坐标与来源清掉（all-or-nothing）。
+      //    微信地址接口不返回经纬度 ⇒ 导入后这条地址**没有坐标**；若把上一条地址的坐标
+      //    （或它的 `MAP_PICK` 来源）留着，就等于**伪造**了"这个新地址的坐标"，同城配送的
+      //    范围校验会按错误位置判定。清掉之后，后端/前端都会如实要求用户重新地图选点。
+      clearCoordinate()
       const r = res as unknown as {
         userName?: string
         telNumber?: string

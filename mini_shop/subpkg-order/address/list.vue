@@ -106,6 +106,10 @@ function pickAddress(address: AddressEntity): void {
   // 1. 先把地址广播出去（下层页面在 onLoad/onShow 注册了监听）
   uni.$emit(ADDRESS_SELECTED_EVENT, payload)
   // 2. 顺便写一份草稿缓存：确认订单页即便错过事件，也能在 onShow 时从这里读到
+  //    ⛔ 坐标与来源**一个都不写**（2026-10-08）：收货地址簿（后端 `user_address`）**没有经纬度列**，
+  //    从地址簿选回来的地址就是**如实没有坐标**；既然没有坐标，也就**不能**带任何坐标来源
+  //    （有来源没坐标 = 伪造；有坐标没来源 = 后端 `NO_COORDINATE`/`13026` fail-closed）。
+  //    同城配送需要用户另行在地址页「地图选点」，由那里写入 `MAP_PICK`。
   try {
     uni.setStorageSync(ADDRESS_DRAFT_KEY, {
       name: address.receiverName,

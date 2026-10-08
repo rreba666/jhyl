@@ -142,11 +142,25 @@ export function getOrderProofs(orderNo: string): Promise<DeliveryProofVO[]> {
   return request<DeliveryProofVO[]>({ url: `/api/delivery/orders/${encodeURIComponent(orderNo)}/proofs`, method: 'GET' })
 }
 
-/** 配送试算结果（`POST /api/delivery/quote`）。 */export interface DeliveryQuote {
+/** 配送试算结果（`POST /api/delivery/quote`）。 */
+export interface DeliveryQuote {
   merchantId?: number
-  /** 是否可配送；false 时看 `reason`。 */
+  /**
+   * 是否可配送；false 时看 `failCode` + `reason`。
+   * ⛔ **唯一的"能不能送"判据**（后端回执 §一）：绝不能因为 `failCode` 缺失就当成成功 ——
+   *    老版本后端不返回该字段，此时只有 `reason` 可看。
+   */
   canDelivery?: boolean
-  /** 不可配送的原因（可配送时为 'ok'）。 */
+  /**
+   * 结构化失败码（后端回执 §七 全量枚举，2026-10-08 R4 上线）：
+   * `NO_COORDINATE`（无坐标 / 来源不可信）、`COORDINATE_INVALID`（越界 / `(0,0)`）、
+   * `ADDRESS_UNRESOLVED`（地址解析不出）、`MAP_SERVICE_ERROR`（地图服务故障）、
+   * `SHOP_NO_COORDINATE`（门店未配坐标）、`OUT_OF_RANGE`、`DELIVERY_DISABLED`、
+   * `MIN_AMOUNT`、`SHOP_CLOSED`、`NOT_IN_DELIVERY_HOURS`、`GOODS_NOT_PROVIDED`。
+   * ⚠️ 可能缺省（老版本后端）⇒ 判空后再按 `reason` 展示，**不得**把缺失当成成功。
+   */
+  failCode?: string
+  /** 不可配送的原因（可配送时为 'ok'）——后端文案**可直接展示**。 */
   reason?: string
   /** 配送费（元）。 */
   deliveryFee?: number
@@ -163,12 +177,22 @@ export function getOrderProofs(orderNo: string): Promise<DeliveryProofVO[]> {
 /**
  * 同城配送试算：确认订单页选好「发货门店 + 收货地址」后调用，
  * 用于展示真实配送费、距离、预计送达时间，并判断该地址是否在配送范围内。
+ *
+ * ⚠️ 2026-10-08 起 `coordinateSource` **必传**（后端已按 fail-closed 上线）：
+ * - 白名单（可信）：`MAP_PICK`（地图选点）/ `WECHAT_ADDRESS`（微信地址**且真的带坐标**），
+ *   大小写 / 空白不敏感；
+ * - `MANUAL_INPUT` / `AUTO_LOCATE` / 未知值 / **缺失** ⇒ 后端一律判 `canDelivery=false` +
+ *   `failCode=NO_COORDINATE`（拿不到坐标时**不要**调本接口，直接提示用户去地图选点）。
+ * - ⛔ 绝不伪造来源：只有坐标**真的**来自地图选点时才传 `MAP_PICK`
+ *   （见 `utils/coordinate-source.ts`）。
  */
 export function quoteDelivery(payload: {
   merchantId: number
   goodsAmount: number
   receiverLat?: number
   receiverLng?: number
+  /** 坐标来源（白名单，见上）；**缺失/非白名单 ⇒ 后端 fail-closed**。 */
+  coordinateSource?: string
   address?: string
 }): Promise<DeliveryQuote> {
   return request<DeliveryQuote>({ url: '/api/delivery/quote', method: 'POST', data: payload })

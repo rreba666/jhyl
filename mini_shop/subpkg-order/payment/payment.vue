@@ -15,6 +15,7 @@ import { cleanDigits, cleanText, normalizeEditableMobile, validateEmail, validat
 import { isApiRequestError, normalizeLegacyWording } from '@/utils/request'
 import { isLoggedIn } from '@/utils/auth'
 import { getModules, isModuleEnabled, type ModuleConfig } from '@/utils/config'
+import { normalizeCoordinateSource } from '@/utils/coordinate-source'
 import LoginGuide from '@/components/LoginGuide.vue'
 
 /** 配送方式：0=物流(快递配送) 1=线下自提 2=同城配送（2026-09-19 起开放下单：需选发货门店 + 填收货地址，配送费走试算）。 */
@@ -56,9 +57,21 @@ interface Address {
   province: string
   city: string
   district: string
-  /** 定位经纬度（同城配送下单必带；定位失败时用发货门店坐标兜底）。 */
+  /**
+   * 收货坐标（GCJ-02）—— 同城配送下单必带。
+   * ⛔ **只能**来自收货地址自身的「地图选点」（`subpkg-order/address/edit` 的 `pickOnMap`）：
+   *    绝不兜底到"当前位置 / 发货门店坐标"（那是伪造数据，2026-10-08 P1 履约事故根因）。
+   */
   latitude?: number
   longitude?: number
+  /**
+   * 坐标**来源**（后端白名单，取值见 `utils/coordinate-source.ts`）—— 与 `latitude/longitude`
+   * **同生同灭**（all-or-nothing）：有坐标必须有来源，没有坐标就必须没有来源。
+   *
+   * ⛔ 后端 2026-10-08 起只认白名单（`MAP_PICK` / `WECHAT_ADDRESS`）：缺失或其它值一律
+   *    fail-closed（试算 `failCode=NO_COORDINATE`、下单 `13026`）⇒ 前端也**绝不**凭空补一个来源。
+   */
+  coordinateSource?: string
 }
 
 const menuTop = ref(0)
@@ -123,6 +136,12 @@ const quoteLoading = ref(false)
 /** 试算失败 / 不可配送的提示文案。 */
 const quoteError = ref('')
 /**
+ * 试算失败的**结构化失败码**（后端 R4 枚举，见 `quoteFailureText`）。
+ * 空串 = 当前没有失败码（未试算 / 试算通过 / 后端老版本没下发）。
+ * ⛔ **不得**用它判断"能不能送" —— `canDelivery` 才是唯一判据。
+ */
+const quoteFailCode = ref('')
+/**
  * 收货地址**没有真实坐标**时的提示文案。
  *
  * ⚠️⚠️ 2026-10-08 修（用户反馈「手动输入地址时超出范围也能下单」）：
@@ -136,13 +155,43 @@ const ADDRESS_NEEDS_MAP_PICK_TEXT = '该地址没有定位信息，请在地图�
  * 收货地址的**真实**坐标 —— 同城配送坐标的**唯一合法来源**。
  * ⚠️ 只认地址自身的定位；0 / NaN / 缺失一律视为"没有坐标"
  *    （`(0, 0)` 是几内亚湾，不可能是有效收货点）。绝不用 `??` 兜底到别的位置。
+ * ⚠️ 2026-10-08 追补：坐标还必须带**可信来源**（后端白名单，见 `utils/coordinate-source.ts`）。
+ *    没有来源（升版前的旧缓存 / 从地址簿选回）或来源未知 ⇒ 一律按「**没有坐标**」处理，
+ *    于是试算与下单都不会带上这个坐标（后端本来也会 fail-closed，前端如实先拦住）。
  */
 const addressCoords = computed(() => {
   const lat = Number(selectedAddress.value?.latitude)
   const lng = Number(selectedAddress.value?.longitude)
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return null
+  if (!normalizeCoordinateSource(selectedAddress.value?.coordinateSource)) return null
   return { lat, lng }
 })
+/**
+ * 收货坐标的**来源**（`undefined` = 不上报来源）。
+ *
+ * ⛔ **all-or-nothing**：只有当 `addressCoords`（已按白名单门禁过滤）非空时才返回来源。
+ *    试算与下单都只用这一个值，并且必须与坐标写在**同一个对象字面量**里 ——
+ *    绝不出现"有来源没坐标"（伪造）或"有坐标没来源"（后端 `NO_COORDINATE` / `13026`）。
+ */
+const addressCoordinateSource = computed<string | undefined>(() => (
+  addressCoords.value ? (normalizeCoordinateSource(selectedAddress.value?.coordinateSource) ?? undefined) : undefined
+))
+/**
+ * 从「地址草稿 / 结算表单缓存」里**成对**取回坐标与来源（all-or-nothing）。
+ *
+ * ⛔ 存量的 `_v2` 缓存是在"只有坐标、还没有来源"的那版前端写入的 ⇒ 里面**有坐标没来源**。
+ *    这种坐标来路不明，必须当作**没有坐标**：返回空对象（不继承、不上报），
+ *    让用户重新地图选点。**绝不能**替它补一个来源（那是伪造来源）。
+ */
+function trustedCoordinateFields(raw: { latitude?: unknown; longitude?: unknown; coordinateSource?: unknown } | null | undefined): { latitude?: number; longitude?: number; coordinateSource?: string } {
+  if (!raw) return {}
+  const lat = Number(raw.latitude)
+  const lng = Number(raw.longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return {}
+  const coordinateSource = normalizeCoordinateSource(raw.coordinateSource)
+  if (!coordinateSource) return {}
+  return { latitude: lat, longitude: lng, coordinateSource }
+}
 /** 地址表单里的定位状态：idle（还没试） / ok（已自动填入省市区） / fail（拿不到，需手选）。 */
 const locationState = ref<'idle' | 'ok' | 'fail'>('idle')
 
@@ -207,8 +256,8 @@ function loadFormCache(): void {
           province: cleanText(cached.address.province || ''),
           city: cleanText(cached.address.city || ''),
           district: cleanText(cached.address.district || ''),
-          ...(typeof cached.address.latitude === 'number' ? { latitude: cached.address.latitude } : {}),
-          ...(typeof cached.address.longitude === 'number' ? { longitude: cached.address.longitude } : {}),
+          // ⛔ 坐标与**来源**一起取（all-or-nothing）：旧 `_v2` 缓存"有坐标没来源" ⇒ 视为没有坐标
+          ...trustedCoordinateFields(cached.address),
         }
       }
     }
@@ -241,7 +290,7 @@ onShow(() => {
   try {
     const draft = uni.getStorageSync(ADDRESS_DRAFT_KEY) as Partial<{
       name: string; phone: string; detail: string; province: string; city: string; district: string
-      latitude: number; longitude: number
+      latitude: number; longitude: number; coordinateSource: string
     }> | undefined
     if (!draft || !String(draft.detail || '').trim()) return
     selectedAddress.value = {
@@ -251,13 +300,19 @@ onShow(() => {
       province: cleanText(draft.province || ''),
       city: cleanText(draft.city || ''),
       district: cleanText(draft.district || ''),
-      ...(typeof draft.latitude === 'number' ? { latitude: draft.latitude } : {}),
-      ...(typeof draft.longitude === 'number' ? { longitude: draft.longitude } : {}),
+      // ⛔ 坐标与**来源**一起取（all-or-nothing，见 trustedCoordinateFields）
+      ...trustedCoordinateFields(draft),
     }
   } catch { /* 草稿读取失败忽略：不影响结算页其它功能 */ }
 })
 
-/** 保存结算表单到本地缓存。 */
+/**
+ * 保存结算表单到本地缓存。
+ *
+ * ⚠️ 地址是**整体**存进缓存的（`{ ...selectedAddress.value }`）⇒ `coordinateSource` 随坐标一起落盘；
+ *    读取侧 `loadFormCache` 用 `trustedCoordinateFields` 成对取回，所以缓存里"两份数据不一致"
+ *    也不会被当成可信坐标。
+ */
 function saveFormCache(): void {
   try {
     const addressPhone = normalizeEditableMobile(selectedAddress.value?.phone)
@@ -850,24 +905,47 @@ function navigateToShop(shop: EnabledShop): void {
 }
 
 /**
+ * 预试算的失败是否属于「**坐标不可信 / 没有坐标**」这一类 —— 它**不代表送不到**。
+ *
+ * ⚠️⚠️ 2026-10-08（后端 coordinateSource 闸门上线后必须这么判，否则同城配送对所有用户都进不去）：
+ *   预试算用的是**用户当前定位**（不是收货地址），而它的来源只能是 `AUTO_LOCATE`，
+ *   **不在后端白名单里** ⇒ 后端必然回 `canDelivery=false` + `failCode=NO_COORDINATE`。
+ *   ⛔ 我们**绝不**为了让它通过而谎报 `MAP_PICK`（那是伪造来源，正是本次事故要根除的东西）。
+ *   ⇒ 这类失败属于「**结论不可用**」：不能据此把「同城配送」置灰，
+ *     真正的判定交给用户填好地址后的**带来源**的试算（`refreshDeliveryQuote`）。
+ */
+function isCoordinateTrustFailure(failCode?: string): boolean {
+  const code = String(failCode || '').trim().toUpperCase()
+  return code === 'NO_COORDINATE' || code === 'COORDINATE_INVALID'
+}
+
+/** 预试算结论能否当成「这家门店送不到」：只有**有结论的失败**才算（见 `isCoordinateTrustFailure`）。 */
+function shopQuoteBlocksDelivery(quote?: DeliveryQuote): boolean {
+  return !!quote && quote.canDelivery === false && !isCoordinateTrustFailure(quote.failCode)
+}
+
+/**
  * 当前定位下「同城配送」是否可选。
  * - 定位拿不到（未授权/失败）→ 返回 true（**不置灰**，避免误拦；真正下单时仍会按收货地址试算拦截）；
  * - 定位成功但所有试算门店都送不到 → false（选项置灰，点击给提示）；
  * - 只要有一家能送 → true。
+ * ⚠️ 2026-10-08：预试算的 `NO_COORDINATE`（当前定位没有可信来源）**不算「送不到」**
+ *    ⇒ 它不再参与置灰（详见 `isCoordinateTrustFailure` 的说明）。
  */
 const sameCityAvailable = computed(() => {
   if (!userLocation.value) return true
   const quotes = Object.values(shopQuotes.value)
   if (!quotes.length) return true
-  return quotes.some((quote) => quote.canDelivery !== false)
+  return !quotes.some(shopQuoteBlocksDelivery)
 })
 
 /**
- * 置灰的具体原因：取预试算里任一「不可送」门店的后端 reason
+ * 置灰的具体原因：取预试算里任一「**有结论地**不可送」门店的后端 reason
  * （后端会带上距离，如「超出配送范围（当前距离约 1397.1 公里）」），展示在页面上而不是塞进 toast（会被截断）。
+ * ⚠️ 与 `sameCityAvailable` 用**同一个判据**，否则会出现"没置灰却显示置灰原因"。
  */
 const sameCityUnavailableReason = computed(() => {
-  const blocked = Object.values(shopQuotes.value).find((quote) => quote.canDelivery === false)
+  const blocked = Object.values(shopQuotes.value).find(shopQuoteBlocksDelivery)
   return blocked?.reason && blocked.reason !== 'ok' ? blocked.reason : '超出同城配送范围'
 })
 
@@ -875,6 +953,12 @@ const sameCityUnavailableReason = computed(() => {
  * 进页面时定位一次，并对候选门店并发预试算 —— 外市用户买同城配送必然送不到，
  * 靠这一步在**下单前**就把「同城配送」置灰，而不是等提交时才报错。
  * 定位失败静默处理（不弹错、不阻塞），并允许后续切到同城时再补一次定位。
+ *
+ * ⚠️ 2026-10-08（后端 coordinateSource 闸门）：这里传的是**用户当前定位**，来源只能是
+ *    `AUTO_LOCATE`（不在白名单）⇒ 后端一律回 `NO_COORDINATE`，**拿不到"能不能送"的结论**。
+ *    ⛔ 绝不谎报 `MAP_PICK` 来"修好"它；本轮结果只当**参考**，不再参与置灰
+ *    （见 `isCoordinateTrustFailure` / `shopQuoteBlocksDelivery`）。
+ *    真正的判定在用户填好收货地址后由 `refreshDeliveryQuote`（带可信来源）做。
  */
 async function prepareSameCity(): Promise<void> {
   locationAttempts += 1
@@ -896,6 +980,8 @@ async function prepareSameCity(): Promise<void> {
   const nearest = [...candidates].sort((a, b) => shopDistance(a) - shopDistance(b)).slice(0, SAME_CITY_QUOTE_LIMIT)
   const results = await Promise.all(nearest.map(async (shop) => {
     try {
+      // ⛔ 刻意**不带** coordinateSource：这是"当前位置"，不是用户在地图上选的收货点 ——
+      //    给它标 `MAP_PICK` 就是谎报来源。后端因此会 fail-closed（预期内，见上面的说明）。
       const quote = await quoteDelivery({
         merchantId: shop.id,
         goodsAmount: subtotal.value,
@@ -938,6 +1024,8 @@ watch([shops, moduleConfig, deliverableShops], () => {
  *    ⇒ 自提只用 `deliverableShops`（口径 = `shop_product.status=1` 上架关系，与下单拦截同源）。
  * ⚠️ 物流（0）不选门店，保持原样返回。
  * ⚠️ 同城若预试算已出结果，进一步只列**当前定位能送到**的门店（送不到的列出来也没意义）。
+ *    ⚠️ 2026-10-08：这里的"送不到"必须是**有结论的**失败（`shopQuoteBlocksDelivery`）——
+ *    `NO_COORDINATE`（当前定位没有可信来源）**不算**，否则门店列表会被清空。
  * ⚠️ 别再退回 `shops.value` 给自提/同城 —— 那是全量启用门店，会把没有该商品的门店也列出来。
  */
 const pickerShops = computed(() => {
@@ -946,10 +1034,7 @@ const pickerShops = computed(() => {
   // 物流：不涉及门店选择
   if (pickupType.value !== 2) return shops.value
   const deliverable = sameCityShops.value
-  const quotable = deliverable.filter((shop) => {
-    const quote = shopQuotes.value[shop.id]
-    return !quote || quote.canDelivery !== false
-  })
+  const quotable = deliverable.filter((shop) => !shopQuoteBlocksDelivery(shopQuotes.value[shop.id]))
   return quotable.length ? quotable : deliverable
 })
 /** 门店弹层标题随配送方式变化。 */
@@ -988,12 +1073,18 @@ function onRegionChange(event: { detail?: { value?: string[] } }): void {
 }
 
 /**
- * 用定位自动填入省市区（打开配送地址表单时调用）。
+ * 用定位自动填入省市区（**历史遗留：原「配送地址」弹层用的，弹层已改成独立整页**
+ * `subpkg-order/address/edit`，该弹层的模板已删除 ⇒ 本函数与 `saveAddress` 目前**不可达**）。
  *
  * 只填**用户还没填**的字段（不覆盖手动修改）；任何失败都静默降级为手选 ——
  * 省市区可以手选，不能因为定位失败就卡住下单。
  * 微信 `getLocation` 的 `geocode` 会附带 address（省/市/区），但部分基础库或未开通位置服务时拿不到，
  * 所以这里对字段名也做了兼容取值。
+ *
+ * ⛔⛔ 2026-10-08：这里**不得**再写 `addressForm` 的经纬度（已删除）。
+ *    自动定位拿到的是"用户当前站在哪"，与用户填写的收货地址**无关** ⇒ 拿它当收货坐标
+ *    就是伪造数据（同城配送范围校验会失效），而且它没有可信来源（白名单外的 `AUTO_LOCATE`）
+ *    ⇒ 后端 `fail-closed`、前端也按"没有坐标"处理。要坐标只能去地址页**地图选点**。
  */
 async function locateForAddress(): Promise<void> {
   try {
@@ -1006,8 +1097,9 @@ async function locateForAddress(): Promise<void> {
       })
     })
     locationState.value = 'ok'
-    addressForm.latitude = Number(result.latitude)
-    addressForm.longitude = Number(result.longitude)
+    // ⛔ 2026-10-08：**不写** `addressForm` 的经纬度（原 `addressForm.latitude/longitude = ...` 已删除）。
+    //    自动定位 = 用户当前所在位置，与收货地址无关，也没有可信来源（白名单外的 AUTO_LOCATE）
+    //    ⇒ 拿它当收货坐标就是伪造数据。要做同城配送，只能去地址页「地图选点」。
     const address = result.address || {}
     const province = String(address.province || '')
     const city = String(address.city || '')
@@ -1045,6 +1137,51 @@ const quoteUsingShopFallback = computed(
 )
 
 /**
+ * 试算失败码 → 用户引导文案（后端回执 §七 全量枚举，2026-10-08 R4）。
+ *
+ * 分工（⚠️ 别搞反）：
+ * - **`canDelivery` 才是"能不能送"的唯一判据**：只有它为 `false` 时才调这里；
+ *   后端老版本不下发 `failCode` ⇒ `failCode` 为空也**绝不**当成成功；
+ * - 白名单外的失败码（`OUT_OF_RANGE` / `MIN_AMOUNT` / `SHOP_CLOSED` / `NOT_IN_DELIVERY_HOURS` /
+ *   `DELIVERY_DISABLED` / `GOODS_NOT_PROVIDED` / `SHOP_NO_COORDINATE`）⇒ **直接用后端 `reason`**
+ *   （后端文案已可直接给用户看，例如「超出配送范围（当前距离约 12.3 公里）」）。
+ */
+function quoteFailureText(quote: DeliveryQuote | null | undefined): string {
+  const reason = quote?.reason && quote.reason !== 'ok' ? quote.reason : ''
+  switch (String(quote?.failCode || '').trim().toUpperCase()) {
+    // 没有可信坐标（缺失 / 来源不在白名单）⇒ 唯一出路就是去地图选点（页面另给可点按钮）
+    case 'NO_COORDINATE':
+      return ADDRESS_NEEDS_MAP_PICK_TEXT
+    // 坐标越界 / (0,0) ⇒ 让用户重新选点
+    case 'COORDINATE_INVALID':
+      return '收货坐标无效，请在地图上重新选点'
+    // 地图服务侧问题（未接入 / 配额 / 连接失败）与地址解析失败 ⇒ 地图服务口径
+    case 'MAP_SERVICE_ERROR':
+    case 'ADDRESS_UNRESOLVED':
+      return reason || '地图服务暂不可用，请在地图上选点后重试'
+    // 门店侧 / 金额 / 时段等原因：后端 reason 已是用户可读文案，原样透出
+    case 'OUT_OF_RANGE':
+    case 'MIN_AMOUNT':
+    case 'SHOP_CLOSED':
+    case 'NOT_IN_DELIVERY_HOURS':
+    case 'DELIVERY_DISABLED':
+    case 'GOODS_NOT_PROVIDED':
+    case 'SHOP_NO_COORDINATE':
+      return reason || '该地址当前不可配送'
+    default:
+      return reason || '该地址超出配送范围'
+  }
+}
+
+/**
+ * 试算失败是否属于「**去地图选点**就能解决」的一类（用于展示可点入口，而不是只丢一句提示）。
+ * 覆盖：本地判定没有可信坐标（含旧缓存"有坐标没来源"）、后端 `NO_COORDINATE` / `COORDINATE_INVALID`。
+ */
+const quoteNeedsMapPick = computed(() => pickupType.value === 2 && !!selectedAddress.value
+  && (quoteFailCode.value === 'NO_COORDINATE' || quoteFailCode.value === 'COORDINATE_INVALID'
+    || !addressCoords.value))
+
+/**
  * 同城配送试算：发货门店 + 收货地址齐了才调，用于展示配送费 / 距离 / 预计送达与可送性。
  * 试算失败**不静默按 0 收运费** —— 保留错误文案，并在提交时拦截。
  */
@@ -1052,6 +1189,7 @@ async function refreshDeliveryQuote(): Promise<void> {
   if (pickupType.value !== 2 || !selectedShop.value || !selectedAddress.value) {
     deliveryQuote.value = null
     quoteError.value = ''
+    quoteFailCode.value = ''
     return
   }
   const address = selectedAddress.value
@@ -1060,11 +1198,14 @@ async function refreshDeliveryQuote(): Promise<void> {
   //    提交侧另有拦截（见 submitPayment），二者共同保证「无坐标不可能下单成功」。
   if (!coords) {
     deliveryQuote.value = null
+    // 本地就能断定后端会判 `NO_COORDINATE`（坐标缺失或来源不可信）⇒ 先按同一口径给引导
+    quoteFailCode.value = 'NO_COORDINATE'
     quoteError.value = ADDRESS_NEEDS_MAP_PICK_TEXT
     return
   }
   quoteLoading.value = true
   quoteError.value = ''
+  quoteFailCode.value = ''
   try {
     const quote = await quoteDelivery({
       merchantId: selectedShop.value.id,
@@ -1072,11 +1213,14 @@ async function refreshDeliveryQuote(): Promise<void> {
       // 坐标**只**来自收货地址自身的定位（见 addressCoords），绝不兜底到当前位置 / 发货门店
       receiverLat: coords.lat,
       receiverLng: coords.lng,
+      // 坐标来源：**只**取地址自身记录的可信来源（`addressCoords` 已按白名单门禁过滤过 ⇒ 这里必非空）
+      coordinateSource: addressCoordinateSource.value,
       address: fullAddress(address),
     })
     deliveryQuote.value = quote
     if (quote && quote.canDelivery === false) {
-      quoteError.value = quote.reason && quote.reason !== 'ok' ? quote.reason : '该地址超出配送范围'
+      quoteFailCode.value = String(quote.failCode || '')
+      quoteError.value = quoteFailureText(quote)
     }
   } catch {
     deliveryQuote.value = null
@@ -1165,8 +1309,8 @@ onShow(() => {
         province: draft.province || '',
         city: draft.city || '',
         district: draft.district || '',
-        ...(draft.latitude != null ? { latitude: Number(draft.latitude) } : {}),
-        ...(draft.longitude != null ? { longitude: Number(draft.longitude) } : {}),
+        // ⛔ 坐标与**来源**一起取（all-or-nothing）：草稿里"有坐标没来源"（升版前写入）⇒ 当作没有坐标
+        ...trustedCoordinateFields(draft),
       }
       uni.removeStorageSync(ADDRESS_DRAFT_KEY)
       // 地址变了，同城配送费/距离要重算
@@ -1272,17 +1416,40 @@ function selectPayMethod(method: PayMethod): void {
  * 当前地址写进 storage 作为草稿，页面保存后返回，由 onShow 读回。
  */
 function openAddressEditor(): void {
-  try {
-    if (selectedAddress.value) uni.setStorageSync(ADDRESS_DRAFT_KEY, selectedAddress.value)
-    else uni.removeStorageSync(ADDRESS_DRAFT_KEY)
-  } catch { /* 忽略 */ }
+  stashAddressDraft()
   // ⚠️ 必须带 mode=payment（2026-09-22 修）：不带参数时地址页按「地址簿模式」走 ——
     // 保存只写后端、不写 ADDRESS_DRAFT_KEY 草稿，也不渲染「选择已有地址」入口，
     // 于是结算页既选不了地址、也不会自动回填（真机反馈）。
     uni.navigateTo({ url: '/subpkg-order/address/edit?mode=payment' })
 }
 
-/** 校验并保存本地地址。 */
+/** 把当前地址写进草稿 storage（供地址页回填；没有地址就清掉，避免上一单的地址串进这一单）。 */
+function stashAddressDraft(): void {
+  try {
+    if (selectedAddress.value) uni.setStorageSync(ADDRESS_DRAFT_KEY, selectedAddress.value)
+    else uni.removeStorageSync(ADDRESS_DRAFT_KEY)
+  } catch { /* 忽略 */ }
+}
+
+/**
+ * **可执行**入口：直达地址页的**地图选点**（`pick=map`）。
+ *
+ * 用途：同城配送试算因为「没有可信坐标」/「坐标无效」失败时，光有一句提示不够 ——
+ * 用户点这个按钮直接进地址页并把地图选点拉起来，选完返回即可重算
+ * （草稿里带着当前地址，用户取消选点也不会丢内容）。
+ */
+function openAddressMapPicker(): void {
+  stashAddressDraft()
+  uni.navigateTo({ url: '/subpkg-order/address/edit?mode=payment&pick=map' })
+}
+
+/**
+ * 校验并保存本地地址（**历史遗留：原「配送地址」弹层用的，模板已删除 ⇒ 目前不可达**）。
+ *
+ * ⛔ 2026-10-08：不再从这里带坐标（原 `...addressForm.latitude ? { latitude } : {}` 已删除）——
+ *    该弹层的坐标只可能来自自动定位（来源是白名单外的 `AUTO_LOCATE`），属于"来路不明的坐标"。
+ *    同城配送的坐标一律由地址页「地图选点」写入并带 `MAP_PICK` 来源（见 `trustedCoordinateFields`）。
+ */
 function saveAddress(): void {
   const name = validateText(addressForm.name, { label: '收货人姓名', maxLength: PAYMENT_CONTACT_NAME_MAX_LENGTH })
   const phone = validateMobile(normalizeEditableMobile(addressForm.phone))
@@ -1306,8 +1473,6 @@ function saveAddress(): void {
     province: addressForm.province,
     city: addressForm.city,
     district: addressForm.district,
-    ...(addressForm.latitude != null ? { latitude: addressForm.latitude } : {}),
-    ...(addressForm.longitude != null ? { longitude: addressForm.longitude } : {}),
   }
   addressSheetVisible.value = false
   // 地址变化后重算同城配送费（试算 watch 也会兜一次，这里显式调一次让反馈更即时）
@@ -1774,8 +1939,11 @@ async function submitPayment(): Promise<void> {
   // ⚠️ 2026-10-08 新增：同城配送**必须有真实收货坐标** —— 没有就绝不放行。
   //    不能依赖上面那条「试算返回不可送」的拦截：无坐标时我们**故意不试算**（deliveryQuote 为 null），
   //    那条拦截的 `deliveryQuote.value &&` 条件会短路，等于放行。
+  //    ⚠️ 坐标"不真实"包含**没有可信来源**（旧缓存 / 地址簿选回）—— `addressCoords` 已按白名单门禁过滤。
   if (!isExistingOrder && pickupType.value === 2 && selectedAddress.value && !addressCoords.value) {
     uni.showToast({ title: ADDRESS_NEEDS_MAP_PICK_TEXT, icon: 'none' })
+    // 提示之后**直接**把用户送进地图选点（可执行），别让他自己找入口
+    openAddressMapPicker()
     return
   }
   // 试算说不可送就不放行（超配送范围 / 门店未开配送等），提示以后端 reason 为准
@@ -1833,7 +2001,16 @@ async function submitPayment(): Promise<void> {
           //    （退到发货门店坐标时，后端拿门店自己的位置判「能否送到」，必然可送）。
           //    无坐标的情况在 submitPayment 里已被拦截（ADDRESS_NEEDS_MAP_PICK_TEXT），
           //    这里保持「有真实坐标才带」，绝不用别的位置顶上。
-          ...(addressCoords.value ? { receiverLat: addressCoords.value.lat, receiverLng: addressCoords.value.lng } : {}),
+          // ⚠️ 2026-10-08 追补（后端 coordinateSource **必填**）：坐标与**来源**必须同时提交 ——
+          //    所以三者写在**同一个对象字面量**里、共用**同一个条件**
+          //    （`addressCoords` 已要求来源可信 ⇒ 单独发坐标/单独发来源都不可能发生）。
+          ...(addressCoords.value && addressCoordinateSource.value
+            ? {
+                receiverLat: addressCoords.value.lat,
+                receiverLng: addressCoords.value.lng,
+                coordinateSource: addressCoordinateSource.value,
+              }
+            : {}),
         } : {}),
         ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
       })
@@ -2013,6 +2190,11 @@ function backToCart(): void {
         <text v-if="quoteError" class="quote-error">{{ quoteError }}</text>
         <text v-else-if="quoteLoading" class="quote-hint">配送费试算中...</text>
         <text v-else-if="deliveryQuote" class="quote-hint">距离 {{ formatDistance(deliveryQuote.distanceKm) }} · 预计 {{ deliveryQuote.estimatedDeliveryMinutes }} 分钟送达{{ quoteUsingShopFallback ? '（按发货门店估算）' : '' }}</text>
+        <!-- 缺可信坐标 / 坐标无效（failCode=NO_COORDINATE / COORDINATE_INVALID）：给**可执行**入口 ——
+             一键进地址页并把地图选点拉起来，而不是只丢一句提示让用户自己找 -->
+        <view v-if="quoteNeedsMapPick" class="quote-action" @click="openAddressMapPicker">
+          <text class="quote-action-text">去地图选点</text>
+        </view>
       </view>
 
       <view v-show="pickupType === 1" class="section contact-section">
@@ -2282,6 +2464,9 @@ function backToCart(): void {
 .pickup-option.disabled { opacity: 0.45; }
 .quote-hint { display: block; margin-top: 12rpx; color: #86909c; font-size: 23rpx; }
 .quote-error { display: block; margin-top: 12rpx; color: #f53f3f; font-size: 23rpx; }
+/* 试算失败但"去地图选点就能解决"时的可点入口（与地址页的地图选点卡同色系） */
+.quote-action { display: flex; align-items: center; justify-content: center; height: 68rpx; margin-top: 16rpx; border-radius: 12rpx; background: #fff4e8; }
+.quote-action-text { color: #ff5500; font-size: 24rpx; font-weight: 600; }
 .shop-empty { display: block; padding: 40rpx 0; color: #86909c; font-size: 25rpx; text-align: center; }
 /* 省市区三级联动：必须与 .sheet-input 保持同一套间距与字号，否则文字会与左侧标签贴在一起 */
 .sheet-picker { flex: 1; min-width: 0; margin-left: 24rpx; padding: 20rpx 0; }
