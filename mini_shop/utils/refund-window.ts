@@ -265,7 +265,7 @@ export function isFastRefundDailyQuotaExhausted(): boolean {
  * = 本地 30 分钟窗口 **且** 该订单未被后端拒过 **且** 今日次数未用完。
  *
  * ⚠️ 仍不包含同城履约闸门 —— 那个由页面用 `isFastRefundGateClosed(order)` 单独判
- *    （因为它还要给出"申请取消（需商家确认）"这种**不同的**按钮形态）。
+ *    （因为它还要在按钮上给出**置灰但可点**的形态 —— 点它只为解释原因，见下）。
  */
 export function canFastRefundNow(
   order: Pick<OrderSummary, 'id' | 'status' | 'payTime' | 'createTime'> | null | undefined,
@@ -287,8 +287,13 @@ export function canFastRefundNow(
  *    前端若继续写死"已超过秒退时限（支付后 30 分钟）"这类句子，**下一次口径变更还会漂**。
  *    后端的 `message` 天然带着**当时的**准确口径（含同城生鲜的 48 小时与"质量问题走人工"）。
  * 2. **但仍要按 `code` 分流去向**（`error.message` 只说明"为什么不行"，不说明"那该怎么办"）：
- *     `2013`（已备货完成/已出餐）该引导去「**申请取消 → 商家审核**」，
- *     其余该引导去「**售后申请（人工审核）**」。
+ *    `2011` / `2012` / `2014` ⇒ 引导去「**售后申请（人工审核）**」；
+ *    `2013` / `8703` ⇒ `action: 'none'`（**不引导、不跳页**，只如实说明）；
+ *    ⚠️ `2013`（已备货完成/已出餐）**不再**引导「申请取消 → 商家审核」——
+ *    用户 2026-10-08 **决策 A**：本批**不做 C 端取消申请入口**（全仓无任何地方调用
+ *    `POST /api/delivery/orders/{orderNo}/cancel-request`，详情页那个「申请取消（需商家确认）」
+ *    按钮也只是弹提示）⇒ 再承诺"可提交取消申请"就是**指向一条不存在的路**。
+ *    它现在的正确去向 = **联系客服处理**（写进 `hint`，与后端"质量问题走人工"的口径一致）。
  * 3. **`2012` 是账号级闸门**（今日次数已用完，影响当天**所有**订单）⇒ 必须调用
  *    {@link markFastRefundDailyQuotaExhausted}；其余是**订单级** ⇒ {@link markFastRefundBlocked}。
  *    这条判据原先在**两个页面各写一遍**（列表页 / 详情页），已踩过"只修一处"的坑。
@@ -299,9 +304,7 @@ export function canFastRefundNow(
 export type FastRefundGateAction =
   /** 引导去「售后申请（人工审核）」。 */
   | 'after-sale'
-  /** 引导去「申请取消 → 商家审核」。 */
-  | 'cancel-request'
-  /** 只如实展示后端文案，不额外引导。 */
+  /** 只如实展示文案（含"请联系客服"），不额外引导、不跳页。 */
   | 'none'
 
 /** {@link resolveFastRefundGate} 的判定结果。 */
@@ -321,7 +324,9 @@ export interface FastRefundGateDecision {
 const FAST_REFUND_GATE_FALLBACK: Record<number, string> = {
   2011: '已超过秒退时限',
   2012: '今日秒退次数已达上限',
-  2013: '商家已备货完成，无法直接退款',
+  // ⚠️ 语义含"已开始备货"与"已出餐"两种（后端 message 会给出当次的确切说法）：
+  //    文案不能只写"已出餐"，否则未出餐但已备货的商家会被用户误以为"根本没做就出餐了"。
+  2013: '商家已开始备货或已出餐，无法直接退款',
   2014: '订单金额超过秒退上限',
   8703: '已超过售后申请时限',
 }
@@ -330,7 +335,10 @@ const FAST_REFUND_GATE_FALLBACK: Record<number, string> = {
 const FAST_REFUND_GATE_RULES: Record<number, { action: FastRefundGateAction; hint: string; accountLevel?: boolean }> = {
   2011: { action: 'after-sale', hint: '请提交售后申请（人工审核）' },
   2012: { action: 'after-sale', hint: '请提交售后申请（人工审核）', accountLevel: true },
-  2013: { action: 'cancel-request', hint: '可提交取消申请，由商家确认' },
+  // ⚠️ 2026-10-08 决策 A：**不引导「申请取消」**（C 端没有该入口，承诺了也走不通）
+  //    ⇒ `action: 'none'`，去向只写在文案里（联系客服）。与 8703 的区别：
+  //    8703 是"连售后窗口都关了"，2013 是"还能走人工售后，但直接退款不行"。
+  2013: { action: 'none', hint: '请联系客服处理' },
   2014: { action: 'after-sale', hint: '请提交售后申请（人工审核）' },
   // ⚠️ 售后窗口也已关闭 ⇒ **不引导**，只展示后端文案（见上方类型注释）
   8703: { action: 'none', hint: '' },

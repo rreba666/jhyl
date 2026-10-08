@@ -25,6 +25,9 @@ import {
   type MerchantSkuItem,
 } from '@/api/merchant'
 import { uploadFile } from '@/utils/request'
+// ⚠️ 生鲜开关的提示语**取单一来源**（同城 48 小时 / 资金 3 天可提 + 「物流与自提不受影响」），
+//    不要在本页硬编码 —— 口径一改，这里就会漂（契约 `timing-category-window.contract.ps1` 有反向断言）。
+import { TIMING_CATEGORY_FRESH_SWITCH_HINT } from '@/utils/timing-category'
 
 /** 编辑数据暂存 key（商品列表页写入，本页读取回填）。 */
 const EDIT_STORAGE_KEY = 'merchant_product_edit'
@@ -553,7 +556,7 @@ function goBack(): void {
         <view class="switch-row">
           <view class="switch-copy">
             <text class="label-text">生鲜 · 鲜活易腐</text>
-            <text class="switch-hint">开启后：同城单售后窗口 48 小时、资金 3 天可提；物流与自提不受影响</text>
+            <text class="switch-hint">{{ TIMING_CATEGORY_FRESH_SWITCH_HINT }}</text>
           </view>
           <view
             class="toggle"

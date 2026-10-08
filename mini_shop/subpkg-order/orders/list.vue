@@ -419,7 +419,8 @@ async function submitFastRefund(reason: string): Promise<void> {
       return
     }
     // ===== 秒退闸门类业务错误（2026-09-23 接入；2026-10-08 Step2 改为「按码分流 + 后端文案优先」）=====
-    // 这些**不是**"理由写错"，不该让用户留在弹层里改理由 —— 都要按码引导走售后 / 取消申请。
+    // 这些**不是**"理由写错"，不该让用户留在弹层里改理由 —— 都要按码给出下一步
+    // （能走人工售后的引导去售后；`2013` 引导联系客服、`8703` 只如实说明，见 `refund-window.ts` 的闸门表）。
     // ⚠️ Step2 起**不再自拼时间口径**（同城起算点已改为"送达次日 0 点"、生鲜 48 小时），
     //    一律展示后端 `message`；但去向仍按 `code` 判（见 `utils/refund-window.ts` 的 `resolveFastRefundGate`）。
     // ⚠️ 这段与订单详情页共用同一定义 —— 不要再各自复制一份（历史上"只修一处"就是这么来的）。
@@ -440,7 +441,8 @@ async function submitFastRefund(reason: string): Promise<void> {
         refundSheetOrder.value = null
         delete fastRefundRequestIds[requestKey]
         uni.showToast({ title: gate.text, icon: 'none', duration: 3000 })
-        // ⚠️ 只有「去售后申请」才切到「退款/售后」分类：取消申请与"窗口已关闭"不属于售后入口。
+        // ⚠️ 只有「去售后申请」（`action === 'after-sale'`）才切到「退款/售后」分类：
+        //    `2013` / `8703`（`action: 'none'`）不属于售后入口，切过去会把用户引错地方。
         if (gate.action === 'after-sale') {
           activeIndex.value = AFTER_SALE_TAB_INDEX
           await load(true)

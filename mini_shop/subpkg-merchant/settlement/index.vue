@@ -134,6 +134,30 @@ const submitBlocked = computed(() => account.value?.withdrawable === false || Bo
  */
 const BLOCK_FALLBACK_TEXT = '当前不可提现，请稍后重试或联系平台'
 
+/**
+ * 阻断原因旁的补充说明（**Step3 §一 前端建议原文**）：
+ * 该闸门的主因是「品牌有未完结售后（`withdrawable=false`）」，后端 `withdrawBlockReason` 只说明
+ * "为什么现在不能提"，这句补上"**什么时候恢复**"——为避免退款时资金已被提走，
+ * 售后全部完结后由后端**自动**放开（无需人工、无需重新申请）。
+ *
+ * ⚠️ **只在阻断原因确实与售后有关时才渲染**（见 `isAfterSaleBlock`）：`submitBlockReason` 也可能来自
+ *    「未绑微信 / 有欠款 / 有在途提现 / 余额为 0」等**非售后**原因 —— 那些场景下写"售后处理完成后
+ *    即可提现"会让用户误以为要等售后，反而更困惑（2026-10-08 复核补上这道闸门）。
+ * ⚠️ 只在这里定义一次，模板两处引用同一个常量（两处各写一份必然漂）。
+ */
+const WITHDRAW_AFTER_SALE_RESUME_HINT = '售后处理完成后即可提现'
+
+/**
+ * 当前阻断原因是否与「未完结售后」有关 —— 决定是否显示 {@link WITHDRAW_AFTER_SALE_RESUME_HINT}。
+ *
+ * ⚠️ 后端 `withdrawBlockReason` 是**自然语言文案**而非结构化枚举（契约 `MerchantSettlementController.account`
+ *    只给了 `withdrawable: boolean` + `withdrawBlockReason: string`）⇒ 这里只能按关键词判。
+ *    依据 Step3 §一，售后那条的后端原文是「当前有 N 笔未完结售后（待审核/退款中/待寄回/待收货）…」，
+ *    **必然含「售后」二字**；其余原因（欠款 / 在途提现 / 余额为 0 / 未绑微信）都不含。
+ * ⚠️ 若后端将来补了结构化字段（如 `withdrawBlockCode`），应改判该字段，不要再匹配文案。
+ */
+const isAfterSaleBlock = computed(() => submitBlockReason.value.includes('售后'))
+
 // ===== 数据加载 =====
 
 /** 判断是否为「非品牌主体」（13016，店长/店员误入结算接口）。 */
@@ -502,7 +526,11 @@ function goBack(): void {
              ⚠️ **物流与自提两行未变**（Step2 §二 明确要求"不要跟着改"）。 -->
         <view class="card">
           <text class="card-title">钱什么时候能提现？</text>
-          <text class="rule-lead">订单完成后，钱不会立刻可提现，而是先进「待结算」，过了释放期才转成「可提现」：</text>
+          <!-- ⚠️ 2026-10-08 修（自相矛盾）：首句原来用"订单完成后"统摄三种配送方式，
+               但下面「同城配送」那一行 Step2 已把起算点改成「**送达次日 0 点**」
+               ⇒ 再用"订单完成后"就等于和同城那一行打架（同城根本不看订单完成）。
+               现改为只说"不立刻可提现 + 先进待结算"，起算点交给下面逐行说明（三种方式本就不同）。 -->
+          <text class="rule-lead">钱不会立刻可提现，而是先进「待结算」，过了释放期才转成「可提现」—— 三种配送方式的起算点不同，分别如下：</text>
           <view class="release-list">
             <view class="release-item">
               <text class="release-form">物流单</text>
@@ -513,7 +541,7 @@ function goBack(): void {
               <text class="release-form">同城配送</text>
               <text class="release-rule">{{ RELEASE_RULE_SAME_CITY }}</text>
             </view>
-            <text class="release-hint">同城的起算点是「送达的次日 0 点」，并区分档位：普通商品 +7 天、生鲜·鲜活易腐商品 +3 天（且不早于售后窗口关闭）</text>
+            <text class="release-hint">同城的起算点是「送达的次日 0 点」（不是订单完成），按档位分叉的天数见上方规则；且不早于售后窗口关闭</text>
             <view class="release-item">
               <text class="release-form">门店自提</text>
               <text class="release-rule">核销后 1 天</text>
@@ -573,6 +601,10 @@ function goBack(): void {
           <text class="rule-line">· 提现前需在个人中心绑定微信；账户有欠款时不可提现</text>
           <view v-if="submitBlockReason" class="block-banner">
             <text class="block-text">{{ submitBlockReason }}</text>
+            <!-- Step3 §一：附一句"什么时候恢复"。
+                 ⚠️ 只在原因是「未完结售后」时显示 —— 非售后原因（欠款 / 在途提现 / 未绑微信 / 余额为 0）
+                    写这句会误导用户以为要等售后（见 `isAfterSaleBlock` 注释）。 -->
+            <text v-if="isAfterSaleBlock" class="block-hint">{{ WITHDRAW_AFTER_SALE_RESUME_HINT }}</text>
           </view>
         </view>
 
@@ -634,6 +666,9 @@ function goBack(): void {
             {{ submitting ? '提交中…' : '提交提现申请' }}
           </view>
           <text v-if="submitBlockReason" class="submit-reason">{{ submitBlockReason }}</text>
+          <!-- 与上方「提现规则」卡里的补充说明**同源**（同一常量、同一渲染条件 `isAfterSaleBlock`）——
+               两处若各写一份条件必然漂。 -->
+          <text v-if="isAfterSaleBlock" class="submit-reason-hint">{{ WITHDRAW_AFTER_SALE_RESUME_HINT }}</text>
         </view>
 
         <!-- 二级入口 -->
@@ -947,6 +982,14 @@ function goBack(): void {
   font-size: 24rpx;
   line-height: 36rpx;
 }
+/* 补充说明（何时恢复）：比后端原文弱一档，别抢"为什么不能提"的主信息 */
+.block-hint {
+  display: block;
+  margin-top: 8rpx;
+  color: #b45309;
+  font-size: 22rpx;
+  line-height: 34rpx;
+}
 
 /* 表单 */
 .field-label {
@@ -1069,6 +1112,14 @@ function goBack(): void {
   color: #c2410c;
   font-size: 23rpx;
   line-height: 36rpx;
+  text-align: center;
+}
+.submit-reason-hint {
+  display: block;
+  margin-top: 4rpx;
+  color: #b45309;
+  font-size: 22rpx;
+  line-height: 34rpx;
   text-align: center;
 }
 

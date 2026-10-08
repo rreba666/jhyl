@@ -674,17 +674,31 @@ async function action(type: 'cancel' | 'receive' | 'refund' | 'confirm-delivery'
 }
 
 /**
+ * 同城履约闸门对应的**后端错误码**：`2013` = 商家已备货完成 / 已出餐（秒退通道已关闭）。
+ * ⚠️ 只在这里写码、文案一律取自 `utils/refund-window.ts` 的闸门表（见下 `showFastRefundGateTip`）。
+ */
+const FAST_REFUND_GATE_CLOSED_CODE = 2013
+
+/**
  * 打开秒退的**理由弹层**（📌 秒退必须先填退款理由，2026-09-22 起的产品规则）。
  * 窗口判断见 `utils/refund-window.ts` 的 `canFastRefund`。
  */
 /**
  * 同城单已过履约闸门时的提示。
- * 按钮置灰仍可点，就是为了这里能解释原因 —— 对应后端 `2013`（秒退通道已关闭），
- * 并给出可走的路：**提交取消申请，由商家确认**（详情页目前没有该入口，让用户联系商家/等客服）。
+ * 按钮置灰仍可点，就是为了这里能解释原因 —— 对应后端 `2013`（秒退通道已关闭）。
+ *
+ * ⚠️ 2026-10-08 修（口径漂移）：文案**不再在本页硬编码**，改从
+ *    `utils/refund-window.ts` 的闸门表取（`resolveFastRefundGate(2013)`）——
+ *    本页原先自拼的那句与共享表里的说法**已经不一致**，两处各写一份必然再漂。
+ * ⚠️ 用户 2026-10-08 **决策 A**：本批不做 C 端「取消申请」入口（全仓无人调用
+ *    `POST /api/delivery/orders/{orderNo}/cancel-request`）⇒ `2013` 的 `action` 是 `'none'`，
+ *    文案只引导「联系客服处理」。这里**仍然只弹提示、不跳页**（用户可见行为不变）。
  */
 function showFastRefundGateTip(): void {
+  const gate = resolveFastRefundGate(FAST_REFUND_GATE_CLOSED_CODE)
   uni.showToast({
-    title: '商家已出餐，无法直接退款；可提交取消申请，由商家确认',
+    // 兜底句与闸门表里的 2013 文案**不重复**（那一条由表提供）：这里只在表里查不到 2013 时才会用到
+    title: gate?.text ?? '暂时无法发起退款，请联系客服',
     icon: 'none',
     duration: 3000,
   })
@@ -742,7 +756,11 @@ async function submitFastRefund(reason: string): Promise<void> {
     // ⚠️ 为什么改成走共享判定 `resolveFastRefundGate`：
     //    ① Step2 把同城时效起算点改成「送达次日 0 点」并新增生鲜 48 小时分叉
     //       ⇒ **前端不再自己拼时间口径**，一律展示后端 `message`（后端带着当时的准确口径）；
-    //    ② 但仍要按 `code` 决定去向：`2013` 引导「申请取消（商家确认）」，其余引导「售后申请（人工审核）」；
+    //    ② 去向按 `code` 判：**只有 `action === 'after-sale'` 才跳「售后申请（人工审核）」**；
+    //       `2013`（已备货/已出餐）与 `8703`（售后窗口也已关闭）都是 `action: 'none'` ——
+    //       前者只引导「联系客服处理」（用户 2026-10-08 决策 A：本批**不做** C 端取消申请入口，
+    //       全仓无人调用 `POST /api/delivery/orders/{orderNo}/cancel-request`，再承诺就是死路）；
+    //       后者连售后窗口都关了，更不能把用户引到售后去白跑一趟；
     //    ③ `2012` 是**账号级**闸门，必须记「今日次数已用完」，否则按钮会复活、用户陷入死循环。
     //    这段判据原先与列表页各写一份（已踩过"只修一处"的坑），现在两页共用同一定义。
     if (isApiRequestError(error)) {
@@ -753,8 +771,9 @@ async function submitFastRefund(reason: string): Promise<void> {
         refundSheetVisible.value = false
         fastRefundRequestId = ''
         uni.showToast({ title: gate.text, icon: 'none', duration: 3000 })
-        // ⚠️ 只有「去售后申请」才跳分类：取消申请与"窗口已关闭"都不属于售后入口，
-        //    跳过去会把用户引错地方（原 2013 分支的既有结论，保留）。
+        // ⚠️ 只有「去售后申请」（`action === 'after-sale'`）才跳分类：
+        //    `2013`（已备货/已出餐 ⇒ 只引导联系客服）与 `8703`（"窗口已关闭"）都是 `action: 'none'`，
+        //    它们都不属于售后入口，跳过去会把用户引错地方（原 2013 分支的既有结论，保留）。
         if (gate.action === 'after-sale') uni.redirectTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
         return
       }
@@ -938,10 +957,10 @@ onUnload(() => {
            ⚠️ 2026-10-01：判据由「纯窗口函数」升级为下面这个**总判据**（叠加了闸门记录）—— 它在 30 分钟窗口之外，
               还叠加了「被后端闸门拒过（2011/2014）」与「今日次数已用完（2012）」两个记录，
               这样被拒一次后按钮会自动落到下面的「申请退款」（人工审核），不再死循环。 -->
-      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><!-- 同城单已过履约闸门（已出餐/已派单/配送中）→ 置灰并改为「申请取消（需商家确认）」。
+      <view class="actions"><button v-if="order?.status === 0" :disabled="actionLoading" @click="action('cancel')">取消订单</button><button v-if="order?.status === 2" :disabled="actionLoading" @click="action('receive')">确认收货</button><button v-if="canConfirmDelivery" :disabled="actionLoading" @click="action('confirm-delivery')">确认收货</button><button v-if="order?.status === 1 && processingAfterSale" disabled>售后中</button><!-- 同城单已过履约闸门（已出餐/已派单/配送中）→ 置灰并改为「无法直接退款？查看原因」（2026-10-08：原为「申请取消（需商家确认）」，但用户决策 A 明确本批不做 C 端取消申请入口，点了只会弹提示 ⇒ 标签必须如实说明"只是解释原因"）。
            ⚠️ 用 class 置灰而**不用 disabled**：disabled 会让点击彻底无效，用户不知道为什么；
            可点则能给出解释（对应后端的 2013 错误码）。 -->
-        <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">申请取消（需商家确认）</button>
+        <button v-else-if="order?.status === 1 && !canConfirmDelivery && isFastRefundGateClosed(order)" class="is-gate-closed" @click="showFastRefundGateTip()">无法直接退款？查看原因</button>
         <button v-else-if="order?.status === 1 && !canConfirmDelivery && canFastRefundNow(order)" :disabled="actionLoading" @click="openFastRefund()">立即退款</button><button v-else-if="order?.status === 1 && !canConfirmDelivery" :disabled="actionLoading" @click="action('refund')">申请退款</button><!-- ⚠️ 2026-10-02 新增（后端 P1P2 §一.2）：**已完成订单现在也可以申请售后**（旧逻辑"完成即不可申请"）。⚠️ 用独立 v-if、不挂在上面那串 v-else-if 链上，避免影响既有按钮的互斥关系。⚠️ 窗口由后端判定（物流/同城＝完成后 7 天内），超期返回 8703 并展示后端文案。 -->
         <button v-if="order?.status === 4 && !processingAfterSale" :disabled="actionLoading" @click="handleAfterSaleClick()">申请售后</button></view>
     </scroll-view>

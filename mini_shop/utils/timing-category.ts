@@ -97,12 +97,24 @@ export interface AfterSaleRuleItem {
  *    所以只能把该商品支持的每一种方式的窗口都如实列出来 —— 这正是文档表格的三行。
  *    后端 2026-09-29 起三个开关**各自独立**（`deliveryEnabled` 语义已收窄为"仅物流"），
  *    因此三个判断互不推导。
- * ⚠️ 开关"未下发"时**按支持处理**（后端默认 1，且详情页少列一条比多列一条更容易误导）。
+ * ⚠️ 开关"未下发"时**按支持处理**（后端默认 1，且详情页少列一条比多列一条更容易误导）——
+ *    这是**刻意**的 fail-open，理由见函数内 `enabled` 的注释（**合规侧的取舍**，别改成 fail-closed）。
  * ⚠️ 档位**只在同城那条分支被读取** —— 「物流/自提不因档位改变」这条边界
  *    是由**函数结构**保证的，不依赖调用方自觉（Step2 §二）。
  */
 export function afterSaleTextsForProduct(product: ProductTimingFields | null | undefined): AfterSaleRuleItem[] {
   if (!product) return []
+  /**
+   * 该开关是否算"支持这种配送方式"。
+   *
+   * ⚠️⚠️ **刻意做成 fail-open（缺失 = 支持）—— 这是合规侧的取舍，不是疏忽，请勿"修成" fail-closed。**
+   *    售后窗口（尤其生鲜/鲜活易腐那条 48 小时）是**法定要求明确披露**的信息：
+   *    · 多列一条，最坏只是用户看到一种该商品其实不可选的配送方式；
+   *    · 漏列一条，则等于**漏掉法定披露**。
+   *    ⇒ 两害相权**宁可多列**：只有**明确**的 `0` / `'0'` / `false`（后端明确的"关闭"）
+   *      才算不支持；`undefined` / `null` / 空串（字段没下发）一律**按支持处理**。
+   *    （契约 `tests/timing-category-window.contract.ps1` 有断言钉住这个方向。）
+   */
   const enabled = (value: unknown): boolean => !(value === 0 || value === '0' || value === false)
   const fresh = isFreshTiming(product.timingCategory)
   const items: AfterSaleRuleItem[] = []
@@ -137,3 +149,19 @@ export function afterSaleTextsForProduct(product: ProductTimingFields | null | u
  * 释放期口径表另见 `api/settlement.ts` 的 `SettlementAccountVO.pendingSettlementAmount` 注释。
  */
 export const SETTLEMENT_RELEASE_TEXT_SAME_CITY = '送达次日 0 点起，普通 +7 天 / 生鲜 +3 天'
+
+/* ------------------------------------------------------------------ *
+ * 商家端「时效档位」开关的提示文案（Step1 §四 / Step2 §二 / Step3 §二）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 商家端商品编辑页「生鲜 · 鲜活易腐」开关的提示语。
+ *
+ * ⚠️ 两个数字与另外两处常量是**同一口径**，改口径时要一起看：
+ *    售后窗口 → {@link AFTER_SALE_TEXT_SAME_CITY_FRESH}（48 小时）；
+ *    资金释放 → {@link SETTLEMENT_RELEASE_TEXT_SAME_CITY}（+3 天）。
+ * ⚠️ 必须点明「**物流与自提不受影响**」：档位的**行为差异只在同城单**上体现，
+ *    否则商家会误以为物流单的售后窗口也变成 48 小时（Step2 §二 反复强调的边界）。
+ */
+export const TIMING_CATEGORY_FRESH_SWITCH_HINT =
+  '开启后：同城单售后窗口 48 小时、资金 3 天可提；物流与自提不受影响'
