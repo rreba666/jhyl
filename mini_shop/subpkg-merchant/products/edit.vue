@@ -91,6 +91,27 @@ const pickupEchoed = ref(false)
 const deliveryEchoed = ref(false)
 const sameCityEchoed = ref(false)
 
+// ===== 商品「时效档位」（Step1，2026-10-08 新增）=====
+/**
+ * 时效档位：`0`=普通（商超、日用等，默认）/ `1`=生鲜·鲜活易腐。
+ *
+ * ⚠️ 与上面三个配送开关**同组语义**（「**不传 = 不修改**」）：编辑态**拿不到回显就不提交**，
+ * 否则会把商家的生鲜商品打回普通（后端只保证"不传就不改"，一旦传了 0 就是真的改成普通）。
+ *
+ * ⚠️ 与 `afterSaleType`（售后类型：仅退款 / 退货退款）**正交、互不推导** ——
+ * 生鲜商品也可能是"退货退款"，普通商品也可能是"仅退款"，故做成两个独立表单项。
+ *
+ * ⚠️ 该档位的**行为差异只在同城配送单体现**（Step2 §三）：同城·生鲜售后窗口 = 送达次日 0 点 + 48 小时、
+ * 资金释放 +3 天；**物流(0) 与自提(1) 的时效与资金口径不因它改变**。
+ */
+const timingCategory = ref<0 | 1>(0)
+/** 回显是否拿到了 `timingCategory`（拿不到就不提交，见上）。 */
+const timingEchoed = ref(false)
+/** 切换时效档位（普通 ↔ 生鲜·鲜活易腐）。 */
+function toggleTimingCategory(): void {
+  timingCategory.value = timingCategory.value === 1 ? 0 : 1
+}
+
 const saving = ref(false)
 const uploading = ref(false)
 
@@ -160,6 +181,11 @@ function fillFromEditCache(): void {
   const sameCity = normalizeSwitch((cached as { sameCityEnabled?: unknown }).sameCityEnabled)
   sameCityEchoed.value = sameCity !== null
   if (sameCity !== null) sameCityEnabled.value = sameCity
+  // ⚠️ 2026-10-08 Step1 新增：**时效档位**同样「拿不到回显就不提交」——
+  //    若拿不到却提交默认值 0，会把商家的生鲜商品**打回普通**（后端只保证"不传就不改"）。
+  const timing = normalizeSwitch((cached as { timingCategory?: unknown }).timingCategory)
+  timingEchoed.value = timing !== null
+  if (timing !== null) timingCategory.value = timing
 }
 
 /**
@@ -307,6 +333,9 @@ function buildPayload(): MerchantProductSaveDTO {
   if (!productId.value || deliveryEchoed.value) payload.deliveryEnabled = deliveryEnabled.value
   // ⚠️ 2026-09-30 新增：同城独立字段，同样遵守「拿不到回显就不提交」
   if (!productId.value || sameCityEchoed.value) payload.sameCityEnabled = sameCityEnabled.value
+  // ⚠️ 2026-10-08 Step1 新增：时效档位。新增态显式提交（0=普通，与后端默认一致）；
+  //    编辑态**只有回显拿到了才提交** —— 否则会把生鲜商品打回普通。
+  if (!productId.value || timingEchoed.value) payload.timingCategory = timingCategory.value
   return payload
 }
 
@@ -516,9 +545,27 @@ function goBack(): void {
             <view class="toggle-knob" />
           </view>
         </view>
+        <!-- ⚠️ 2026-10-08 Step1 新增：商品「时效档位」（普通 / 生鲜·鲜活易腐）。
+             用开关形态与上面三个配送开关保持一致：开启 = 1（生鲜）、关闭 = 0（普通）。
+             ⚠️ 该档位的**行为差异只在同城配送单**体现，故 hint 明确"物流与自提不受影响"——
+             否则商家会误以为物流单的售后窗口也变成 48 小时。
+             ⚠️ 与「售后类型」（仅退款 / 退货退款）是**两个独立项**，不要合并或互相推导。 -->
+        <view class="switch-row">
+          <view class="switch-copy">
+            <text class="label-text">生鲜 · 鲜活易腐</text>
+            <text class="switch-hint">开启后：同城单售后窗口 48 小时、资金 3 天可提；物流与自提不受影响</text>
+          </view>
+          <view
+            class="toggle"
+            :class="{ on: timingCategory === 1, disabled: !switchEditable(timingEchoed) }"
+            @click="toggleTimingCategory"
+          >
+            <view class="toggle-knob" />
+          </view>
+        </view>
         <!-- 诚实告知：列表接口没下发这些字段时保存会跳过它们（后端语义「不传 = 不修改」） -->
-        <view v-if="productId && (!pickupEchoed || !deliveryEchoed || !sameCityEchoed)" class="switch-notice">
-          <text>本次未能读取到商品级配送方式，保存不会修改未读取到的项</text>
+        <view v-if="productId && (!pickupEchoed || !deliveryEchoed || !sameCityEchoed || !timingEchoed)" class="switch-notice">
+          <text>本次未能读取到商品级配送方式或时效档位，保存不会修改未读取到的项</text>
         </view>
       </view>
       <view class="content-pad" />
