@@ -2,14 +2,24 @@
  * 推广金「转余额后结算中」兜底（移植自今华有肽 C 端，纯前端逻辑）
  *
  * 背景（2026-09，LonPin 用户反馈的真实纠纷点）：
- * 后端 `POST /api/wallet/convert?type=PROMOTION` 会把钱包里的 `pendingPromotion` **直接清零**，
- * 而「尚未转出、仍在冻结/待到账的推广金」要等后端定时任务（约 1 小时）重新累计回
- * `pendingPromotion`。这段窗口期内，前端按「pendingPromotion + 冻结中金额」算出的推广金合计会变成 0：
- * 用户明明还有一笔在冻结，个人页与推广页却显示 0，只能等后端轮询才恢复 → 极易起纠纷。
+ * `POST /api/wallet/convert?type=PROMOTION` 会把钱包里的 `pendingPromotion` **清零**（余额同步增加）。
+ * ⚠️⚠️ **2026-10-08 更正（原注释写反了，另一半也一并改）**：本文件曾称
+ * 「尚未转出的推广金要等后端定时任务（约 1 小时）重新累计回 `pendingPromotion`」——**与契约相反**：
+ * `pending_promotion` **只装已入账（已过退款窗口）的推广金**，「尚未成熟」的推广金存在
+ * `promotion_relation`（`status=PENDING`）、**从来不在 `pending_promotion` 内**
+ * ⇒ 本接口**不会**清掉它、也**不需要**等定时任务「重新累计回来」
+ * （2026-09-16 口径，见契约 `POST /api/wallet/convert`；同仓 `promotion-freeze.ts` 亦同此口径）。
+ * 用户视角的「推广收益」= `pendingPromotion + unsettledPromotion`。
+ * 真正的纠纷点在于**中间态**：转余额后若页面**尚未取到最新的 `unsettledPromotion`**
+ * （重新拉取之前 / 后端未下发该字段），按「pendingPromotion + 冻结中金额」算出的合计会短暂变成 0：
+ * 用户明明还有一笔在冻结，个人页与推广页却显示 0 → 极易起纠纷。
  *
- * ⚠️ LonPin 与今华有肽的差异：LonPin 的 `/api/wallet/info`、`/api/promotion/summary` **都没有**
- * `unsettledPromotion` 字段，推广明细也**没有** `promotionStatus`，因此只能靠本地快照兜底，
- * 不能像今华有肽那样优先读后端"待到账"金额。
+ * ⚠️⚠️ **2026-10-08 更正（原注释写反了，会误导后续开发）**：
+ * 本文件曾称「LonPin 的 `/api/wallet/info`、`/api/promotion/summary` **都没有** `unsettledPromotion`，
+ * 推广明细也**没有** `promotionStatus`」——**事实相反**：
+ * `api_doc.json` **确有** `unsettledPromotion`，推广明细**也有** `promotionStatus`。
+ * ⇒ 因此**页面早已优先读后端的「待到账」金额**，本文件的本地快照**只是兜底**
+ *   （仅在「转余额后的中间态 / 后端未下发该字段」时生效），**不是**唯一手段。
  *
  * 兜底口径（纯前端可精确计算，不依赖后端轮询）：
  *   转账后应有推广金 = 转账前页面展示合计 − 本次实际转入余额的金额

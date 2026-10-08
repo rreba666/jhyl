@@ -69,6 +69,12 @@ export interface ShopProductVO {
   shopPrice?: number | null
   /** 门店库存（null=用商品总库存）。 */
   shopStock?: number | null
+  /**
+   * 启用规格数（2026-10-08 补）：`=1` 单规格 / `>1` **多规格商品**。
+   * ⚠️ 多规格商品**必须**用 SKU 级设价/设库存（本页的 SPU 级入口会「统一作用于全部规格」，
+   *    对多规格商品是不准确的）⇒ 用它来决定是否显示「按规格设价」入口。
+   */
+  skuCount?: number
 }
 
 /** 门店商品分页结果。 */
@@ -138,4 +144,65 @@ export async function setShopProductStatus(productId: number | string, status: 0
   const params: Record<string, string | number> = { status }
   if (shopId !== undefined && shopId !== '') params.shopId = shopId
   unwrap(await request.put<ShopConsoleResponse<null>>(`/api/admin/shop-product/${productId}/status`, null, { params }), '本店上下架失败')
+}
+
+// ===== 门店 SKU 级设价 / 设库存（2026-10-08 新增，对齐单 §四 #4 / B-5）=====
+
+/**
+ * 本店某商品**各规格**的生效价 / 生效库存（**含三级回退来源**）。
+ *
+ * 契约 `ShopSkuPriceVO`：
+ * - `price` = 生效门店价、`priceSource` = `SKU`（按规格设价）/ `SHOP`（按商品设价）/ `PRODUCT`（商品原价）
+ *   / `NONE`（无可回退价，**页面展示为「—」**）—— ⚠️ 契约 enum 是**这 4 个值**（对齐单正文只列了前 3 个）；
+ * - `stock` = 生效门店库存、`stockSource` 取上面同 4 个值（`NONE` 同样展示为「—」）；
+ * - `spuShopPrice` / `skuShopPrice` / `spuShopStock` / `skuShopStock` **为 `null` 表示该级未设置**
+ *   —— ⚠️ **不要当成 0**（0 是"设成了 0"，null 是"没设、在回退"）；
+ * - `effectiveStock` = 可售 = 生效门店库存 − 已锁定（下限 0）。
+ */
+export interface ShopSkuPriceVO {
+  skuId: number
+  skuName?: string
+  /** 商品原价（回退链最末级）。 */
+  brandPrice?: number
+  /** SPU 级门店价；null = 该门店未按商品设价。 */
+  spuShopPrice?: number | null
+  /** SKU 级门店价；null = 该门店未按规格设价。 */
+  skuShopPrice?: number | null
+  /** 生效门店价（三级回退结果）。 */
+  price?: number
+  /** 生效价来源：SKU / SHOP / PRODUCT / NONE（NONE 页面展示为「—」）。 */
+  priceSource?: string
+  brandStock?: number
+  spuShopStock?: number | null
+  skuShopStock?: number | null
+  stock?: number
+  /** 生效库存来源：SKU / SHOP / PRODUCT / NONE（NONE 页面展示为「—」）。 */
+  stockSource?: string
+  lockedStock?: number
+  effectiveStock?: number
+}
+
+/** 查询本店该商品各规格的生效价/生效库存（含三级来源）。 */
+export async function getShopSkuPrices(productId: number | string, shopId?: number | string): Promise<ShopSkuPriceVO[]> {
+  const params: Record<string, string | number> = {}
+  if (shopId !== undefined && shopId !== '') params.shopId = shopId
+  const data = unwrap(await request.get<ShopConsoleResponse<unknown>>(`/api/admin/shop-product/${productId}/skus`, { params }), '门店规格查询失败')
+  // ⚠️ 后端约定无数据时返回空数组（可能为 null）⇒ 两种都兼容，页面据此显示空态
+  return Array.isArray(data) ? (data as ShopSkuPriceVO[]) : []
+}
+
+/** 设置 **SKU 级**门店价（`price` 不传 = 恢复该规格用上一级价）。 */
+export async function setShopSkuPrice(productId: number | string, skuId: number | string, price: number | null, shopId?: number | string): Promise<void> {
+  const params: Record<string, string | number> = { skuId }
+  if (shopId !== undefined && shopId !== '') params.shopId = shopId
+  if (price !== null) params.price = price
+  unwrap(await request.put<ShopConsoleResponse<null>>(`/api/admin/shop-product/${productId}/sku-price`, null, { params }), '规格门店价保存失败')
+}
+
+/** 设置 **SKU 级**门店库存（`stock` 不传 = 恢复该规格用上一级库存）。 */
+export async function setShopSkuStock(productId: number | string, skuId: number | string, stock: number | null, shopId?: number | string): Promise<void> {
+  const params: Record<string, string | number> = { skuId }
+  if (shopId !== undefined && shopId !== '') params.shopId = shopId
+  if (stock !== null) params.stock = stock
+  unwrap(await request.put<ShopConsoleResponse<null>>(`/api/admin/shop-product/${productId}/sku-stock`, null, { params }), '规格门店库存保存失败')
 }

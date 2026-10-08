@@ -16,10 +16,14 @@ import {
   batchUpdateProducts,
   countMerchantProducts,
   getMerchantProducts,
+  getMerchantSkuPrices,
+  setMerchantSkuPrice,
+  setMerchantSkuStock,
   updateProductPrice,
   updateProductStatus,
   updateProductStock,
   type MerchantProductVO,
+  type MerchantSkuPriceVO,
 } from '@/api/merchant'
 import ProductCard from '@/components/merchant/ProductCard.vue'
 // 空状态（设计稿 2026-09-22）：普通空态与「搜索无结果」是**两张不同插画**；插画放本分包 static
@@ -356,9 +360,10 @@ function onBatchAction(): void {
 }
 
 // ===== 单条操作 =====
-function onCardAction(payload: { type: 'left' | 'price' | 'stock' | 'edit'; product: MerchantProductVO }): void {
+function onCardAction(payload: { type: 'left' | 'price' | 'stock' | 'sku' | 'edit'; product: MerchantProductVO }): void {
   if (payload.type === 'price') openPrice(payload.product)
   else if (payload.type === 'stock') openStock(payload.product)
+  else if (payload.type === 'sku') void openSkuDialog(payload.product)
   else if (payload.type === 'edit') openEdit(payload.product)
   else onLeftAction(payload.product)
 }
@@ -437,6 +442,157 @@ function submitStock(): void {
     stockTarget.value = null
     await loadList(true)
   })
+}
+
+// ===== 按规格设价 / 设库存（多规格商品；SKU 级，2026-10-08 新增，对齐单 §四 #4 / B-5）=====
+/**
+ * 多规格商品**必须**按规格设价/设库存 —— SPU 级「改价 / 改库存」在多规格下只能
+ * "统一作用于全部规格"（例：500g ¥39 / 1kg ¥69 只能填一个值）⇒ 多规格卡片改走本弹层
+ * （`ProductCard` 用 `skuCount > 1` 判断，与后台 `shop-console` 同口径）。
+ *
+ * 契约（`GET/PUT /api/merchant/products/{productId}/skus|sku-price|sku-stock`）：
+ * 与后台端点**逐字同构**，唯一差别是商家端**不带 `shopId`**（门店由登录态解析）。
+ */
+interface SkuEditRow extends MerchantSkuPriceVO {
+  /** 输入框用字符串（小程序 input 天然是字符串），提交时再转数字。 */
+  editingPrice: string
+  editingStock: string
+  /** true = 本店不单独设价，跟随上一级（提交时传 null 清除 SKU 级设置）。 */
+  usePriceDefault: boolean
+  /** true = 本店不单独设库存，跟随上一级。 */
+  useStockDefault: boolean
+}
+
+const skuTarget = ref<MerchantProductVO | null>(null)
+const skuRows = ref<SkuEditRow[]>([])
+const skuLoading = ref(false)
+/** 正在保存的**规格行**（按行 loading，避免"整表一起转"）。 */
+const savingSkuId = ref<number | null>(null)
+
+/** 把契约行转成编辑行（null = 该级未设置 ⇒ 开关打开 = 用上一级；⛔ 不要当成 0）。 */
+function toSkuEditRow(item: MerchantSkuPriceVO): SkuEditRow {
+  return {
+    ...item,
+    usePriceDefault: item.skuShopPrice == null,
+    useStockDefault: item.skuShopStock == null,
+    editingPrice: item.skuShopPrice != null ? String(item.skuShopPrice) : (item.price != null ? String(item.price) : ''),
+    editingStock: item.skuShopStock != null ? String(item.skuShopStock) : (item.stock != null ? String(item.stock) : ''),
+  }
+}
+
+/** 打开「按规格设价 / 设库存」弹层：拉该商品各规格的生效价与来源。 */
+async function openSkuDialog(product: MerchantProductVO): Promise<void> {
+  if (!product.productId) return
+  skuTarget.value = product
+  skuRows.value = []
+  skuLoading.value = true
+  try {
+    const list = await getMerchantSkuPrices(product.productId)
+    skuRows.value = list.map(toSkuEditRow)
+    if (!list.length) uni.showToast({ title: '该商品暂无可设置的规格', icon: 'none' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '规格查询失败', icon: 'none' })
+  } finally {
+    skuLoading.value = false
+  }
+}
+
+function closeSkuDialog(): void {
+  skuTarget.value = null
+  skuRows.value = []
+}
+
+/** 生效价来源文案（三级回退；`NONE` / 未知一律「—」）。 */
+const SKU_PRICE_SOURCE_TEXT: Record<string, string> = { SKU: '按规格设价', SHOP: '按商品设价', PRODUCT: '商品原价' }
+/** 生效库存来源文案（三级回退；`NONE` / 未知一律「—」）。 */
+const SKU_STOCK_SOURCE_TEXT: Record<string, string> = { SKU: '按规格控', SHOP: '按商品控', PRODUCT: '商品总库存' }
+function skuPriceSourceText(source?: string): string {
+  return (source && SKU_PRICE_SOURCE_TEXT[source]) || '—'
+}
+function skuStockSourceText(source?: string): string {
+  return (source && SKU_STOCK_SOURCE_TEXT[source]) || '—'
+}
+
+/** 金额展示：**缺失 / 非法一律「—」**，⛔ 不兜底成 ¥0.00（与后台同口径）。 */
+function skuMoneyText(value?: number | null): string {
+  if (value === null || value === undefined) return '—'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '—'
+  return `¥${num.toFixed(2).replace(/\.?0+$/, '')}`
+}
+
+/** 「用上一级」实际会跟到哪一级（拿不到显示「—」）。 */
+function upperPriceText(row: SkuEditRow): string {
+  if (row.spuShopPrice != null) return `商品级 ${skuMoneyText(row.spuShopPrice)}`
+  if (row.brandPrice != null) return `商品原价 ${skuMoneyText(row.brandPrice)}`
+  return '—'
+}
+function upperStockText(row: SkuEditRow): string {
+  if (row.spuShopStock != null) return `商品级 ${row.spuShopStock}`
+  if (row.brandStock != null) return `商品原价库存 ${row.brandStock}`
+  return '—'
+}
+
+/**
+ * 保存**单个规格**（价 / 库存两个接口分别调）。
+ *
+ * ⚠️ 只提交**本行真正改动过**的那一项 —— 无关改动也提交会放大失败面
+ *   （只改价却把库存一并写回，第二步失败时价已落库、却只报"保存失败"）。
+ * ⚠️ 保存后**只刷新本行**（不整表重拉）—— 整表重拉会**静默丢弃其它行未保存的编辑**。
+ */
+async function saveSkuRow(row: SkuEditRow): Promise<void> {
+  const productId = skuTarget.value?.productId
+  if (!productId) return
+  const nextPrice = row.usePriceDefault ? null : Number(row.editingPrice)
+  const nextStock = row.useStockDefault ? null : Number(row.editingStock)
+  if (nextPrice !== null && (!Number.isFinite(nextPrice) || nextPrice <= 0)) {
+    uni.showToast({ title: '价格需大于 0', icon: 'none' })
+    return
+  }
+  if (nextStock !== null && (!Number.isInteger(nextStock) || nextStock < 0)) {
+    uni.showToast({ title: '库存需为非负整数', icon: 'none' })
+    return
+  }
+  const priceChanged = (row.skuShopPrice ?? null) !== nextPrice
+  const stockChanged = (row.skuShopStock ?? null) !== nextStock
+  if (!priceChanged && !stockChanged) {
+    uni.showToast({ title: '本行没有改动', icon: 'none' })
+    return
+  }
+  savingSkuId.value = row.skuId
+  const done: string[] = []
+  try {
+    if (priceChanged) {
+      await setMerchantSkuPrice(productId, row.skuId, nextPrice)
+      done.push('价')
+    }
+    if (stockChanged) {
+      await setMerchantSkuStock(productId, row.skuId, nextStock)
+      done.push('库存')
+    }
+    uni.showToast({ title: `${done.join('与')}已保存`, icon: 'success' })
+    await reloadSkuRow(row)
+  } catch (error) {
+    // ⚠️ 半保存要说清楚：前面那半**已经写进库**了，不能只报"保存失败"让用户以为整行没动
+    const note = done.length ? `（${done.join('与')}已保存成功，仅后续项失败）` : ''
+    uni.showToast({ title: (error instanceof Error ? error.message : '保存失败') + note, icon: 'none' })
+    if (done.length) await reloadSkuRow(row)
+  } finally {
+    savingSkuId.value = null
+  }
+}
+
+/**
+ * 只把**本行**的真实结果合并回来（生效价/生效库存/来源由后端三级回退算出，不本地猜），
+ * 其它行**保持原编辑态**（不整表重拉）。
+ */
+async function reloadSkuRow(row: SkuEditRow): Promise<void> {
+  const productId = skuTarget.value?.productId
+  if (!productId) return
+  const list = await getMerchantSkuPrices(productId)
+  const fresh = list.find((item) => item.skuId === row.skuId)
+  if (!fresh) return
+  Object.assign(row, toSkuEditRow(fresh))
 }
 
 // ===== 确认弹层 =====
@@ -587,6 +743,81 @@ function goBack(): void {
         <view class="sheet-actions">
           <button class="sheet-btn sheet-btn-cancel" @click="stockTarget = null">取消</button>
           <button class="sheet-btn sheet-btn-confirm" :disabled="acting" @click="submitStock">确定</button>
+        </view>
+      </view>
+    </view>
+
+    <!-- 按规格设价 / 设库存（多规格商品；SKU 级，2026-10-08 新增） -->
+    <view v-if="skuTarget" class="mask mask-bottom" @click="closeSkuDialog">
+      <view class="sku-sheet" @click.stop>
+        <view class="sheet-title">
+          <text class="sheet-title-text">按规格设价 / 设库存</text>
+          <text class="sheet-close" @click="closeSkuDialog">×</text>
+        </view>
+        <view class="sku-tip">
+          {{ skuTarget.name }}（共 {{ skuRows.length }} 个规格）。「生效价 / 生效库存」按<text class="sku-tip-strong">规格 → 商品 → 商品原价</text>三级回退算出；
+          开关打开 = 本店不单独设置、跟随上一级（右侧会显示实际跟到哪一级）。
+        </view>
+        <scroll-view class="sku-list" scroll-y>
+          <view v-if="skuLoading" class="sku-state">加载中…</view>
+          <view v-else-if="!skuRows.length" class="sku-state">该商品暂无可设置的规格</view>
+          <view v-for="row in skuRows" :key="row.skuId" class="sku-card">
+            <view class="sku-head">
+              <text class="sku-name">{{ row.skuName || ('规格 ' + row.skuId) }}</text>
+              <text class="sku-effective">
+                生效价 {{ skuMoneyText(row.price) }}（{{ skuPriceSourceText(row.priceSource) }}）
+                · 生效库存 {{ row.stock ?? '—' }}（{{ skuStockSourceText(row.stockSource) }}）
+                · 可售 {{ row.effectiveStock ?? '—' }}
+              </text>
+            </view>
+
+            <!-- 门店价 -->
+            <view class="sku-line">
+              <text class="sku-label">门店价</text>
+              <view class="sku-switch" @click="row.usePriceDefault = !row.usePriceDefault">
+                <view class="sku-check" :class="{ 'is-on': row.usePriceDefault }">
+                  <text v-if="row.usePriceDefault" class="rider-icon rider-icon-gouxuan_tianchong sku-check-icon" />
+                </view>
+                <text class="sku-switch-text">用上一级</text>
+              </view>
+              <input
+                v-if="!row.usePriceDefault"
+                class="sku-input"
+                v-model="row.editingPrice"
+                type="digit"
+                placeholder="请输入"
+                placeholder-class="sheet-ph"
+              />
+              <text v-else class="sku-follow">跟随 {{ upperPriceText(row) }}</text>
+            </view>
+
+            <!-- 门店库存 -->
+            <view class="sku-line">
+              <text class="sku-label">门店库存</text>
+              <view class="sku-switch" @click="row.useStockDefault = !row.useStockDefault">
+                <view class="sku-check" :class="{ 'is-on': row.useStockDefault }">
+                  <text v-if="row.useStockDefault" class="rider-icon rider-icon-gouxuan_tianchong sku-check-icon" />
+                </view>
+                <text class="sku-switch-text">用上一级</text>
+              </view>
+              <input
+                v-if="!row.useStockDefault"
+                class="sku-input"
+                v-model="row.editingStock"
+                type="number"
+                placeholder="请输入"
+                placeholder-class="sheet-ph"
+              />
+              <text v-else class="sku-follow">跟随 {{ upperStockText(row) }}</text>
+            </view>
+
+            <button class="sku-save" :disabled="savingSkuId === row.skuId" @click="saveSkuRow(row)">
+              {{ savingSkuId === row.skuId ? '保存中…' : '保存本规格' }}
+            </button>
+          </view>
+        </scroll-view>
+        <view class="sku-actions">
+          <button class="sku-close-btn" @click="closeSkuDialog">关闭</button>
         </view>
       </view>
     </view>
@@ -904,6 +1135,151 @@ function goBack(): void {
 .sheet-btn-confirm {
   background: #fff4e8;
   color: #ff5500;
+}
+
+/* ===== 按规格设价 / 设库存弹层（多规格商品，2026-10-08 新增）===== */
+/* 比普通底部弹层高（要容纳多行规格），故单独一套容器样式（不直接用 .sheet） */
+.sku-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 85vh;
+  padding: 31rpx 23rpx calc(31rpx + env(safe-area-inset-bottom));
+  border-radius: 24rpx 24rpx 0 0;
+  background: #ffffff;
+}
+.sku-tip {
+  margin-top: 15rpx;
+  color: #86909c;
+  font-size: 23rpx;
+  line-height: 34rpx;
+}
+.sku-tip-strong {
+  color: #1d2129;
+  font-size: 23rpx;
+}
+.sku-list {
+  flex: 1;
+  min-height: 0;
+  max-height: 58vh;
+  margin-top: 23rpx;
+}
+.sku-state {
+  padding: 80rpx 0;
+  text-align: center;
+  color: #86909c;
+  font-size: 27rpx;
+}
+.sku-card {
+  margin-bottom: 19rpx;
+  padding: 23rpx;
+  border-radius: 15rpx;
+  background: #f6f7f9;
+}
+.sku-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-bottom: 19rpx;
+}
+.sku-name {
+  color: #1d2129;
+  font-size: 29rpx;
+  font-weight: 500;
+}
+.sku-effective {
+  color: #86909c;
+  font-size: 23rpx;
+  line-height: 34rpx;
+}
+.sku-line {
+  display: flex;
+  align-items: center;
+  gap: 15rpx;
+  margin-bottom: 15rpx;
+}
+.sku-label {
+  flex: none;
+  width: 120rpx;
+  color: #1d2129;
+  font-size: 27rpx;
+}
+.sku-switch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+.sku-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  border: 3rpx solid #d7dbe0;
+  background: #ffffff;
+}
+.sku-check.is-on {
+  border-color: transparent;
+}
+.sku-check-icon {
+  color: #ff5500;
+  font-size: 32rpx;
+}
+.sku-switch-text {
+  color: #1d2129;
+  font-size: 25rpx;
+}
+.sku-input {
+  flex: 1;
+  min-width: 0;
+  height: 69rpx;
+  padding: 0 19rpx;
+  border-radius: 12rpx;
+  background: #ffffff;
+  color: #1d2129;
+  font-size: 27rpx;
+}
+.sku-follow {
+  flex: 1;
+  min-width: 0;
+  color: #86909c;
+  font-size: 25rpx;
+}
+.sku-save {
+  margin: 0;
+  padding: 0;
+  height: 69rpx;
+  border-radius: 12rpx;
+  background: #fff4e8;
+  color: #ff5500;
+  font-size: 27rpx;
+  font-weight: 500;
+  line-height: 69rpx;
+}
+.sku-save::after {
+  border: 0;
+}
+.sku-save[disabled] {
+  opacity: 0.6;
+}
+.sku-actions {
+  margin-top: 23rpx;
+}
+.sku-close-btn {
+  margin: 0;
+  padding: 0;
+  height: 92rpx;
+  border-radius: 24rpx;
+  background: #f6f7f9;
+  color: #1d2129;
+  font-size: 31rpx;
+  font-weight: 600;
+  line-height: 92rpx;
+}
+.sku-close-btn::after {
+  border: 0;
 }
 
 /* 居中对话框 */

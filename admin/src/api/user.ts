@@ -19,6 +19,23 @@ function normalizeUserPage(data: UserPageResult): UserPageResult {
   }
 }
 
+/**
+ * ⚠️ 2026-10-08 新增：**关键钱包字段缺失/非法时告警**。
+ *
+ * 为什么需要：原先一律 `?? 0` / `: 0` 兜底 ⇒ **"后端真值 0"** 与 **"字段没取到"**
+ * 在页面上**长得一模一样**（都显示 ¥0.00），运营会照着**假数字对账**。
+ * 今华有肽就出过同类事故（应急池「累计抽取/注入」恒显示 ¥0.00 ⇒ 把注入堵死）。
+ *
+ * ⚠️ 只在**真正异常**（`undefined` / `null` / 非有限数 / 负数）时告警；
+ * **合法的 0 不告警**（0 是正常值，不是缺失）。
+ */
+function warnInvalidWalletField(field: string, raw: unknown): void {
+  console.warn(
+    `[wallet] 用户详情字段 \`${field}\` 缺失或非法（收到：${JSON.stringify(raw)}）⇒ 已按 0 兜底显示。`
+    + ' 请核对此字段是否被后端改名/移除，不要照当前页面数字对账。',
+  )
+}
+
 /** 归一化用户详情并拒绝无效余额，避免浮点异常进入编辑流程。 */
 function normalizeUserDetail(data: UserDetail): UserDetail {
   const pendingPromotion = Number(data.pendingPromotion)
@@ -27,7 +44,19 @@ function normalizeUserDetail(data: UserDetail): UserDetail {
     throw new Error('用户钱包余额数据无效')
   }
   // 余额 balance：详情接口暂未返回时兜底为 0，不因缺失字段阻断详情展示
-  const balance = Number(data.balance)
+  // ⚠️ 但**必须告警**：否则"后端没返回"与"余额真是 0"无法区分（见 warnInvalidWalletField 注释）。
+  // ⚠️⚠️ 2026-10-08 修：**先判原始值是否"缺失"**，再看数值合法性。
+  //   只判 `Number.isFinite(balance)` 是不够的 —— `Number(null)`/`Number('')`/`Number(false)` **都等于 0**
+  //   ⇒ 后端下发 `"balance": null` 时会**静默通过**、页面显示 ¥0.00 且不告警，
+  //   正是本告警要消灭的"假数字"（`api/wallet.ts` 的兄弟实现是显式判 `null` 的）。
+  // ⚠️ 声明为 `unknown`：契约上 `balance` 是 `number`，但**运行时**后端可能下发 `null` /
+  //    缺字段 / `''`（本告警要防的正是这种漂移）⇒ 不能依赖编译期类型做判断
+  //    （直接写 `data.balance === ''` 会被 `vue-tsc` 判为 TS2367「无重叠」）。
+  const rawBalance: unknown = data.balance
+  const balanceMissing = rawBalance === null || rawBalance === undefined || rawBalance === ''
+  const balance = Number(rawBalance)
+  const balanceValid = !balanceMissing && Number.isFinite(balance) && balance >= 0
+  if (!balanceValid) warnInvalidWalletField('balance', rawBalance)
   return {
     ...data,
     id: String(data.id),
@@ -36,7 +65,7 @@ function normalizeUserDetail(data: UserDetail): UserDetail {
     delFlag: Number(data.delFlag) === 1 ? 1 : 0,
     pendingPromotion,
     pendingBonus,
-    balance: Number.isFinite(balance) && balance >= 0 ? balance : 0,
+    balance: balanceValid ? balance : 0,
   }
 }
 

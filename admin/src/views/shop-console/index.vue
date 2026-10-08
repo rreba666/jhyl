@@ -10,13 +10,17 @@ import {
   getBusinessSchedule,
   getBusinessStatus,
   getShopProducts,
+  getShopSkuPrices,
   saveBusinessSchedule,
   setBusinessManual,
   setShopProductPrice,
   setShopProductStatus,
   setShopProductStock,
+  setShopSkuPrice,
+  setShopSkuStock,
   type ShopBusinessStatusVO,
   type ShopProductVO,
+  type ShopSkuPriceVO,
 } from '@/api/shop-console'
 import { getEnabledShops } from '@/api/shop'
 import type { Shop } from '@/types/shop'
@@ -255,6 +259,155 @@ function stockText(row: ShopProductVO): string {
   return String(row.shopStock)
 }
 
+// ===== 门店 SKU 级设价 / 设库存（2026-10-08 新增）=====
+/**
+ * 多规格商品**必须**按规格设价/设库存 —— SPU 级入口（上面那两个弹窗）对多规格商品
+ * 只能"统一作用于全部规格"，在多规格下是**不准确**的（例：500g ¥39 / 1kg ¥69 只能填一个值）。
+ * ⚠️ 单规格商品**不显示**该入口（用 SPU 级就够，避免多余弹窗）。
+ */
+function isMultiSku(row: ShopProductVO): boolean {
+  return Number(row.skuCount ?? 0) > 1
+}
+
+/** 弹窗内的一行：契约字段 + 本行编辑态（单独拷一份，不直接改列表数据）。 */
+interface SkuEditRow extends ShopSkuPriceVO {
+  editingPrice: number | null
+  editingStock: number | null
+  /** true = 本店不单独设价，跟随上一级（提交时传 null 清除 SKU 级设置）。 */
+  usePriceDefault: boolean
+  /** true = 本店不单独设库存，跟随上一级。 */
+  useStockDefault: boolean
+}
+
+const skuDialogVisible = ref(false)
+const skuLoading = ref(false)
+/** 正在保存的**规格行**（按行 loading，避免"整表一起转"）。 */
+const savingSkuId = ref<number | null>(null)
+/** 当前弹窗对应的商品。 */
+const skuProduct = ref<ShopProductVO | null>(null)
+const skuRows = ref<SkuEditRow[]>([])
+
+/** 把契约行转成编辑行（null = 该级未设置 ⇒ 开关打开 = 用上一级；不要当成 0）。 */
+function toEditRow(item: ShopSkuPriceVO): SkuEditRow {
+  return {
+    ...item,
+    usePriceDefault: item.skuShopPrice == null,
+    useStockDefault: item.skuShopStock == null,
+    editingPrice: item.skuShopPrice ?? item.price ?? item.brandPrice ?? 0,
+    editingStock: item.skuShopStock ?? item.stock ?? 0,
+  }
+}
+
+/** 打开「按规格设价/设库存」弹窗：拉该店该商品各规格的生效价与来源。 */
+async function openSkuDialog(row: ShopProductVO): Promise<void> {
+  if (!row.productId) return
+  skuProduct.value = row
+  skuRows.value = []
+  skuDialogVisible.value = true
+  skuLoading.value = true
+  try {
+    const list = await getShopSkuPrices(row.productId, shopId.value || undefined)
+    skuRows.value = list.map(toEditRow)
+    if (!list.length) ElMessage.info('该商品暂无可设置的规格')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '规格查询失败')
+  } finally {
+    skuLoading.value = false
+  }
+}
+
+/** 生效价来源文案（三级回退；`NONE` / 未知一律「—」，⛔ 不兜底成假数字）。 */
+const PRICE_SOURCE_TEXT: Record<string, string> = { SKU: '按规格设价', SHOP: '按商品设价', PRODUCT: '商品原价' }
+/** 生效库存来源文案（三级回退；`NONE` / 未知一律「—」）。 */
+const STOCK_SOURCE_TEXT: Record<string, string> = { SKU: '按规格控', SHOP: '按商品控', PRODUCT: '商品总库存' }
+function priceSourceText(source?: string): string {
+  return (source && PRICE_SOURCE_TEXT[source]) || '—'
+}
+function stockSourceText(source?: string): string {
+  return (source && STOCK_SOURCE_TEXT[source]) || '—'
+}
+
+/**
+ * 「用上一级」实际跟到哪一级（对齐单 §四：`spuShopPrice` / `spuShopStock` 也要能看到，
+ * 否则"用上一级"跟到商品级还是商品原价不透明）。
+ * 拿不到就显示「—」—— ⛔ 不兜底成 0。
+ */
+function upperPriceText(row: SkuEditRow): string {
+  if (row.spuShopPrice != null) return `商品级 ¥ ${Number(row.spuShopPrice).toFixed(2)}`
+  if (row.brandPrice != null) return `商品原价 ¥ ${Number(row.brandPrice).toFixed(2)}`
+  return '—'
+}
+function upperStockText(row: SkuEditRow): string {
+  if (row.spuShopStock != null) return `商品级 ${row.spuShopStock}`
+  if (row.brandStock != null) return `商品原价库存 ${row.brandStock}`
+  return '—'
+}
+
+/**
+ * 金额展示：**缺失 / 非法一律「—」**，⛔ 不用 `Number(x || 0)` 兜底成 ¥0.00。
+ * 依据：CLAUDE.md §15.4 已登记「后台列表资金金额**不兜底假数字**」——
+ * 后端漏字段/改名时渲染 ¥0.00，运营会照假数字对账（同 §15.3 #1）。
+ */
+function moneyText(value?: number | null): string {
+  if (value === null || value === undefined) return '—'
+  const num = Number(value)
+  return Number.isFinite(num) ? `¥ ${num.toFixed(2)}` : '—'
+}
+
+/**
+ * 保存**单个规格**（价 / 库存两个接口分别调）。
+ *
+ * ⚠️ 只提交**本行真正改动过**的那一项 —— 无关改动也提交会放大失败面
+ *   （例：只改价却把库存一并写回，第二步失败时价已落库、却只报"保存失败"）。
+ * ⚠️ 保存后**只刷新本行**（不整表重拉）—— 整表重拉会**静默丢弃其它行未保存的编辑**。
+ */
+async function saveSkuRow(row: SkuEditRow): Promise<void> {
+  const productId = skuProduct.value?.productId
+  if (!productId) return
+  const nextPrice = row.usePriceDefault ? null : Number(row.editingPrice)
+  const nextStock = row.useStockDefault ? null : Number(row.editingStock)
+  const priceChanged = (row.skuShopPrice ?? null) !== nextPrice
+  const stockChanged = (row.skuShopStock ?? null) !== nextStock
+  if (!priceChanged && !stockChanged) {
+    ElMessage.info('本行没有改动')
+    return
+  }
+  savingSkuId.value = row.skuId
+  const done: string[] = []
+  try {
+    if (priceChanged) {
+      await setShopSkuPrice(productId, row.skuId, nextPrice, shopId.value || undefined)
+      done.push('价')
+    }
+    if (stockChanged) {
+      await setShopSkuStock(productId, row.skuId, nextStock, shopId.value || undefined)
+      done.push('库存')
+    }
+    ElMessage.success(`规格「${row.skuName || row.skuId}」的${done.join('与')}已保存`)
+    await reloadSkuRow(row)
+  } catch (error) {
+    // ⚠️ 半保存要说清楚：前面那半**已经写进库**了，不能只报"保存失败"让用户以为整行没动
+    const note = done.length ? `（${done.join('与')}已保存成功，仅后续项失败，请重试）` : ''
+    ElMessage.error((error instanceof Error ? error.message : '规格保存失败') + note)
+    if (done.length) await reloadSkuRow(row)
+  } finally {
+    savingSkuId.value = null
+  }
+}
+
+/**
+ * 只把**本行**的后端真实结果合并回来（生效价/生效库存/来源由后端三级回退算出，不本地猜），
+ * 其它行**保持原编辑态**（不整表重拉）。
+ */
+async function reloadSkuRow(row: SkuEditRow): Promise<void> {
+  const productId = skuProduct.value?.productId
+  if (!productId) return
+  const list = await getShopSkuPrices(productId, shopId.value || undefined)
+  const fresh = list.find((item) => item.skuId === row.skuId)
+  if (!fresh) return
+  Object.assign(row, toEditRow(fresh))
+}
+
 /** 店铺 ID 变化：重新拉营业与商品（留空=后端默认门店）。 */
 function reloadAll(): void {
   page.value = 1
@@ -379,10 +532,12 @@ onMounted(async () => {
             <el-table-column label="门店库存" width="120"><template #default="{ row }"><span :class="{ muted: row.shopStock == null }">{{ stockText(row) }}</span></template></el-table-column>
             <el-table-column label="商品全局" width="110"><template #default="{ row }"><el-tag :type="row.productStatus === 1 ? 'success' : 'info'" size="small">{{ row.productStatus === 1 ? '上架' : '下架' }}</el-tag></template></el-table-column>
             <el-table-column label="本店状态" width="110"><template #default="{ row }"><el-switch :model-value="row.shopStatus === 1" @change="toggleShopStatus(row, $event)" /></template></el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" @click="openPriceDialog(row)">改门店价</el-button>
                 <el-button size="small" @click="openStockDialog(row)">改门店库存</el-button>
+                <!-- ⚠️ 只有多规格商品才显示：SPU 级改价/改库存对多规格是"统一作用于全部规格"，不准确 -->
+                <el-button v-if="isMultiSku(row)" size="small" type="primary" plain @click="openSkuDialog(row)">按规格设价</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -414,6 +569,46 @@ onMounted(async () => {
       </el-form>
       <template #footer><el-button @click="stockDialogVisible = false">取消</el-button><el-button type="primary" :loading="stockSaving" @click="submitStock">保存</el-button></template>
     </el-dialog>
+
+    <!-- 按规格设价 / 设库存（多规格商品；SKU 级，2026-10-08 新增） -->
+    <el-dialog v-model="skuDialogVisible" title="按规格设价 / 设库存" width="1100px" append-to-body>
+      <div class="sku-tip">
+        商品：{{ skuProduct?.name }}（共 {{ skuRows.length }} 个规格）。
+        「生效价 / 生效库存」是按 <strong>规格 → 商品 → 商品原价</strong> 三级回退算出的最终值；
+        开关打开 = 本店不单独设置、跟随上一级（「上一级」列显示实际会跟到哪一级）。
+      </div>
+      <el-table v-loading="skuLoading" :data="skuRows" border size="small" row-key="skuId">
+        <el-table-column prop="skuName" label="规格" min-width="120" />
+        <el-table-column label="商品原价" width="100"><template #default="{ row }">{{ moneyText(row.brandPrice) }}</template></el-table-column>
+        <el-table-column label="价用上一级" width="95"><template #default="{ row }"><el-switch v-model="row.usePriceDefault" size="small" /></template></el-table-column>
+        <el-table-column label="上一级（价）" width="130"><template #default="{ row }"><span class="muted">{{ row.usePriceDefault ? upperPriceText(row) : '—' }}</span></template></el-table-column>
+        <el-table-column label="门店价" width="150">
+          <template #default="{ row }">
+            <el-input-number v-if="!row.usePriceDefault" v-model="row.editingPrice" :min="0" :precision="2" :step="0.1" size="small" controls-position="right" />
+            <span v-else class="muted">跟随上一级</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="生效价" width="150">
+          <template #default="{ row }">{{ moneyText(row.price) }}<span class="muted">{{ priceSourceText(row.priceSource) }}</span></template>
+        </el-table-column>
+        <el-table-column label="库存用上一级" width="105"><template #default="{ row }"><el-switch v-model="row.useStockDefault" size="small" /></template></el-table-column>
+        <el-table-column label="上一级（库存）" width="130"><template #default="{ row }"><span class="muted">{{ row.useStockDefault ? upperStockText(row) : '—' }}</span></template></el-table-column>
+        <el-table-column label="门店库存" width="140">
+          <template #default="{ row }">
+            <el-input-number v-if="!row.useStockDefault" v-model="row.editingStock" :min="0" :step="1" size="small" controls-position="right" />
+            <span v-else class="muted">跟随上一级</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="生效库存" width="160">
+          <template #default="{ row }">{{ row.stock ?? '—' }}<span class="muted">{{ stockSourceText(row.stockSource) }}</span></template>
+        </el-table-column>
+        <el-table-column label="可售" width="80"><template #default="{ row }">{{ row.effectiveStock ?? '—' }}</template></el-table-column>
+        <el-table-column label="操作" width="90" fixed="right">
+          <template #default="{ row }"><el-button size="small" type="primary" :loading="savingSkuId === row.skuId" @click="saveSkuRow(row)">保存</el-button></template>
+        </el-table-column>
+      </el-table>
+      <template #footer><el-button @click="skuDialogVisible = false">关闭</el-button></template>
+    </el-dialog>
   </section>
 </template>
 
@@ -431,5 +626,7 @@ onMounted(async () => {
 .thumb { width: 44px; height: 44px; border-radius: 6px; background: #f2f3f5; }
 .pager { display: flex; justify-content: flex-end; margin-top: 12px; }
 .muted { color: var(--vben-muted); font-size: 13px; margin-left: 8px; }
+/* 「按规格设价」弹窗顶部说明（三级回退口径，2026-10-08） */
+.sku-tip { margin-bottom: 10px; color: var(--vben-muted); font-size: 13px; line-height: 20px; }
 @media (max-width: 1000px) { .week-grid { grid-template-columns: 1fr; } }
 </style>

@@ -43,9 +43,18 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   /** 批量模式下点击勾选圈 / 卡片切换选中。 */
   (e: 'select', product: MerchantProductVO): void
-  /** 普通模式操作：type = left | price | stock | edit。 */
-  (e: 'action', payload: { type: 'left' | 'price' | 'stock' | 'edit'; product: MerchantProductVO }): void
+  /** 普通模式操作：type = left | price | stock | sku | edit（sku = 按规格设价/设库存，仅多规格）。 */
+  (e: 'action', payload: { type: 'left' | 'price' | 'stock' | 'sku' | 'edit'; product: MerchantProductVO }): void
 }>()
+
+/**
+ * 是否多规格商品（`skuCount > 1`）。
+ *
+ * ⚠️ 多规格**必须**用 SKU 级设价/设库存 —— SPU 级「改价 / 改库存」在多规格下只能
+ *   "统一作用于全部规格"（例：500g ¥39 / 1kg ¥69 只能填一个值）⇒ 多规格时额外给
+ *   「按规格」入口（与后台 `shop-console` 同口径）。
+ */
+const isMultiSku = computed(() => Number(props.product.skuCount ?? 0) > 1)
 
 /** 展示价：优先门店价，否则品牌最低价（设计稿为单值）。 */
 const priceText = computed(() => {
@@ -94,7 +103,7 @@ function onClick(): void {
   if (props.mode === 'batch') emit('select', props.product)
 }
 
-function onAction(type: 'left' | 'price' | 'stock' | 'edit'): void {
+function onAction(type: 'left' | 'price' | 'stock' | 'sku' | 'edit'): void {
   emit('action', { type, product: props.product })
 }
 </script>
@@ -160,8 +169,15 @@ function onAction(type: 'left' | 'price' | 'stock' | 'edit'): void {
     <view class="ops">
       <view class="op-btn op-btn-left" hover-class="op-btn-pressed" @click.stop="onAction('left')">{{ leftBtn }}</view>
       <view class="op-group">
-        <view class="op-btn" hover-class="op-btn-pressed" @click.stop="onAction('price')">改价</view>
-        <view class="op-btn" hover-class="op-btn-pressed" @click.stop="onAction('stock')">改库存</view>
+        <!--
+          ⚠️ 多规格与单规格**互斥**，不是叠加：
+            多规格时 SPU 级「改价 / 改库存」会**统一作用于全部规格**（不准，例：500g ¥39 / 1kg ¥69 只能填一个值）
+            ⇒ 多规格**改走「按规格设价」**、不再显示那两个入口（也符合"小程序要精简"的范围结论）；
+            单规格继续用原 SPU 级入口（不变）。
+        -->
+        <view v-if="isMultiSku" class="op-btn op-btn-sku" hover-class="op-btn-pressed" @click.stop="onAction('sku')">按规格设价</view>
+        <view v-else class="op-btn" hover-class="op-btn-pressed" @click.stop="onAction('price')">改价</view>
+        <view v-if="!isMultiSku" class="op-btn" hover-class="op-btn-pressed" @click.stop="onAction('stock')">改库存</view>
         <view class="op-btn op-btn-edit" hover-class="op-btn-pressed" @click.stop="onAction('edit')">编辑</view>
       </view>
     </view>
@@ -317,6 +333,11 @@ function onAction(type: 'left' | 'price' | 'stock' | 'edit'): void {
   opacity: 0.7;
 }
 .op-btn-edit {
+  background: #fff4e8;
+  color: #ff5500;
+}
+/* 「按规格设价」也是浅橙强调（与「编辑」同色系，但两者不同时出现在多规格卡片上） */
+.op-btn-sku {
   background: #fff4e8;
   color: #ff5500;
 }

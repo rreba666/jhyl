@@ -94,7 +94,8 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
 /**
  * 路由 path 对应的权限中文名（与 router meta.title 保持一致）。
  * ⚠️ 注意区分两个「提现审核」：
- * - `/withdraw` —— C 端**用户**提现审核（商户管理员及以上可见）；
+ * - `/withdraw` —— C 端**用户**提现审核（⚠️ **2026-10-08 更正**：原写「商户管理员及以上可见」是**错的**，
+ *   与同文件矩阵矛盾 —— 实际**只有 `SUPER_ADMIN` 与 `FINANCE`** 有权，`ADMIN`（商户管理员）**不在列表内**）；
  * - `/merchant-withdraw` —— **商户（品牌主体）**提现审核（后端 `RoleGuardInterceptor` 登记为**仅超管 + FINANCE**，
  *   故矩阵里只给 SUPER_ADMIN 与 FINANCE，商户管理员越权会被后端拦掉）。
  */

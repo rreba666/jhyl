@@ -138,6 +138,8 @@ export interface MerchantProductVO {
    * ⚠️ 三者语义**互不重叠**（第十二批拆分后）：
    *   `pickupEnabled` = 线下自提；`deliveryEnabled` = **仅物流**；`sameCityEnabled` = **同城配送**。
    *   下单侧：`pickupType=0` 看 `deliveryEnabled`、`1` 看 `pickupEnabled`、`2` 看 `sameCityEnabled`。
+   * ⚠️ 后端**没下发该键**时为 `undefined`（不是 0）：编辑页据此判定「拿不到回显」→ 提交时**跳过**该字段
+   *   （保存语义是「不传 = 不修改」），避免把商家已关掉的开关重置为默认值。
    */
   pickupEnabled?: 0 | 1 | number | null
   deliveryEnabled?: 0 | 1 | number | null
@@ -158,17 +160,6 @@ export interface MerchantProductVO {
   description?: string
   /** 商品详情图数组（✅ 2026-09-27 后端已下发；无为空数组）。 */
   detailImages?: string[]
-  /**
-   * 商品级「支持线下自提」（2026-09-22 新增）：1=支持, 0=不支持，默认 1。
-   * ⚠️ 后端**没下发该键**时为 `undefined`（不是 0）：编辑页据此判定「拿不到回显」→ **不提交**该字段
-   * （保存语义是「不传 = 不修改」），避免把商家已关掉的开关重置为默认值。
-   */
-  pickupEnabled?: number
-  /**
-   * 商品级「支持物流(0)/同城(2)配送」（2026-09-22 新增）：1=支持, 0=不支持，默认 1。
-   * ⚠️ 同 `pickupEnabled`：`undefined` = 未回显，提交时必须跳过。
-   */
-  deliveryEnabled?: number
 }
 
 /** 商品目录分页结果。 */
@@ -250,6 +241,72 @@ export function batchUpdateProducts(productIds: number[], status: 0 | 1): Promis
     method: 'POST',
     data: { productIds, status },
   })
+}
+
+// ===== 商家端 · 门店 SKU 级设价 / 设库存（B-5，2026-10-08 新增）=====
+
+/**
+ * 本店某商品**各规格**的生效价 / 生效库存（**含三级回退来源**）。
+ *
+ * 契约 `ShopSkuPriceVO`（与后台 `/api/admin/shop-product/{id}/skus` **逐字同构**）：
+ * - `price` = 生效门店价、`priceSource` = `SKU`（按规格设价）/ `SHOP`（按商品设价）
+ *   / `PRODUCT`（商品原价）/ `NONE`（无可回退价，**页面展示为「—」**）—— ⚠️ 契约 enum 是**这 4 个值**；
+ * - `stock` = 生效门店库存、`stockSource` 取上面同 4 个值（`NONE` 同样展示为「—」）；
+ * - `spuShopPrice` / `skuShopPrice` / `spuShopStock` / `skuShopStock` **为 `null` 表示该级未设置**
+ *   —— ⚠️ **不要当成 0**（0 是「设成了 0」，null 是「没设、在回退」）；
+ * - `effectiveStock` = 可售 = 生效门店库存 − 已锁定（下限 0）。
+ *
+ * ⚠️ 商家端端点**不带 `shopId`**（门店由登录态解析），与后台侧的差别仅此一处。
+ */
+export interface MerchantSkuPriceVO {
+  skuId: number
+  skuName?: string
+  /** 商品原价（回退链最末级）。 */
+  brandPrice?: number
+  /** SPU 级门店价；null = 该门店未按商品设价。 */
+  spuShopPrice?: number | null
+  /** SKU 级门店价；null = 该门店未按规格设价。 */
+  skuShopPrice?: number | null
+  /** 生效门店价（三级回退结果）。 */
+  price?: number
+  /** 生效价来源：SKU / SHOP / PRODUCT / NONE（NONE 页面展示为「—」）。 */
+  priceSource?: string
+  /** 商品总库存（回退链最末级）。 */
+  brandStock?: number
+  spuShopStock?: number | null
+  skuShopStock?: number | null
+  /** 生效门店库存（三级回退结果）。 */
+  stock?: number
+  /** 生效库存来源：SKU / SHOP / PRODUCT / NONE（NONE 页面展示为「—」）。 */
+  stockSource?: string
+  lockedStock?: number
+  /** 有效库存（可售）= 生效门店库存 − 已锁定，下限 0。 */
+  effectiveStock?: number
+}
+
+/** 查询本店该商品各规格的生效价/生效库存（含三级来源）。 */
+export async function getMerchantSkuPrices(productId: number | string): Promise<MerchantSkuPriceVO[]> {
+  const data = await request<MerchantSkuPriceVO[] | null>({ url: `/api/merchant/products/${productId}/skus`, method: 'GET' })
+  // ⚠️ 后端约定无数据时返回空数组（也可能为 null）⇒ 两种都兼容，页面据此显示空态
+  return Array.isArray(data) ? data : []
+}
+
+/**
+ * 设置 **SKU 级**门店价。
+ * ⚠️ `price` 传 `null` = **清除**该规格的 SKU 级设置、自动回退上一级（**不是设成 0**）。
+ */
+export function setMerchantSkuPrice(productId: number | string, skuId: number | string, price: number | null): Promise<void> {
+  const query = price === null ? `?skuId=${skuId}` : `?skuId=${skuId}&price=${price}`
+  return request<void>({ url: `/api/merchant/products/${productId}/sku-price${query}`, method: 'PUT' })
+}
+
+/**
+ * 设置 **SKU 级**门店库存。
+ * ⚠️ `stock` 传 `null` = **清除**该规格的 SKU 级设置、自动回退上一级（**不是设成 0**）。
+ */
+export function setMerchantSkuStock(productId: number | string, skuId: number | string, stock: number | null): Promise<void> {
+  const query = stock === null ? `?skuId=${skuId}` : `?skuId=${skuId}&stock=${stock}`
+  return request<void>({ url: `/api/merchant/products/${productId}/sku-stock${query}`, method: 'PUT' })
 }
 
 // ===== 商家端 · 订单（/api/merchant/orders，只读） =====
