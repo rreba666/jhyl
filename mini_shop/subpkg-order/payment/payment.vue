@@ -5,7 +5,7 @@ import { getCartList, normalizeDeliverySwitch, type CartItem } from '@/api/cart'
 import { ADDRESS_DRAFT_KEY, cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
 import { createPrepay, requestPayment, payByBalance, switchToBalance, switchToWechat, releasePayChannel } from '@/api/payment'
 import { getEnabledShops, getDeliverableShops, type EnabledShop } from '@/api/shop'
-import { quoteDelivery, resolveQuoteFailCode, type DeliveryQuote } from '@/api/delivery-order'
+import { quoteDelivery, isConclusiveUndeliverable, isInconclusiveEnvironmentFailure, resolveQuoteFailCode, type DeliveryQuote } from '@/api/delivery-order'
 import { distanceMeters } from '@/utils/location'
 import { submitInvoice } from '@/api/invoice'
 import { getWalletInfo } from '@/api/user'
@@ -136,9 +136,11 @@ const quoteLoading = ref(false)
 /** 试算失败 / 不可配送的提示文案。 */
 const quoteError = ref('')
 /**
- * 试算失败的**结构化失败码**（后端 R4 枚举，见 `quoteFailureText`）。
+ * 试算失败的**结构化失败码**（后端 11 码枚举，取值**分两类**——回执 §三，见 `quoteFailureText`）。
  * 空串 = 当前没有失败码（未试算 / 试算通过 / 后端老版本没下发）。
- * ⛔ **不得**用它判断"能不能送" —— `canDelivery` 才是唯一判据。
+ * ⛔ **不得**用它判断"能不能送" —— `canDelivery` 才是唯一判据；
+ *    它也**不得**被拿去过滤门店 / 置灰同城（那只能走 `isConclusiveUndeliverable`，见
+ *    `shopQuoteBlocksDelivery`）。
  */
 const quoteFailCode = ref('')
 /**
@@ -905,7 +907,13 @@ function navigateToShop(shop: EnabledShop): void {
 }
 
 /**
- * 预试算的失败是否属于「**坐标不可信 / 没有坐标**」这一类 —— 它**不代表送不到**。
+ * 预试算的结论能否当成「**这家门店确定送不到**」—— **按类判定**，只认类别①。
+ *
+ * 判定链（读的时候请与代码对齐）：
+ * - `canDelivery !== false` ⇒ 送得到 / 后端没给结论 ⇒ **不算**阻断；
+ * - `canDelivery === false` + 码 ∈ **类别①「确定不可送」** ⇒ 算阻断（可置灰该门店）；
+ * - `canDelivery === false` + 码 ∈ **类别②「不确定·环境性」** ⇒ **不算**阻断；
+ * - `canDelivery === false` + **空码 / 未知码** ⇒ **不算**阻断（安全默认值）。
  *
  * ⚠️⚠️ 2026-10-08（后端 coordinateSource 闸门上线后必须这么判，否则同城配送对所有用户都进不去）：
  *   预试算用的是**用户当前定位**（不是收货地址），而它的来源只能是 `AUTO_LOCATE`，
@@ -914,48 +922,32 @@ function navigateToShop(shop: EnabledShop): void {
  *   ⇒ 这类失败属于「**结论不可用**」：不能据此把「同城配送」置灰，
  *     真正的判定交给用户填好地址后的**带来源**的试算（`refreshDeliveryQuote`）。
  *
- * ⚠️ 入参必须已经是**归一化后的码**（见 `resolveQuoteFailCode`）—— 原因码字段名在后端交付物里
- *   有 `failCode` / `quoteFailCode` 两种叫法（**已向后端提问**），**任何调用方都不要直接读字段**。
+ * ⚠️⚠️ 2026-10-08 追补（后端回执 §三）—— **本函数按「类」判定，不按单个码**：
+ *   后端给了**权威分类**（线上实测）：类别①「确定不可送」=
+ *   {@link CONCLUSIVE_UNDELIVERABLE_FAIL_CODES}；类别②「不确定·环境性」=
+ *   {@link INCONCLUSIVE_ENVIRONMENT_FAIL_CODES}。
+ *   只认一两个码是**不够**的：同一商家不带来源时回 `NO_COORDINATE`、**带上 `MAP_PICK` 后回的是
+ *   `SHOP_NO_COORDINATE`** ⇒ 只认前者仍会把"商家没配门店坐标"当成"确定送不到"，
+ *   同城配送照样被整体禁用。⇒ 判据一律走 `api/delivery-order.ts` 的**类分类器**，
+ *   本页**不再自己写任何 `code === 'XXX'` 的单码判断**（新增码因此不会再悄悄回归）。
  *
- * ⚠️ 本函数对**空码**返回 `false`（空码不在这两个值里）⇒ 「拿不到原因码」这件事由
- *   `shopQuoteBlocksDelivery` 单独处理（那里**不得**把空码当成"确定不可送"）。
- */
-function isCoordinateTrustFailure(failCode?: string): boolean {
-  const code = String(failCode || '').trim().toUpperCase()
-  return code === 'NO_COORDINATE' || code === 'COORDINATE_INVALID'
-}
-
-/**
- * 预试算结论能否当成「这家门店送不到」：只有**有结论的失败**才算（见 `isCoordinateTrustFailure`）。
- * - `canDelivery !== false` ⇒ 送得到（或后端没给结论）⇒ 不算阻断；
- * - `canDelivery === false` + 坐标不可信码 ⇒ **结论不可用** ⇒ 不算阻断；
- * - `canDelivery === false` + **空码** ⇒ **结论不可用** ⇒ 不算阻断（见下）；
- * - `canDelivery === false` + 其它码 ⇒ 有结论地送不到 ⇒ 算阻断。
- *
- * ⚠️ 2026-10-08：原因码读取一律走 `resolveQuoteFailCode`（`failCode` ?? `quoteFailCode`）——
- *   只读一个名字时，预试算必然返回的 `NO_COORDINATE` 若读不到就会变成"确定送不到"，
- *   同城配送即对**所有商品**置灰（本次 P0 的形态）。
- *
- * ⚠️ **为什么空码不置灰**（fail-safe，与后端排查文的问题 5 对齐）：
- *   空码 = 「**后端没说为什么**」，本身**不是**"确定送不到"的结论。把它当成不可送，
- *   等于用一个不完整的响应去禁用整个功能 —— 那正是本次 P0；而放宽它是**安全的**：
- *   置灰只是提前预筛，真正的闸门在下游且仍然 fail-closed ——
- *   ① 收货地址必须有**可信来源**的真实坐标（`addressCoords` + `addressCoordinateSource`），
- *   ② 带来源的试算（`refreshDeliveryQuote`）返回 `canDelivery=false` 时提交被拦（见 `submitPayment`）。
- *   ⇒ 既不伪造"能送"，也不伪造"不能送"。
+ * ⚠️ 判据方向很关键：置灰只看「**命中类别①白名单**」（`isConclusiveUndeliverable`），
+ *   **不是**「不命中类别②」。空码与**未知码**都落在类别①之外 ⇒ 一律按"不确定"处理
+ *   （安全默认值见 `isConclusiveUndeliverable` 的注释）。
  */
 function shopQuoteBlocksDelivery(quote?: DeliveryQuote): boolean {
   if (!quote || quote.canDelivery !== false) return false
   const code = resolveQuoteFailCode(quote)
-  if (!code) return false
-  return !isCoordinateTrustFailure(code)
+  // ⚠️ 类别②（`SHOP_NO_COORDINATE` / `MAP_SERVICE_ERROR` / `ADDRESS_UNRESOLVED` …）、空码、
+  //    以及**将来新增的未知码**都不在这里 ⇒ 不算"这家门店送不到"（门店不过滤、同城不置灰）。
+  return isConclusiveUndeliverable(code)
 }
 
 /**
  * 当前定位下「同城配送」是否可选。
  * - 定位拿不到（未授权/失败）→ 返回 true（**不置灰**，避免误拦；真正下单时仍会按收货地址试算拦截）；
- * - 定位成功但**所有**候选门店都"有结论地"送不到 → false（选项置灰，点击给提示）；
- * - 只要有一家能送、或**有任何一家的结论不可用** → true。
+ * - 定位成功但**所有**候选门店都"**确定**送不到"（类别①）→ false（选项置灰，点击给提示）；
+ * - 只要有一家能送、或**有任何一家落在类别② / 未知码 / 空码**（不确定）→ true。
  *
  * ⚠️⚠️ 2026-10-08 **P0 修复（用户反馈「同城配送对所有商品不可用」）**：
  *   此前实现是 `!quotes.some(shopQuoteBlocksDelivery)`，语义 = 「**每一家**都得能送」，
@@ -964,8 +956,9 @@ function shopQuoteBlocksDelivery(quote?: DeliveryQuote): boolean {
  *   （当前定位不是用户在地图上选的收货点，标 `MAP_PICK` 属**谎报来源**，被硬规则禁止），
  *   后端因此对**每一家**都 fail-closed 回 `NO_COORDINATE` ⇒ 只要这个码没被识别出来，
  *   同城配送就对所有商品、所有用户、所有环境一律置灰。
- *   ⇒ 现行口径：**只有"全部候选门店都有结论地不可送"才置灰**（`every`），
+ *   ⇒ 现行口径：**只有"全部候选门店都（按类别①）确定不可送"才置灰**（`every`），
  *     与 `pickerShops`（`quotable.length ? quotable : deliverable`）取**同一个判据**。
+ * ⚠️ 本判据**不得**再用 `.some(` —— 那等于"任意一家有结论不可送就禁用"（见契约 11m-1）。
  */
 const sameCityAvailable = computed(() => {
   if (!userLocation.value) return true
@@ -994,7 +987,7 @@ const sameCityUnavailableReason = computed(() => {
  * ⚠️ 2026-10-08（后端 coordinateSource 闸门）：这里传的是**用户当前定位**，来源只能是
  *    `AUTO_LOCATE`（不在白名单）⇒ 后端一律回 `NO_COORDINATE`，**拿不到"能不能送"的结论**。
  *    ⛔ 绝不谎报 `MAP_PICK` 来"修好"它；本轮结果只当**参考**，不再参与置灰
- *    （见 `isCoordinateTrustFailure` / `shopQuoteBlocksDelivery`）。
+ *    （见 `shopQuoteBlocksDelivery`，它只认类别①「确定不可送」）。
  *    真正的判定在用户填好收货地址后由 `refreshDeliveryQuote`（带可信来源）做。
  */
 async function prepareSameCity(): Promise<void> {
@@ -1060,9 +1053,12 @@ watch([shops, moduleConfig, deliverableShops], () => {
  *    而自提与同城开关无关：一家店没开通同城，照样可以让顾客上门自提自己有的商品。
  *    ⇒ 自提只用 `deliverableShops`（口径 = `shop_product.status=1` 上架关系，与下单拦截同源）。
  * ⚠️ 物流（0）不选门店，保持原样返回。
- * ⚠️ 同城若预试算已出结果，进一步只列**当前定位能送到**的门店（送不到的列出来也没意义）。
- *    ⚠️ 2026-10-08：这里的"送不到"必须是**有结论的**失败（`shopQuoteBlocksDelivery`）——
- *    `NO_COORDINATE`（当前定位没有可信来源）**不算**，否则门店列表会被清空。
+ * ⚠️ 同城若预试算已出结果，进一步只列**确定能送到或结论不可用**的门店（类别①的门店列出来也没意义）。
+ *    ⚠️ 2026-10-08：这里的"送不到"必须是**类别①「确定不可送」**（`shopQuoteBlocksDelivery`
+ *    ⇒ `isConclusiveUndeliverable`）—— **类别②「不确定 · 环境性」一律不得过滤门店**
+ *    （后端回执 §三）：`NO_COORDINATE`（当前定位没有可信来源）、`SHOP_NO_COORDINATE`（商家未配
+ *    门店坐标）、`MAP_SERVICE_ERROR`、`ADDRESS_UNRESOLVED`、`COORDINATE_INVALID` 以及**未知码**
+ *    **全部不算**，否则门店列表会被清空 / 只剩一家。
  * ⚠️ 别再退回 `shops.value` 给自提/同城 —— 那是全量启用门店，会把没有该商品的门店也列出来。
  */
 const pickerShops = computed(() => {
@@ -1174,7 +1170,11 @@ const quoteUsingShopFallback = computed(
 )
 
 /**
- * 试算失败码 → 用户引导文案（后端回执 §七 全量枚举，2026-10-08 R4）。
+ * 试算失败码 → 用户引导文案。
+ *
+ * ⚠️⚠️ 2026-10-08 追补（后端回执 §三）：**按类分流，不再按单个码分流**（分类器在
+ *   `api/delivery-order.ts`：`isConclusiveUndeliverable` / `isInconclusiveEnvironmentFailure`）。
+ *   本页**不再自己写任何 `code === 'XXX'` 的单码判断**（新增码不会再悄悄回归）。
  *
  * 分工（⚠️ 别搞反）：
  * - **`canDelivery` 才是"能不能送"的唯一判据**：只有它为 `false` 时才调这里；
@@ -1183,31 +1183,43 @@ const quoteUsingShopFallback = computed(
  *   字段名歧义已向后端提问）—— 这里**不要**绕过该函数去直接读响应对象的原始字段，
  *   否则读错名字就会退回 `default` 分支：`reason` 仍能展示（后端文案可直接给用户看），
  *   但「去地图选点」这类**可执行引导会消失**；
- * - 白名单外的失败码（`OUT_OF_RANGE` / `MIN_AMOUNT` / `SHOP_CLOSED` / `NOT_IN_DELIVERY_HOURS` /
- *   `DELIVERY_DISABLED` / `GOODS_NOT_PROVIDED` / `SHOP_NO_COORDINATE`）⇒ **直接用后端 `reason`**
- *   （后端文案已可直接给用户看，例如「超出配送范围（当前距离约 12.3 公里）」）。
+ * - **类别②（不确定·环境性）**：出路**一律**是「去地图选点」（回执 §三）——
+ *   逐码只允许在这**同一条出路**下换措辞，**绝不**允许退回"该地址不可配送"的口径；
+ * - **类别①（确定不可送）**：用后端 `reason`（已可直接给用户看，例如
+ *   「超出配送范围（当前距离约 12.3 公里）」），逐码保留文案；
+ * - **未知码 / 空码**（不在任何一类里）：与类别②同路 —— 后端 `reason` 优先，没给就按"不确定"提示。
  */
 function quoteFailureText(quote: DeliveryQuote | null | undefined): string {
   const reason = quote?.reason && quote.reason !== 'ok' ? quote.reason : ''
-  switch (resolveQuoteFailCode(quote)) {
-    // 没有可信坐标（缺失 / 来源不在白名单）⇒ 唯一出路就是去地图选点（页面另给可点按钮）
-    case 'NO_COORDINATE':
-      return ADDRESS_NEEDS_MAP_PICK_TEXT
-    // 坐标越界 / (0,0) ⇒ 让用户重新选点
-    case 'COORDINATE_INVALID':
-      return '收货坐标无效，请在地图上重新选点'
-    // 地图服务侧问题（未接入 / 配额 / 连接失败）与地址解析失败 ⇒ 地图服务口径
-    case 'MAP_SERVICE_ERROR':
-    case 'ADDRESS_UNRESOLVED':
-      return reason || '地图服务暂不可用，请在地图上选点后重试'
-    // 门店侧 / 金额 / 时段等原因：后端 reason 已是用户可读文案，原样透出
+  const code = resolveQuoteFailCode(quote)
+  // ── 类别②「不确定 · 环境性」：统一走「去地图选点」（页面另给可点按钮，见 `quoteNeedsMapPick`）
+  if (isInconclusiveEnvironmentFailure(code)) {
+    switch (code) {
+      // 没有可信坐标（缺失 / 来源不在白名单）⇒ 唯一出路就是去地图选点
+      case 'NO_COORDINATE':
+        return ADDRESS_NEEDS_MAP_PICK_TEXT
+      // 坐标越界 / (0,0) ⇒ 让用户重新选点
+      case 'COORDINATE_INVALID':
+        return '收货坐标无效，请在地图上重新选点'
+      // 地图服务侧问题（未接入 / 配额 / 连接失败）与地址解析失败 ⇒ 同一出路
+      case 'MAP_SERVICE_ERROR':
+      case 'ADDRESS_UNRESOLVED':
+        return reason || '地图服务暂不可用，请在地图上选点后重试'
+      // 商家门店坐标未配置：如实转述后端 reason，但**照样**是"去地图选点"这条出路（回执 §三）
+      case 'SHOP_NO_COORDINATE':
+        return reason || ADDRESS_NEEDS_MAP_PICK_TEXT
+      default:
+        return ADDRESS_NEEDS_MAP_PICK_TEXT
+    }
+  }
+  // ── 类别①「确定不可送」+ 未知码：后端 reason 已是用户可读文案，原样透出
+  switch (code) {
     case 'OUT_OF_RANGE':
     case 'MIN_AMOUNT':
     case 'SHOP_CLOSED':
     case 'NOT_IN_DELIVERY_HOURS':
     case 'DELIVERY_DISABLED':
     case 'GOODS_NOT_PROVIDED':
-    case 'SHOP_NO_COORDINATE':
       return reason || '该地址当前不可配送'
     default:
       return reason || '该地址超出配送范围'
@@ -1215,12 +1227,15 @@ function quoteFailureText(quote: DeliveryQuote | null | undefined): string {
 }
 
 /**
- * 试算失败是否属于「**去地图选点**就能解决」的一类（用于展示可点入口，而不是只丢一句提示）。
- * 覆盖：本地判定没有可信坐标（含旧缓存"有坐标没来源"）、后端 `NO_COORDINATE` / `COORDINATE_INVALID`。
+ * 试算失败是否属于「**去地图选点**就能解决 / 至少该先去做**」的一类（用于展示可点入口，
+ * 而不是只丢一句提示）。
+ * 覆盖：本地判定没有可信坐标（含旧缓存"有坐标没来源"）、以及**任何类别②**的后端码
+ * （回执 §三：类别② 一律"视为不确定 ⇒ 提示用户请在地图上选点"；
+ * 此前只覆盖 `NO_COORDINATE` / `COORDINATE_INVALID`，`SHOP_NO_COORDINATE` /
+ * `MAP_SERVICE_ERROR` / `ADDRESS_UNRESOLVED` 拿不到这个可执行入口）。
  */
 const quoteNeedsMapPick = computed(() => pickupType.value === 2 && !!selectedAddress.value
-  && (quoteFailCode.value === 'NO_COORDINATE' || quoteFailCode.value === 'COORDINATE_INVALID'
-    || !addressCoords.value))
+  && (!addressCoords.value || isInconclusiveEnvironmentFailure(quoteFailCode.value)))
 
 /**
  * 同城配送试算：发货门店 + 收货地址齐了才调，用于展示配送费 / 距离 / 预计送达与可送性。
@@ -1989,7 +2004,12 @@ async function submitPayment(): Promise<void> {
     openAddressMapPicker()
     return
   }
-  // 试算说不可送就不放行（超配送范围 / 门店未开配送等），提示以后端 reason 为准
+  // 试算说不可送就不放行（超配送范围 / 门店未开配送等），提示以后端 reason 为准。
+  // ⚠️ 2026-10-08：这里**不看失败码的类别** —— 走到这里时用户已经给出**可信来源**的收货坐标，
+  //    `canDelivery=false` 就是后端对该门店/该地址的**权威结论**（类别①与类别②都拦：
+  //    类别②的出路是让用户去地图选点，而"选了点仍然 false"依旧不能放行）。
+  //    类别分流只作用于**预试算**（进页面用当前位置试算，无可信来源）：那里绝不能用
+  //    "不确定"结论去置灰整个同城配送（回执 §三）。
   if (!isExistingOrder && pickupType.value === 2 && deliveryQuote.value && deliveryQuote.value.canDelivery === false) {
     uni.showToast({ title: quoteError.value || '该地址超出配送范围', icon: 'none' })
     return

@@ -238,31 +238,32 @@ export interface DeliveryQuote {
    */
   canDelivery?: boolean
   /**
-   * 结构化失败码（后端回执 §七 全量枚举，2026-10-08 R4 上线）：
-   * `NO_COORDINATE`（无坐标 / 来源不可信）、`COORDINATE_INVALID`（越界 / `(0,0)`）、
-   * `ADDRESS_UNRESOLVED`（地址解析不出）、`MAP_SERVICE_ERROR`（地图服务故障）、
-   * `SHOP_NO_COORDINATE`（门店未配坐标）、`OUT_OF_RANGE`、`DELIVERY_DISABLED`、
-   * `MIN_AMOUNT`、`SHOP_CLOSED`、`NOT_IN_DELIVERY_HOURS`、`GOODS_NOT_PROVIDED`。
+   * 结构化失败码（后端回执 §七 全量枚举，2026-10-08 R4 上线）。
+   *
+   * ✅ **字段名已由后端确认 = `failCode`**（回执 §二-1：`quoteFailCode` 是后端的**枚举类名**
+   *   `DeliveryQuoteFailCode`，**不是响应字段**），且 `api_doc.json` 的 `Quote.failCode`
+   *   现已带 `enum`（11 项）与分类描述 ⇒ 本字段是契约字段。
+   * ⚠️ 但**取值必须按类（class）处理，不能按单个码处理** —— 见
+   *   {@link CONCLUSIVE_UNDELIVERABLE_FAIL_CODES} / {@link INCONCLUSIVE_ENVIRONMENT_FAIL_CODES}
+   *   与后端回执 §三（`docs/26/10.08/` 下的回执-前端-同城配送不可用排查 文档）。
    * ⚠️ 可能缺省（老版本后端）⇒ 判空后再按 `reason` 展示，**不得**把缺失当成成功。
    *
-   * ⚠️⚠️ **字段名在后端交付物里不一致，本字段是"两个都读"的一半**（另一半见 `quoteFailCode`）：
-   *   · 后端回执 §六-3 写「按 **`failCode`** 分流」；
-   *   · 同一份回执 **§七 标题**写「附：**`quoteFailCode`** 全量枚举」；
-   *   · `api_doc.json` 的 `Quote` schema（= `ResultQuote.data` 的 `$ref` 目标）里**只有 `failCode`**，
-   *     且**没有任何 description** ⇒ 契约层面无法自证字段名与层级。
-   *   ⇒ **已向后端书面提问确认确切字段名与所在层级**（问题登记：
-   *     `docs/26/10.08/后端排查-同城配送全部不可用-2026-10-08.md` §三-1 / §三-2）。
-   *   ⇒ 读码一律走 {@link resolveQuoteFailCode}（`failCode` 优先），**任何调用方都不要直接读字段**。
+   * ⚠️ **`canDelivery=false ⇒ failCode 必非空`**（回执 §二-5：后端 `DeliveryRuleService` 只有
+   *   两处构造 `Quote` —— 成功（`failCode=null`）与 `fail()` 助手）⇒ 只有 `canDelivery===false`
+   *   时才有必要读码；`canDelivery=true` 时该字段为 `null`。
+   *
+   * ⚠️⚠️ 读码一律走 {@link resolveQuoteFailCode}（`failCode` 优先，兼读历史别名的容忍读法；
+   *   字段名歧义已登记：`docs/26/10.08/后端排查-同城配送全部不可用-2026-10-08.md` §三-1 / §三-2），
+   *   **任何调用方都不要直接读字段**，更**不要**自己写 `code === 'XXX'` 的单码判断。
    */
   failCode?: string
   /**
-   * 结构化失败码的**另一个可能字段名**（见上方 `failCode` 的说明）。
+   * 结构化失败码的**历史别名**（容忍读法，唯一的第二候选名字）。
    *
-   * ⚠️ **不是"后端确实下发了两个字段"**，而是**同一个字段在交付物里出现了两种叫法**，
-   *   在拿到后端确认前两边都读，避免"选错名字 ⇒ 把『坐标不可信』误读成『超出配送范围』"。
-   *   选错的代价是**真实故障**：进页面预试算**刻意不带** `coordinateSource` ⇒ 后端必然 fail-closed
-   *   回 `NO_COORDINATE`，若前端读不到该码，每家门店都会像"确定送不到" ⇒
-   *   同城配送对**所有商品**置灰（2026-10-08 用户反馈的 P0）。
+   * ⚠️ **后端已澄清：它不是第二个响应字段** —— `quoteFailCode` 是后端的**枚举类名**
+   *   `DeliveryQuoteFailCode`（回执 §二-1），响应字段只有 `failCode`。
+   *   保留本字段只是为了让 {@link resolveQuoteFailCode} 的兼容读法**不依赖对文档措辞的推断**：
+   *   万一某环境真下发了这个别名，也不会把「坐标不可信」误读成「超出配送范围」。
    */
   quoteFailCode?: string
   /** 不可配送的原因（可配送时为 'ok'）——后端文案**可直接展示**。 */
@@ -296,6 +297,74 @@ export interface DeliveryQuote {
  */
 export function resolveQuoteFailCode(quote?: DeliveryQuote | null): string {
   return String(quote?.failCode ?? quote?.quoteFailCode ?? '').trim().toUpperCase()
+}
+
+/**
+ * 类别 ①「**确定不可送**」的失败码 —— **只有**这些码才允许前端据此**置灰 / 过滤该门店**，
+ * 并按码给用户提示。
+ *
+ * 来源：**后端回执 §三**（`docs/26/10.08/回执-前端-同城配送不可用排查-2026-10-08.md`，线上实测），
+ * 与 `api_doc.json` 的 `Quote.failCode` 枚举描述**逐字一致**（11 码分两类）。
+ *
+ * ⛔ 这是一张**白名单**：不在本表内的码 —— 包括类别②、空码、以及**后端将来新增的码** ——
+ *   **一律不得**当作"确定不可送"（见 {@link isConclusiveUndeliverable} 的安全默认值）。
+ *   用「不在类别②里 ⇒ 不可送」这种**黑名单式反推**正是 2026-10-08 P0 的形态，**禁止**。
+ */
+export const CONCLUSIVE_UNDELIVERABLE_FAIL_CODES: readonly string[] = [
+  'OUT_OF_RANGE',
+  'MIN_AMOUNT',
+  'DELIVERY_DISABLED',
+  'SHOP_CLOSED',
+  'NOT_IN_DELIVERY_HOURS',
+  'GOODS_NOT_PROVIDED',
+]
+
+/**
+ * 类别 ②「**不确定 · 环境性**」的失败码 —— 后端回执 §三 明确其前端用法：
+ * **视为"不确定"**：提示用户「请在地图上选点」；**门店列表不得过滤**；
+ * **尤其不得据此禁用整个同城配送**。
+ *
+ * 为什么必须按**类**而不是按单个码：回执 §三 的线上实测 —— 不带 `coordinateSource` 的预试算
+ * 返回 `NO_COORDINATE`，而**同一商家**带上 `MAP_PICK` 坐标后返回的是**另一个码**
+ * `SHOP_NO_COORDINATE`（「商家门店坐标未配置，暂不支持配送」）⇒ 只认一个码**仍会误禁用整个同城**。
+ */
+export const INCONCLUSIVE_ENVIRONMENT_FAIL_CODES: readonly string[] = [
+  'NO_COORDINATE',
+  'SHOP_NO_COORDINATE',
+  'MAP_SERVICE_ERROR',
+  'ADDRESS_UNRESOLVED',
+  'COORDINATE_INVALID',
+]
+
+/** 失败码归一化（去空白 + 大写）—— 两个分类器共用一份口径，避免各处各写一遍。 */
+function normalizeFailCode(code?: string | null): string {
+  return String(code == null ? '' : code).trim().toUpperCase()
+}
+
+/**
+ * 该失败码是否属于类别 ①「**确定不可送**」—— **只有**它可以让前端置灰 / 过滤门店。
+ *
+ * ⛔ **未知 / 未识别的码一律返回 `false`**（这就是安全默认值，也是本函数存在的理由）：
+ *   判定做成"**命中类①白名单才为真**"，而不是"不命中类②就为真" ⇒ **后端新增一个码时，
+ *   它默认落到"不确定"侧**（不置灰、不过滤门店、不禁用同城），最坏结果是用户多点一次、
+ *   由下游带可信坐标的试算与提交守卫拦下（仍然 fail-closed）；反过来把未知码当"确定不可送"，
+ *   最坏结果是**整个同城配送对所有商品不可用**（2026-10-08 的真实 P0）。
+ *   两害相权 ⇒ **未知 ⇒ 不确定**。
+ */
+export function isConclusiveUndeliverable(code?: string | null): boolean {
+  return CONCLUSIVE_UNDELIVERABLE_FAIL_CODES.includes(normalizeFailCode(code))
+}
+
+/**
+ * 该失败码是否属于类别 ②「**不确定 · 环境性**」—— 出路是「去地图选点」，
+ * **不得**据此过滤门店，**尤其不得**禁用整个同城配送。
+ *
+ * ⚠️ 本函数只回答"是不是已被归类为环境性不确定"，**不要**把它当成
+ *   {@link isConclusiveUndeliverable} 的反面：未知码两边都不属于，仍必须按"不确定"处理
+ *   （所以置灰判据只能写成 `isConclusiveUndeliverable(code)`）。
+ */
+export function isInconclusiveEnvironmentFailure(code?: string | null): boolean {
+  return INCONCLUSIVE_ENVIRONMENT_FAIL_CODES.includes(normalizeFailCode(code))
 }
 
 /**
