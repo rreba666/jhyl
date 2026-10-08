@@ -24,28 +24,41 @@ interface PosterCanvasNode {
   requestAnimationFrame?(callback: () => void): void
 }
 
-const POSTER_BACKGROUND = '/static/design-cuts/figma-share/poster-portrait-background.jpg'
 /**
- * 背景图**候选路径**（顺序敏感：相对路径优先，绝对路径兜底）。
+ * ⚠️ 2026-10-08 CDN 迁移：海报底图已从包内 `static` 下的 `design-cuts/` 目录外挂到 CDN。
+ * URL 形式**已实测锁定**：`fengling/2026-09-17-jinhuayouli/mini-static/` 这段长前缀是**必需的**
+ * （CDN 回源不会剥掉它；少了它直接 404），别再"简化"成 `/mini-static/...` 或 `/static/...`。
  *
- * ⚠️ 2026-09-28 踩到：只用 `/static/...` 时，`canvas.createImage()` 在某些环境下会 onerror
+ * ⚠️⚠️ **代码之外的部署依赖（微信控制台，改代码解决不了）**：
+ * `uni.getImageInfo()` 底层走 `wx.downloadFile` 的域名校验链路 ⇒ **必须**在小程序后台
+ * 「开发管理 → 服务器域名 → downloadFile 合法域名」里加上 `https://jinhuayou.com`，
+ * 否则拿网络 URL 生成海报会**直接失败**。
+ * （注：纯 `<image src="https://...">` 的**展示**不受该白名单限制、只需 https —— 两者别混淆。）
+ */
+const POSTER_BACKGROUND = 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-share/poster-portrait-background.jpg'
+/**
+ * 背景图**候选路径**（顺序敏感：`getImageInfo` 解析出的本地临时路径优先，其后才是这里的候选）。
+ *
+ * ⚠️ 2026-09-28 踩到：只用单一绝对路径时，`canvas.createImage()` 在某些环境下会 onerror
  * （表现是「保存失败，请重试」+ 控制台 `海报图片加载失败`）。
  * 同项目的 `PromotionCodePoster.vue` **早就踩过同一个坑**并加了多路径兜底
  * （它的「保存到手机」一直正常，就是靠这份兜底）⇒ 这里对齐同一套候选顺序。
+ * ⚠️ 2026-10-08 CDN 迁移：包内 `static` 下那三个设计切图目录已整体删除，原来那三条
+ * `../static/...` / `../../static/...` / `/static/...` 候选**全部会 404**
+ * ⇒ 收敛为唯一仍可解析的 CDN 绝对 URL。候选链「按顺序逐个试」的行为**保持不变**
+ * （调用处仍是 `[getImageInfo 解析出的 path, ...POSTER_BACKGROUND_SOURCES]`，
+ * 两者形态不同、不会被去重吃掉）。
  */
 const POSTER_BACKGROUND_SOURCES = [
-  '../static/design-cuts/figma-share/poster-portrait-background.jpg',
-  '../../static/design-cuts/figma-share/poster-portrait-background.jpg',
-  '/static/design-cuts/figma-share/poster-portrait-background.jpg',
+  POSTER_BACKGROUND,
 ] as const
 /** 二维码兜底素材（当前 tab 二维码加载不出来时用）。 */
+const POSTER_QR_PLACEHOLDER = 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-share/poster-qr-placeholder.jpg'
 const POSTER_QR_SOURCES = [
-  '../static/design-cuts/figma-share/poster-qr-placeholder.jpg',
-  '../../static/design-cuts/figma-share/poster-qr-placeholder.jpg',
-  '/static/design-cuts/figma-share/poster-qr-placeholder.jpg',
+  POSTER_QR_PLACEHOLDER,
 ] as const
-const POSTER_QR_FALLBACK = '/static/design-cuts/figma-share/poster-qr-placeholder.jpg'
-const POSTER_CLOSE_ICON = '/static/design-cuts/figma-share/poster-close.svg'
+const POSTER_QR_FALLBACK = POSTER_QR_PLACEHOLDER
+const POSTER_CLOSE_ICON = 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-share/poster-close.svg'
 const POSTER_WIDTH = 1000
 const POSTER_HEIGHT = 1600
 /**
@@ -136,10 +149,10 @@ function getCanvasNode(): Promise<PosterCanvasNode> {
 /**
  * 用 2D canvas 加载图片。
  *
- * ⚠️ `label` 是为了**区分是背景图还是二维码失败** —— 两者的来源完全不同（包内静态图 vs 后端二维码），
+ * ⚠️ `label` 是为了**区分是背景图还是二维码失败** —— 两者的来源完全不同（CDN 背景图 vs 后端二维码），
  * 混在一起报「海报图片加载失败」无法定位（2026-09-28 卡在这里）。
- * ⚠️ `createImage().src` 只接受特定形态：真机上 `getImageInfo('/static/...')` 会给出 `wxfile://` 临时路径（可用），
- * 但**开发者工具里可能给的是 `http://127.0.0.1:<port>/static/...`**，而该地址若返回非 200 就会 onerror。
+ * ⚠️ `createImage().src` 只接受特定形态：对 CDN URL 调 `getImageInfo` 会给出 `wxfile://` 临时路径（可用），
+ * 但**开发者工具里可能给的是 `http://127.0.0.1:<port>/...` 之类的本地代理地址**，该地址若返回非 200 就会 onerror。
  */
 /**
  * 逐个候选路径尝试加载，**任一成功即返回**；全失败才抛错。
@@ -192,12 +205,12 @@ function waitForCanvasPaint(canvas: PosterCanvasNode): Promise<void> {
 }
 
 async function createPosterFile(): Promise<string> {
-  // ⚠️ `getImageInfo` **自身**也可能失败（例如开发者工具静态服务对某张图返回 500）——
+  // ⚠️ `getImageInfo` **自身**也可能失败（网络抖动 / 域名未加入 downloadFile 白名单 / 开发者工具代理返回 500）——
   // 不能让这里抛错就断掉整条链路：失败时让 path 为空，交给下面的多路径兜底继续试。
   const background = await getImageInfo(POSTER_BACKGROUND).catch(() => null)
   const qr = await getImageInfo(previewQrUrl.value).catch(() => null)
-  // 诊断留痕：这里能看出 `getImageInfo` 究竟把静态图解析成了什么形态
-  // （真机通常 `wxfile://`；开发者工具可能是 `http://127.0.0.1:<port>/static/...`，后者若 500 就会让 createImage 失败）。
+  // 诊断留痕：这里能看出 `getImageInfo` 究竟把 CDN 图解析成了什么形态
+  // （真机通常 `wxfile://`；开发者工具可能是 `http://127.0.0.1:<port>/...`，后者若 500 就会让 createImage 失败）。
   console.warn('[HomeSharePoster] image info:', JSON.stringify({
     background: String(background?.path ?? '(getImageInfo 失败)').slice(0, 140),
     qr: String(qr?.path ?? '(getImageInfo 失败)').slice(0, 140),
@@ -208,7 +221,7 @@ async function createPosterFile(): Promise<string> {
 
   const [backgroundImage, qrImage] = await Promise.all([
     // ⚠️ 先试 getImageInfo 解析出的 path（真机通常是 wxfile:// 临时路径，最可靠），
-    //    失败再逐个试 POSTER_BACKGROUND_SOURCES 里的相对/绝对路径兜底。
+    //    失败再逐个试 POSTER_BACKGROUND_SOURCES 里的 CDN 绝对 URL 兜底。
     loadCanvasImageWithFallback(canvas, [background?.path || '', ...POSTER_BACKGROUND_SOURCES], 'background'),
     loadCanvasImageWithFallback(canvas, [qr?.path || '', ...POSTER_QR_SOURCES], 'qr'),
   ])

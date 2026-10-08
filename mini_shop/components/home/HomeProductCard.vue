@@ -25,7 +25,7 @@ function onImageSettled(): void {
   imageLoaded.value = true
 }
 
-const imageUrl = computed(() => props.product.mainImage || '/static/figma-home/product-default.jpg')
+const imageUrl = computed(() => props.product.mainImage || 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-home/product-default.jpg')
 const description = computed(() => props.product.descriptionTitle || props.product.tag || '精选好物，安心品质')
 /**
  * 后台「推荐文本」开关：关闭时不渲染描述行。

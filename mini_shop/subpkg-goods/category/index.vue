@@ -41,18 +41,18 @@ let goodsRequestToken = 0
 const categoryGoodsCache = new Map<string, CategoryProduct[]>()
 const navigationThrottle = createThrottle(500)
 
-/** 内置默认品牌（后台未配置品牌时回退，logo 用本地静态图）。 */
+/** 内置默认品牌（后台未配置品牌时回退，logo 走 CDN 静态图）。 */
 const DEFAULT_BRANDS = [
-  { name: '胡庆余堂', image: '/static/figma-category/brands/hu-qing-yu-tang.png' },
-  { name: '湖北白鸭', image: '/static/figma-category/brands/hu-bei-bai-ya.png' },
-  { name: '方家铺子', image: '/static/figma-category/brands/fang-jia-pu-zi.png' },
-  { name: '海天', image: '/static/figma-category/brands/hai-tian.png' },
-  { name: '巧媳妇', image: '/static/figma-category/brands/qiao-xi-fu.png' },
-  { name: '火宫殿', image: '/static/figma-category/brands/huo-gong-dian.png' },
-  { name: '义利', image: '/static/figma-category/brands/yi-li.png' },
-  { name: '珠江桥牌', image: '/static/figma-category/brands/zhu-jiang-qiao-pai.png' },
-  { name: '张小泉', image: '/static/figma-category/brands/zhang-xiao-quan.png' },
-  { name: '稻香村', image: '/static/figma-category/brands/dao-xiang-cun.png' },
+  { name: '胡庆余堂', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/hu-qing-yu-tang.png' },
+  { name: '湖北白鸭', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/hu-bei-bai-ya.png' },
+  { name: '方家铺子', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/fang-jia-pu-zi.png' },
+  { name: '海天', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/hai-tian.png' },
+  { name: '巧媳妇', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/qiao-xi-fu.png' },
+  { name: '火宫殿', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/huo-gong-dian.png' },
+  { name: '义利', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/yi-li.png' },
+  { name: '珠江桥牌', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/zhu-jiang-qiao-pai.png' },
+  { name: '张小泉', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/zhang-xiao-quan.png' },
+  { name: '稻香村', image: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/dao-xiang-cun.png' },
 ]
 /** 品牌项：id 为空表示兜底品牌（不可按品牌筛选）。 */
 interface BrandItem { id: number | null; name: string; image: string }
@@ -74,8 +74,8 @@ const selectedBrand = computed<BrandItem | null>(() => brands.value.find((item) 
  * ⚠️ 两张都是 **144×144 的透明圆环**，中心不遮挡 logo；品牌图本身是**透明背景**，
  * 因此这里**不再给 `.brand-icon` 铺底色**，圆环直接叠在 logo 上即可。
  */
-const BRAND_RING_NORMAL = '/static/figma-category/brands/white-border.png'
-const BRAND_RING_SELECTED = '/static/figma-category/brands/border.png'
+const BRAND_RING_NORMAL = 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/white-border.png'
+const BRAND_RING_SELECTED = 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/brands/border.png'
 /**
  * 取某品牌当前应叠加的边框素材：**未选中白框、选中橙框**。
  * ⚠️ 刻意写成函数而不是在模板里写三元表达式 —— 项目约定：小程序模板对复杂表达式支持有限，
@@ -94,14 +94,14 @@ const fallbackCategories: CategoryNode[] = [
 
 const themeConfig = computed(() => {
   const base = theme.value === 'heritage'
-    ? { title: '非遗老号', mode: 'grid' as const, hero: '', className: 'theme-heritage', fallbackImage: '/static/figma-category/product-main-heritage.jpg', subtitle: '自然植萃麦角硫因&萝卜硫苷内外兼顾多项专利、实验临床', location: '', templateType: 'brandGrid' as const, headImageHeight: 0, // ⚠️ 2026-09-29：页面底色由 '#fff' 改为与**上方品牌栏一致**的浅暖色。
+    ? { title: '非遗老号', mode: 'grid' as const, hero: '', className: 'theme-heritage', fallbackImage: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/product-main-heritage.jpg', subtitle: '自然植萃麦角硫因&萝卜硫苷内外兼顾多项专利、实验临床', location: '', templateType: 'brandGrid' as const, headImageHeight: 0, // ⚠️ 2026-09-29：页面底色由 '#fff' 改为与**上方品牌栏一致**的浅暖色。
     // 品牌栏是 .heritage-header 的 #fff 底 + 头图 heritage-header.jpg 以 opacity .78 叠加，
     // 取头图占比最高的主色 #f8e0d8 与白色按 78% 混合 ⇒ 约 #f9e7e1（即品牌栏实际显示的颜色）。
     // 这样下方装商品卡片的米黄容器（#fae7c9）扣在这个底色上，**顶部圆角才看得出来**。
     backgroundColor: '#fff', categoryNames: ['非遗老号', '非遗老字号'] }
     : theme.value === 'landmark'
-      ? { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/landmark-hero.jpg', className: 'theme-landmark', fallbackImage: '/static/figma-category/product-main-2.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
-      : { title: '膳食营养', mode: 'horizontal' as const, hero: '/static/figma-category/nutrition-hero.jpg', className: 'theme-nutrition', fallbackImage: '/static/figma-category/product-main-1.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
+      ? { title: '膳食营养', mode: 'horizontal' as const, hero: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/landmark-hero.jpg', className: 'theme-landmark', fallbackImage: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/product-main-2.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '浙江-杭州', templateType: 'heroList' as const, headImageHeight: 476, backgroundColor: '#F6E7C8', categoryNames: ['国家地标', '膳食营养'] }
+      : { title: '膳食营养', mode: 'horizontal' as const, hero: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/nutrition-hero.jpg', className: 'theme-nutrition', fallbackImage: 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/product-main-1.jpg', subtitle: '隆平低GI控糖稳血糖，高纤高蛋白双补，饱腹续航4小时+，0蔗糖0添加', location: '', templateType: 'heroList' as const, headImageHeight: 696, backgroundColor: '#F6E7C8', categoryNames: ['营养膳食', '膳食营养'] }
   if (!landing.value) return base
   const l = landing.value
   return {
@@ -436,7 +436,7 @@ onMounted(() => {
          ⚠️ 用 absolute（随页面滚动）而非 fixed：fixed 会在滚动后与固定头部错位。
          参数与 .heritage-header-glow 完全一致 ⇒ 两者在 358rpx 交界处自然衔接、无色差。 -->
     <view v-if="themeConfig.className === 'theme-heritage'" class="heritage-top-glow">
-      <image src="/static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
+      <image src="https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
     </view>
     <view v-if="themeConfig.templateType !== 'brandGrid'" class="category-hero" :style="heroStyle">
       <image class="category-hero-image" :src="themeConfig.hero" mode="widthFix" @load="onHeroLoad" />
@@ -444,7 +444,7 @@ onMounted(() => {
     </view>
 
     <view v-else class="heritage-header">
-      <image class="heritage-header-glow" src="/static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
+      <image class="heritage-header-glow" src="https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-category/heritage-header.jpg" mode="scaleToFill" />
       <CategoryTopBar :title="themeConfig.title" :status-bar-height="statusBarHeight" :fixed="true" @back="goBack" />
       <view class="brand-strip">
         <scroll-view class="brand-scroll" scroll-x :enhanced="true" :bounces="true" :show-scrollbar="false">

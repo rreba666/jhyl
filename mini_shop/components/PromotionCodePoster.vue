@@ -33,17 +33,27 @@ interface PosterCanvasNode {
 }
 
 /**
- * 推广海报背景（多路径兜底，兼容不同层级调用方）。
+ * 推广海报背景（多路径兜底链：按顺序逐个试，任一成功即用）。
  *
  * ⚠️ 2026-09-22 换新海报：**复用首页分享海报那张竖版整图切图**，不新增图片文件 ——
- *    主包余量只有约 0.25MB，新底图 WebP 为 178KB，再塞一张会把主包顶到 ~1.92MB（上限 2MB），
- *    因此这里直接引用 `components/home/HomeSharePoster.vue` 的 `POSTER_BACKGROUND` 同一份文件，
- *    并删除了旧的 `static/bg/promotion-code-poster.webp`（15KB，旧的纯色/装饰底）。
+ *    原先主包余量只有约 0.25MB，再塞一张底图会把主包顶到 ~1.92MB（上限 2MB），
+ *    因此这里直接引用 `components/home/HomeSharePoster.vue` 的 `POSTER_BACKGROUND` 同一份素材，
+ *    并删除了旧的浅色装饰底图（`static/bg/promotion-code-poster` 那 15KB 的旧文件）。
+ *
+ * ⚠️ 2026-10-08 CDN 迁移：该素材已随 `static` 下的 `design-cuts/` 目录整体外挂到 CDN，**包内不再留副本**
+ *    ⇒ 原来那三条 `../static/...` / `../../static/...` / `/static/...` 候选**全部会 404**，
+ *    收敛为唯一仍可解析的 CDN 绝对 URL（「按顺序逐个试」的行为保持不变）。
+ *    URL 形式**已实测锁定**：`fengling/2026-09-17-jinhuayouli/mini-static/` 这段长前缀是**必需的**
+ *    —— CDN 回源不会剥掉它，少了它直接 404，不要再"简化"。
+ *
+ * ⚠️⚠️ **代码之外的部署依赖（微信控制台，改代码解决不了）**：
+ *    `uni.getImageInfo()` 底层走 `wx.downloadFile` 的域名校验链路 ⇒ **必须**在小程序后台
+ *    「开发管理 → 服务器域名 → downloadFile 合法域名」里加上 `https://jinhuayou.com`，
+ *    否则拿网络 URL 生成海报会**直接失败**。
+ *    （注：纯 `<image src="https://...">` 的**展示**不受该白名单限制、只需 https —— 两者别混淆。）
  */
 const PROMOTION_BACKGROUND_PATHS = [
-  '../static/design-cuts/figma-share/poster-portrait-background.jpg',
-  '../../static/design-cuts/figma-share/poster-portrait-background.jpg',
-  '/static/design-cuts/figma-share/poster-portrait-background.jpg',
+  'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-share/poster-portrait-background.jpg',
 ] as const
 
 /**
@@ -93,7 +103,7 @@ function clipRoundedRect(
 /**
  * 二维码落位（画布坐标，单位 = 背景切图原始像素），与 `HomeSharePoster.vue` 严格一致。
  *
- * 量测依据（2026-09-22，对 `static/design-cuts/figma-share/poster-portrait-background.jpg` 实测）：
+ * 量测依据（2026-09-22，对海报底图原图实测）：
  * 新背景底部是米色底 + **纯白圆形占位**（无内嵌二维码），用严格阈值（R/G/B 均 > 250）逐像素扫描
  * 并取最大连通域，得占位 bbox = **(377,1213)-(631,1466)**，即 255×254 的正圆
  * （连通域填充率 0.788 ≈ π/4，圆心 (504.5,1340)）。
@@ -399,7 +409,7 @@ async function shareToFriend(): Promise<void> {
   <view v-show="modelValue" class="promotion-code-mask" :style="maskStyle" @click="close">
     <view class="promotion-code-dialog" @click.stop>
       <view class="promotion-code-sheet">
-        <image class="promotion-code-bg" src="/static/design-cuts/figma-share/poster-portrait-background.jpg" mode="aspectFit" />
+        <image class="promotion-code-bg" src="https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/design-cuts/figma-share/poster-portrait-background.jpg" mode="aspectFit" />
         <text class="promotion-code-close" @click="close">×</text>
         <view v-show="loading" class="promotion-code-loading">推广码生成中...</view>
         <image v-show="!loading && codeUrl" class="promotion-code-image" :src="codeUrl" mode="aspectFit" />

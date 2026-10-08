@@ -69,7 +69,7 @@ function addProduct(): void {
         <text class="category-product-title">{{ product.descriptionTitle || product.name }}</text>
         <text class="category-product-subtitle">{{ product.description || subtitle }}</text>
         <view v-if="location" class="category-product-location">
-          <image class="category-product-location-icon" src="/static/figma-category/location.svg" mode="aspectFit" />
+          <image class="category-product-location-icon" src="https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-category/location.svg" mode="aspectFit" />
           <text>{{ location }}</text>
         </view>
         <!-- 无产地时留一个等高占位（visibility 隐藏但保留高度）：
