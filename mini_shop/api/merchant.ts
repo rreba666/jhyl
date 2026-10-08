@@ -325,6 +325,37 @@ export function setMerchantSkuStock(productId: number | string, skuId: number | 
   return request<void>({ url: `/api/merchant/products/${productId}/sku-stock${query}`, method: 'PUT' })
 }
 
+/**
+ * 批量端点的一行（`SkuBatchDTO.items[]`，W8 §3.2 / §3.5）。
+ * ⚠️ `price` / `stock` 传 `null` = **清除**该级设置（回退 SPU 门店值 → 商品本体值），**不是**设成 `0`；
+ *    `0` 是合法值（"设成了 0"）—— 「库存留空」与「库存填 0」必须能区分。
+ */
+export interface MerchantSkuBatchItem {
+  skuId: number
+  price: number | null
+  stock: number | null
+}
+
+/**
+ * **批量**设置 SKU 级门店价 + 门店库存（W8 §3，`PUT /api/merchant/products/{productId}/sku-batch`）。
+ *
+ * 为什么要它：弹层逐规格调单端点要 `N × 2` 次请求（3 规格 6 次、10 规格 20 次），
+ * 第 7 次失败时前 6 次**已落库** ⇒ 半保存。批量端点是**单事务**：任一行不合法
+ * （规格不存在 / 不属于该商品）⇒ 整批回滚（`1002`），**不会出现"前 N 个规格已保存成功"**。
+ *
+ * ⚠️ **每行的两个字段都会被应用**：只改价时该行也要带上当前期望的 `stock`（反之同理）。
+ * ⚠️ 商家端**不带 `shopId`**（门店由登录态解析），与中控侧的差别仅此一处。
+ * ⚠️ 单规格端点（`setMerchantSkuPrice` / `setMerchantSkuStock`）**保留不变**（W8 §3.6），
+ *    可继续用于单行内联编辑；弹层"一次性确定"走本函数。
+ */
+export function setMerchantSkuBatch(productId: number | string, items: MerchantSkuBatchItem[]): Promise<void> {
+  return request<void>({
+    url: `/api/merchant/products/${productId}/sku-batch`,
+    method: 'PUT',
+    data: { items },
+  })
+}
+
 // ===== 商家端 · 订单（/api/merchant/orders，只读） =====
 
 /** 订单商品行（卡片与详情共用）。 */

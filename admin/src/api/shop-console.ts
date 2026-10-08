@@ -146,7 +146,7 @@ export async function setShopProductStatus(productId: number | string, status: 0
   unwrap(await request.put<ShopConsoleResponse<null>>(`/api/admin/shop-product/${productId}/status`, null, { params }), '本店上下架失败')
 }
 
-// ===== 门店 SKU 级设价 / 设库存（2026-10-08 新增，对齐单 §四 #4 / B-5）=====
+// ===== 门店 SKU 级设价 / 设库存（2026-10-08 新增，对齐单 §四 #4 / B-5；弹层批量见 W8 §3）=====
 
 /**
  * 本店某商品**各规格**的生效价 / 生效库存（**含三级回退来源**）。
@@ -205,4 +205,33 @@ export async function setShopSkuStock(productId: number | string, skuId: number 
   if (shopId !== undefined && shopId !== '') params.shopId = shopId
   if (stock !== null) params.stock = stock
   unwrap(await request.put<ShopConsoleResponse<null>>(`/api/admin/shop-product/${productId}/sku-stock`, null, { params }), '规格门店库存保存失败')
+}
+
+/**
+ * 批量端点的一行（`SkuBatchDTO.items[]`，W8 §3.2/§3.5）。
+ * ⚠️ `price`/`stock` 传 `null` = **清除**该级设置（回退 SPU 门店值 → 商品本体值），
+ * **不是**设成 `0`；`0` 是合法值（"真的设成 0"）。
+ */
+export interface ShopSkuBatchItem {
+  skuId: number
+  price: number | null
+  stock: number | null
+}
+
+/**
+ * **批量**设置 SKU 级门店价 + 门店库存（W8 §3，`PUT /api/admin/shop-product/{productId}/sku-batch`）。
+ *
+ * 为什么要它：弹层逐规格调单端点要 `N × 2` 次请求（3 规格 6 次、10 规格 20 次），
+ * 第 7 次失败时前 6 次**已落库** ⇒ 半保存。批量端点是**单事务**：任一行不合法（规格不存在 /
+ * 不属于该商品）⇒ 整批回滚（`1002`），**不会出现"前 N 个已保存"**。
+ *
+ * ⚠️ **每行的两个字段都会被应用**：只改价时该行也要带上当前期望的 `stock`（反之同理）。
+ * ⚠️ 门店：商户管理员可不传（后端取本商户唯一门店）；**多门店 / 平台岗必须传 `shopId`**。
+ * ⚠️ 单规格端点（`setShopSkuPrice` / `setShopSkuStock`）**保留不变**（W8 §3.6），
+ *    可继续用于单行内联编辑；弹层"一次性确定"走本函数。
+ */
+export async function setShopSkuBatch(productId: number | string, items: ShopSkuBatchItem[], shopId?: number | string): Promise<void> {
+  const params: Record<string, string | number> = {}
+  if (shopId !== undefined && shopId !== '') params.shopId = shopId
+  unwrap(await request.put<ShopConsoleResponse<null>>(`/api/admin/shop-product/${productId}/sku-batch`, { items }, { params }), '规格批量保存失败')
 }

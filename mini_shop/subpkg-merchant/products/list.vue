@@ -17,8 +17,7 @@ import {
   countMerchantProducts,
   getMerchantProducts,
   getMerchantSkuPrices,
-  setMerchantSkuPrice,
-  setMerchantSkuStock,
+  setMerchantSkuBatch,
   updateProductPrice,
   updateProductStatus,
   updateProductStock,
@@ -450,8 +449,10 @@ function submitStock(): void {
  * "统一作用于全部规格"（例：500g ¥39 / 1kg ¥69 只能填一个值）⇒ 多规格卡片改走本弹层
  * （`ProductCard` 用 `skuCount > 1` 判断，与后台 `shop-console` 同口径）。
  *
- * 契约（`GET/PUT /api/merchant/products/{productId}/skus|sku-price|sku-stock`）：
- * 与后台端点**逐字同构**，唯一差别是商家端**不带 `shopId`**（门店由登录态解析）。
+ * 契约（`GET /api/merchant/products/{productId}/skus` +
+ *       `PUT /api/merchant/products/{productId}/sku-batch`；单规格端点 `…/sku-price`、`…/sku-stock` 保留，
+ *       W8 §3.6）：与后台端点**逐字同构**，唯一差别是商家端**不带 `shopId`**（门店由登录态解析）。
+ * ⚠️ 弹层底部「确定」只发**一个** `sku-batch` 请求（单事务：任一行不合法 ⇒ 整批回滚，没有半保存）。
  */
 interface SkuEditRow extends MerchantSkuPriceVO {
   /** 门店价输入框（字符串；**空 = 跟随上一级**）。 */
@@ -551,9 +552,12 @@ function parseSkuInput(raw: string): number | null {
 /**
  * 底部「确定」：**一次性提交所有变更行**（京东风格）。
  *
- * ⚠️ 只提交**真正改动过**的那一项 —— 无关改动也提交会放大失败面
- *   （只改价却把库存一并写回，第二步失败时价已落库、却只报"保存失败"）。
- * ⚠️ 先**逐行校验**，任何一行不合法就整体不提交（避免"存了一半"）。
+ * ⚠️ 只提交**真正改动过**的行 —— 无关改动也提交会放大失败面。
+ * ⚠️ 但**每行两个字段都带**：批量端点逐行应用 `price` 与 `stock`
+ *   （W8 §3.2 —— 只改价时该行也要带上当前期望的库存；`null` = 清除该级、回退上一级）。
+ * ⚠️ 走**单个批量请求**（W8 §3.5）：批量端点是**单事务**，任一行不合法 ⇒ 整批回滚，
+ *   不会再出现"前 N 个规格已保存成功"这种半保存。
+ * ⚠️ 先**逐行校验**，任何一行不合法就整体不提交（省一次注定失败的往返）。
  * ⚠️ 成功后**关闭弹层并刷新列表页** —— 弹层已关，不存在"整表重拉丢其它行编辑"的问题。
  */
 async function submitSkuAll(): Promise<void> {
@@ -580,23 +584,17 @@ async function submitSkuAll(): Promise<void> {
     uni.showToast({ title: '没有改动', icon: 'none' })
     return
   }
-  // 2) 逐行提交（只发变更过的项）
+  // 2) **一次批量请求**提交所有变更行（每行两个字段都带：`null` 仍是"清除该级"，绝不换成 0）
+  const items = changes.map((c) => ({ skuId: c.row.skuId, price: c.nextPrice, stock: c.nextStock }))
   skuSaving.value = true
-  let doneRows = 0
   try {
-    for (const c of changes) {
-      if (c.priceChanged) await setMerchantSkuPrice(productId, c.row.skuId, c.nextPrice)
-      if (c.stockChanged) await setMerchantSkuStock(productId, c.row.skuId, c.nextStock)
-      doneRows++
-    }
+    await setMerchantSkuBatch(productId, items)
     uni.showToast({ title: '保存成功', icon: 'success' })
     closeSkuDialog()
     await loadList(true)
   } catch (error) {
-    // ⚠️ 半保存要说清楚：前面那些行**已经写进库**了，不能只报"保存失败"让用户以为都没动
-    const note = doneRows > 0 ? `（前 ${doneRows} 个规格已保存成功，请重试其余）` : ''
-    uni.showToast({ title: (error instanceof Error ? error.message : '保存失败') + note, icon: 'none' })
-    if (doneRows > 0) await loadList(true)
+    // ⚠️ 单事务：失败即**整批都没落库**，无需（也不许）再报"部分规格已保存"这类半保存文案
+    uni.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' })
   } finally {
     skuSaving.value = false
   }

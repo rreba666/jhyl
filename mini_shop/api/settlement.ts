@@ -15,6 +15,11 @@ import { isApiRequestError, request } from '@/utils/request'
  *    同时赋给 `amount` 与 `invoiceAmount`，页面只留一个金额输入框。
  * 3. **错误码中文文案**：`SETTLEMENT_ERROR_TEXT` 逐条覆盖文档 §5 里商家端会遇到的码，
  *    供提交前本地校验与后端只回码不回文案时兜底。
+ *    ⚠️ 2026-10-08（W8 §1）：提现被「有未完结售后」拦下已**换独立码 `13025`**
+ *    （旧码 `13023` 被「商品不支持线下自提」占用 —— 见 `subpkg-order/payment/payment.vue`
+ *    的 `PRODUCT_PICKUP_BLOCKED_CODE = 13023` 等 14 处，**那些一律不动**）。
+ *    ⇒ 换码后**同码冲突消失**，本表可按码**全局映射**，不再需要"提现侧禁止全局映射"的妥协；
+ *      但 `13023` 仍**只**表示自提被拦，**绝不可**在本表里解释成提现原因。
  *
  * ⚠️ 口径提醒（不要在前端做"聪明事"）：
  * - 申请即冻结 → 提交成功后页面必须**重新拉 account 与 rules**，**不要把可提现金额缓存在本地**；
@@ -548,11 +553,21 @@ export const SETTLEMENT_CODE_NOT_MERCHANT_OWNER = 13016
 export const SETTLEMENT_CODE_INVOICE_REUSED = 13019
 /** 已有一笔在审提现（不允许再提交）。 */
 export const SETTLEMENT_CODE_ACTIVE_WITHDRAW = 13013
+/**
+ * 提现被「品牌有未完结售后」拦下（W8 §1，2026-10-08 由 `13023` 换码而来）。
+ *
+ * ⚠️ **不要与自提的 `13023` 混淆**：`13023` = 「商品不支持线下自提」（下单侧，
+ * `subpkg-order/payment/payment.vue` 的 `PRODUCT_PICKUP_BLOCKED_CODE`），换码后两者不再同码。
+ * 换码前因同码，本表**不敢**按码全局映射；现在冲突已消除，提现侧可以放心用码兜底文案。
+ */
+export const SETTLEMENT_CODE_AFTER_SALE_BLOCK = 13025
 
 /**
  * 商家端结算/提现错误码 → 中文文案（对应文档 §5）。
  * 逐条覆盖本批前端会遇到的码：后端文案优先（`13011/13012/13014` 会带具体金额），
  * 本表用于**提交前本地校验**与后端只回码不回文案时的兜底。
+ * ⚠️ 2026-10-08（W8 §1）：换码后本表**可以**按码全局映射（旧 `13023` 同码冲突已消除）；
+ *    见 {@link SETTLEMENT_CODE_AFTER_SALE_BLOCK}。
  */
 export const SETTLEMENT_ERROR_TEXT: Record<number, string> = {
   13010: '商户结算账户不存在，请稍后重试或联系平台',
@@ -570,6 +585,9 @@ export const SETTLEMENT_ERROR_TEXT: Record<number, string> = {
   13020: '提现金额必须大于 0，最多两位小数',
   13021: '请填写收款人姓名与收款账号（微信号/手机号）',
   13022: '该商户当前状态不支持结算，请联系平台',
+  // ⚠️ 2026-10-08（W8 §1）：提现被「品牌有未完结售后」拦下 = `13025`（旧码 `13023` 归自提，见文件顶部说明）。
+  //    文案与后端逐字一致；后端仍会下发 message ⇒ `resolveSettlementErrorMessage` 优先后端原文，本行仅兜底。
+  13025: '存在未完结售后，暂时不能提现（售后完结后自动恢复）',
   8110: '请先在个人中心绑定微信后再提现',
 }
 

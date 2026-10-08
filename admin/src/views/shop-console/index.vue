@@ -16,10 +16,10 @@ import {
   setShopProductPrice,
   setShopProductStatus,
   setShopProductStock,
-  setShopSkuPrice,
-  setShopSkuStock,
+  setShopSkuBatch,
   type ShopBusinessStatusVO,
   type ShopProductVO,
+  type ShopSkuBatchItem,
   type ShopSkuPriceVO,
 } from '@/api/shop-console'
 import { getEnabledShops } from '@/api/shop'
@@ -283,6 +283,8 @@ const skuDialogVisible = ref(false)
 const skuLoading = ref(false)
 /** 正在保存的**规格行**（按行 loading，避免"整表一起转"）。 */
 const savingSkuId = ref<number | null>(null)
+/** 底部「全部保存」整体提交中（一次批量请求；与按行 loading 分开）。 */
+const skuAllSaving = ref(false)
 /** 当前弹窗对应的商品。 */
 const skuProduct = ref<ShopProductVO | null>(null)
 const skuRows = ref<SkuEditRow[]>([])
@@ -355,10 +357,61 @@ function moneyText(value?: number | null): string {
 }
 
 /**
- * 保存**单个规格**（价 / 库存两个接口分别调）。
+ * 编辑行 → 批量端点的一行（W8 §3.2）。
+ * ⚠️ **两个字段都带**：批量端点每行都会应用 `price` 与 `stock`；
+ *    `usePriceDefault`（跟随上一级）⇒ 传 `null`（**清除**该级设置、回退上一级），⛔ 不是 `0`（`0` 是"设成 0"）。
+ */
+function toBatchItem(row: SkuEditRow): ShopSkuBatchItem {
+  return {
+    skuId: row.skuId,
+    price: row.usePriceDefault ? null : Number(row.editingPrice),
+    stock: row.useStockDefault ? null : Number(row.editingStock),
+  }
+}
+
+/** 本行相对后端 SKU 级现值是否真的改动过（未改动的行**不提交**，少写就少失败面）。 */
+function isRowChanged(row: SkuEditRow): boolean {
+  const nextPrice = row.usePriceDefault ? null : Number(row.editingPrice)
+  const nextStock = row.useStockDefault ? null : Number(row.editingStock)
+  return (row.skuShopPrice ?? null) !== nextPrice || (row.skuShopStock ?? null) !== nextStock
+}
+
+/**
+ * 提交前的整体校验：**任一行不合法 ⇒ 一个请求都不发**。
+ * （批量端点本身是单事务 —— 后端也会整批回滚；本地先拦一道只是为了不让用户白等一次往返。）
+ */
+function findSkuRowError(): string | null {
+  for (const row of skuRows.value) {
+    const label = row.skuName || row.skuId
+    if (!row.usePriceDefault) {
+      const price = Number(row.editingPrice)
+      if (!Number.isFinite(price) || price < 0) return `规格「${label}」的门店价填写有误`
+    }
+    if (!row.useStockDefault) {
+      const stock = Number(row.editingStock)
+      if (!Number.isInteger(stock) || stock < 0) return `规格「${label}」的门店库存需为非负整数`
+    }
+  }
+  return null
+}
+
+/**
+ * 整表重拉规格（**只在批量提交成功后调用**，W8 §3.5「成功后重新拉 `GET …/skus` 刷新回显」）。
+ * ⚠️ 批量成功后所有改动都已落库 ⇒ 重拉是安全的；按行保存路径**不得**整表重拉
+ *    （会静默丢弃其它行未保存的编辑），那条路径用 {@link reloadSkuRow}。
+ */
+async function reloadSkuList(): Promise<void> {
+  const productId = skuProduct.value?.productId
+  if (!productId) return
+  const list = await getShopSkuPrices(productId, shopId.value || undefined)
+  skuRows.value = list.map(toEditRow)
+}
+
+/**
+ * 保存**单个规格**（按行内联编辑）。
  *
- * ⚠️ 只提交**本行真正改动过**的那一项 —— 无关改动也提交会放大失败面
- *   （例：只改价却把库存一并写回，第二步失败时价已落库、却只报"保存失败"）。
+ * ⚠️ 也走**批量端点、一次请求**同时落价与库存 —— 单规格端点连调两次会出现
+ *   "价已落库、库存失败"的半保存（W8 §3.3 要求删掉的正是那套半保存提示与逐行重试）。
  * ⚠️ 保存后**只刷新本行**（不整表重拉）—— 整表重拉会**静默丢弃其它行未保存的编辑**。
  */
 async function saveSkuRow(row: SkuEditRow): Promise<void> {
@@ -373,25 +426,49 @@ async function saveSkuRow(row: SkuEditRow): Promise<void> {
     return
   }
   savingSkuId.value = row.skuId
-  const done: string[] = []
   try {
-    if (priceChanged) {
-      await setShopSkuPrice(productId, row.skuId, nextPrice, shopId.value || undefined)
-      done.push('价')
-    }
-    if (stockChanged) {
-      await setShopSkuStock(productId, row.skuId, nextStock, shopId.value || undefined)
-      done.push('库存')
-    }
-    ElMessage.success(`规格「${row.skuName || row.skuId}」的${done.join('与')}已保存`)
+    await setShopSkuBatch(productId, [toBatchItem(row)], shopId.value || undefined)
+    ElMessage.success(`规格「${row.skuName || row.skuId}」已保存`)
     await reloadSkuRow(row)
   } catch (error) {
-    // ⚠️ 半保存要说清楚：前面那半**已经写进库**了，不能只报"保存失败"让用户以为整行没动
-    const note = done.length ? `（${done.join('与')}已保存成功，仅后续项失败，请重试）` : ''
-    ElMessage.error((error instanceof Error ? error.message : '规格保存失败') + note)
-    if (done.length) await reloadSkuRow(row)
+    // ⚠️ 一次请求 = 单事务：失败即**整行都没落库**，无需（也不许）再说"半保存"
+    ElMessage.error(error instanceof Error ? error.message : '规格保存失败')
   } finally {
     savingSkuId.value = null
+  }
+}
+
+/**
+ * 底部「全部保存」：所有改动行**一次批量请求**搞定（W8 §3.5）。
+ *
+ * 背景：原先逐规格调单端点，`N` 个规格要 `N × 2` 次请求（3 规格 6 次、10 规格 20 次），
+ * 第 7 次失败时前 6 次**已落库** ⇒ 半保存。批量端点是**单事务**：任一行不合法（规格不存在 /
+ * 不属于该商品，`1002`）⇒ **整批回滚**，不会出现"前 N 个规格已保存成功"。
+ */
+async function submitSkuAll(): Promise<void> {
+  const productId = skuProduct.value?.productId
+  if (!productId) return
+  const invalid = findSkuRowError()
+  if (invalid) {
+    ElMessage.warning(invalid)
+    return
+  }
+  // ⚠️ 每行都带上**两个**字段（批量端点逐行应用 price + stock）—— 只改价时也带当前期望库存
+  const items = skuRows.value.filter(isRowChanged).map(toBatchItem)
+  if (!items.length) {
+    ElMessage.info('没有改动')
+    return
+  }
+  skuAllSaving.value = true
+  try {
+    await setShopSkuBatch(productId, items, shopId.value || undefined)
+    ElMessage.success('已保存')
+    await reloadSkuList()
+    await loadProducts()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '规格保存失败')
+  } finally {
+    skuAllSaving.value = false
   }
 }
 
@@ -576,6 +653,8 @@ onMounted(async () => {
         商品：{{ skuProduct?.name }}（共 {{ skuRows.length }} 个规格）。
         「生效价 / 生效库存」是按 <strong>规格 → 商品 → 商品原价</strong> 三级回退算出的最终值；
         开关打开 = 本店不单独设置、跟随上一级（「上一级」列显示实际会跟到哪一级）。
+        <br />
+        「全部保存」把改动过的规格<strong>一次性提交</strong>（一次请求、单事务：任一行不合法则整批不落库）；也可用行尾「保存」只提交本行。
       </div>
       <el-table v-loading="skuLoading" :data="skuRows" border size="small" row-key="skuId">
         <el-table-column prop="skuName" label="规格" min-width="120" />
@@ -607,7 +686,10 @@ onMounted(async () => {
           <template #default="{ row }"><el-button size="small" type="primary" :loading="savingSkuId === row.skuId" @click="saveSkuRow(row)">保存</el-button></template>
         </el-table-column>
       </el-table>
-      <template #footer><el-button @click="skuDialogVisible = false">关闭</el-button></template>
+      <template #footer>
+        <el-button @click="skuDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="skuAllSaving" @click="submitSkuAll">全部保存</el-button>
+      </template>
     </el-dialog>
   </section>
 </template>

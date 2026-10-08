@@ -17,12 +17,15 @@
  * 4. `withdrawable=false` / `blockReason` 非空 / `hasActiveWithdraw=true` → 提现按钮**置灰**，
  *    且**直接展示后端下发的原因**（前端不自己拼文案）；
  * 5. 未绑定微信（8110）→ 弹窗引导去个人中心绑定；
- * 6. 时间只做字符串规范化（api 层 `formatSettlementTime`），**不用 `new Date`**（会时区漂移）。
+ * 6. 时间只做字符串规范化（api 层 `formatSettlementTime`），**不用 `new Date`**（会时区漂移）；
+ * 7. ⚠️ 2026-10-08（W8 §1）**换码**：提现被「品牌有未完结售后」拦下 = **`13025`**
+ *    （旧码 `13023` 已归「商品不支持线下自提」，**那个码在本页与本文件里一律不处理**）。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   SETTLEMENT_CODE_ACTIVE_WITHDRAW,
+  SETTLEMENT_CODE_AFTER_SALE_BLOCK,
   SETTLEMENT_CODE_INVOICE_REUSED,
   SETTLEMENT_CODE_NOT_MERCHANT_OWNER,
   SETTLEMENT_CODE_WECHAT_UNBOUND,
@@ -144,6 +147,8 @@ const BLOCK_FALLBACK_TEXT = '当前不可提现，请稍后重试或联系平台
  *    「未绑微信 / 有欠款 / 有在途提现 / 余额为 0」等**非售后**原因 —— 那些场景下写"售后处理完成后
  *    即可提现"会让用户误以为要等售后，反而更困惑（2026-10-08 复核补上这道闸门）。
  * ⚠️ 只在这里定义一次，模板两处引用同一个常量（两处各写一份必然漂）。
+ * ⚠️ 2026-10-08（W8 §1）：该闸门在**提交层**对应的错误码已换为 `13025`
+ *    （`SETTLEMENT_CODE_AFTER_SALE_BLOCK`；旧码 `13023` 归「商品不支持线下自提」，见 `api/settlement.ts`）。
  */
 const WITHDRAW_AFTER_SALE_RESUME_HINT = '售后处理完成后即可提现'
 
@@ -154,6 +159,8 @@ const WITHDRAW_AFTER_SALE_RESUME_HINT = '售后处理完成后即可提现'
  *    只给了 `withdrawable: boolean` + `withdrawBlockReason: string`）⇒ 这里只能按关键词判。
  *    依据 Step3 §一，售后那条的后端原文是「当前有 N 笔未完结售后（待审核/退款中/待寄回/待收货）…」，
  *    **必然含「售后」二字**；其余原因（欠款 / 在途提现 / 余额为 0 / 未绑微信）都不含。
+ * ⚠️ **展示层拿不到 `13025`**（它是提现**提交**被拦时的业务码，`account`/`rules` 响应里没有码字段）
+ *    ⇒ 展示层这道闸门仍只能按文案关键词判，不要试图改成按码判断。
  * ⚠️ 若后端将来补了结构化字段（如 `withdrawBlockCode`），应改判该字段，不要再匹配文案。
  */
 const isAfterSaleBlock = computed(() => submitBlockReason.value.includes('售后'))
@@ -351,6 +358,15 @@ function handleSubmitError(error: unknown): void {
   // 13013：已有一笔在途提现 → 刷新规则，让按钮进入置灰态并展示原因
   if (code === SETTLEMENT_CODE_ACTIVE_WITHDRAW) {
     uni.showToast({ title: SETTLEMENT_ERROR_TEXT[SETTLEMENT_CODE_ACTIVE_WITHDRAW], icon: 'none' })
+    void refreshData()
+    return
+  }
+
+  // 13025（2026-10-08 W8 §1 换码，旧码 13023）：品牌有未完结售后 → 展示原因并刷新账户与规则，
+  // 让「提现规则」卡里的阻断原因与「售后处理完成后即可提现」补充说明（isAfterSaleBlock）立刻生效。
+  // ⚠️ 13023 是「商品不支持线下自提」（下单侧），**与本处无关**，绝不要在此处理它。
+  if (code === SETTLEMENT_CODE_AFTER_SALE_BLOCK) {
+    uni.showToast({ title: resolveSettlementErrorMessage(error, SETTLEMENT_ERROR_TEXT[SETTLEMENT_CODE_AFTER_SALE_BLOCK]), icon: 'none' })
     void refreshData()
     return
   }
