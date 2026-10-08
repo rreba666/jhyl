@@ -12,6 +12,7 @@ import { isApiRequestError } from '@/utils/request'
 import { PURCHASE_LIMIT_ERROR_CODE, PURCHASE_LIMIT_MESSAGE } from '@/utils/dividend-limit'
 import PromotionCodePoster from '@/components/PromotionCodePoster.vue'
 import LoginGuide from '@/components/LoginGuide.vue'
+import SkuSheet from '@/subpkg-goods/components/SkuSheet.vue'
 
 const menuTop = ref(0)
 const menuHeight = ref(32)
@@ -212,25 +213,65 @@ async function toggleFavorite(): Promise<void> {
   }
 }
 
-/** 将当前商品默认 SKU 加入购物车。 */
-async function addProductToCart(): Promise<void> {
-  if (!product.value || actionLoading.value) return
+/**
+ * 可用规格（`enabled !== 0`，与规格弹层同口径）。
+ *
+ * ⚠️ 2026-10-08 修（用户反馈「下单没有出现 SKU 弹层」）：此前本页**默认取第一个可用 SKU
+ * 直接加购/立即购买**（历史注释原文：「默认选择第一个可用 SKU，详情页暂按该 SKU 进行加购和立即支付」）
+ * ⇒ 多规格商品（950ml / 550ml / 330ml）用户**根本没法选规格**，下单的永远是列表第一个，
+ * 甚至与页面上展示的价格不是同一个规格。现在**多规格必须先过规格弹层**。
+ */
+const availableSkus = computed(() => (product.value?.skuList || []).filter((sku) => Number(sku.enabled) !== 0))
+
+/** 是否需要先选规格（**多规格才弹**；单规格直接走原路径，保持一步到位的快捷）。 */
+const needPickSku = computed(() => availableSkus.value.length > 1)
+
+/** 规格弹层开关（多规格商品加购/立即购买前必过）。 */
+const skuSheetVisible = ref(false)
+
+/**
+ * 加购 / 立即购买的统一入口：多规格先弹层选规格与数量。
+ *
+ * ⚠️ 弹层里同时给「加入购物车 / 立即购买」两个按钮（用户可以在弹层里改主意，与主流电商一致），
+ * 所以这里**不记忆"用户先点了哪个"** —— 只负责把弹层打开。
+ */
+function onTradeAction(action: 'cart' | 'buy'): void {
+  if (!product.value || actionLoading.value || paymentNavigationLoading.value) return
   if (!isLoggedIn()) {
     loginGuideVisible.value = true
     return
   }
-  const sku = selectedSku.value
-  if (!sku) {
+  if (needPickSku.value) {
+    skuSheetVisible.value = true
+    return
+  }
+  // 单规格：直接执行（不再多弹一层）
+  const sku = availableSkus.value[0]
+  if (!sku || Number(sku.stock) <= 0) {
     uni.showToast({ title: '商品库存不足', icon: 'none' })
     return
   }
+  if (action === 'cart') void doAddToCart(sku, 1)
+  else doBuyNow(sku, 1)
+}
+
+/** 规格弹层确认：按用户在弹层里点的动作执行（数量由弹层给出）。 */
+function onSkuConfirm(payload: { action: 'cart' | 'buy'; sku: { id: string; price: number; stock: number }; quantity: number }): void {
+  skuSheetVisible.value = false
+  if (payload.action === 'cart') void doAddToCart(payload.sku, payload.quantity)
+  else doBuyNow(payload.sku, payload.quantity)
+}
+
+/** 将指定规格按指定数量加入购物车。 */
+async function doAddToCart(sku: { id: string; price: number; stock: number }, quantity: number): Promise<void> {
+  if (!product.value) return
   actionLoading.value = true
   try {
     await addSkuToCartWithStock({
       productId: Number(product.value.id),
       skuId: Number(sku.id),
       stock: Number(sku.stock),
-      quantity: 1,
+      quantity,
       dividendEnabled: product.value.dividendEnabled,
       price: Number(sku.price),
     })
@@ -249,27 +290,31 @@ async function addProductToCart(): Promise<void> {
   }
 }
 
-/** 立即购买：直接跳转确认订单页，由支付页按 skuId 直接下单（items），不污染购物车。 */
-async function buyNow(): Promise<void> {
-  if (!product.value || actionLoading.value || paymentNavigationLoading.value) return
-  if (!isLoggedIn()) {
-    loginGuideVisible.value = true
-    return
-  }
-  const skuId = selectedSku.value?.id
-  const stock = Number(selectedSku.value?.stock ?? 0)
-  if (!skuId || !Number.isFinite(stock) || stock <= 0) {
+/** 立即购买：跳转确认订单页，由支付页按 skuId 直接下单（items），不污染购物车。 */
+function doBuyNow(sku: { id: string; stock: number }, quantity: number): void {
+  if (!product.value || paymentNavigationLoading.value) return
+  if (!sku?.id || Number(sku.stock) <= 0) {
     uni.showToast({ title: '暂无可购买规格', icon: 'none' })
     return
   }
   paymentNavigationLoading.value = true
   uni.navigateTo({
-    url: `/subpkg-order/payment/payment?productId=${product.value.id}&skuId=${skuId}&quantity=1`,
+    url: `/subpkg-order/payment/payment?productId=${product.value.id}&skuId=${sku.id}&quantity=${quantity}`,
     fail: (error) => {
       paymentNavigationLoading.value = false
       uni.showToast({ title: error?.errMsg || '打开确认订单失败', icon: 'none' })
     },
   })
+}
+
+/** 加入购物车（template 绑定入口）：多规格先弹层选规格与数量。 */
+function addProductToCart(): void {
+  onTradeAction('cart')
+}
+
+/** 立即购买（template 绑定入口）：多规格先弹层选规格与数量。 */
+function buyNow(): void {
+  onTradeAction('buy')
 }
 
 /** 打开分享抽屉。 */
@@ -431,6 +476,8 @@ onShow(() => {
 
     <PromotionCodePoster v-model="promotionCodeVisible" :loading="promotionCodeLoading" :code-url="promotionCodeUrl" />
     <LoginGuide v-model="loginGuideVisible" />
+    <!-- 规格选择弹层（多规格商品的加购/立即购买前必过，2026-10-08 补） -->
+    <SkuSheet v-model:visible="skuSheetVisible" :product="product" @confirm="onSkuConfirm" />
   </view>
 </template>
 

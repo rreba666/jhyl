@@ -157,11 +157,23 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
   cartAdding.value = true
   try {
     const detail = await getProductDetail(String(product.id))
-    const sku = detail.skuList.find((item) => item.enabled !== 0) || detail.skuList[0]
-    const stock = Number(sku?.stock ?? 0)
-    if (!sku || !Number.isFinite(stock) || stock <= 0) {
-      throw new ApiRequestError('库存不足', 3001)
+    // ⚠️ 顺手加固：`skuList` 可能为 `null`（后端惯用 null 表"无数据"），原先无保护会抛 TypeError。
+    const available = (detail.skuList || []).filter((item) => Number(item.enabled) !== 0)
+    if (!available.length) throw new ApiRequestError('库存不足', 3001)
+    // ⚠️ 2026-10-08 修（用户反馈「下单没有出现 SKU 弹层」）：**多规格不能再"默认取第一个"**，
+    //    否则用户加的永远不是他想要的规格。
+    // ⚠️ 但本页是**主包 tabBar 页**，**不能**引入规格弹层组件 —— 微信按目录分包，
+    //    `components/` 下的组件一律进主包，而主包余量已不足 12KB（见 source-package-size 契约）。
+    //    ⇒ 多规格改为**跳转商品详情页**选规格（详情页在 subpkg-goods 分包，可正常弹层）。
+    if (available.length > 1) {
+      uni.showToast({ title: '请选择规格', icon: 'none' })
+      uni.navigateTo({ url: `/subpkg-goods/detail/detail?id=${product.id}` })
+      return
     }
+    // 单规格：直接加购（保持列表页一步到位的快捷）
+    const sku = available[0]
+    const stock = Number(sku.stock)
+    if (!Number.isFinite(stock) || stock <= 0) throw new ApiRequestError('库存不足', 3001)
     await addSkuToCartWithStock({
       productId: Number(product.id),
       skuId: Number(sku.id),

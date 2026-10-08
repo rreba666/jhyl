@@ -4,7 +4,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { getCategoryList, getGoodsBrands, getProducts, type CategoryNode, type CategoryProduct } from '@/api/category'
 import { getLandingConfig, type LandingConfigV2 } from '@/api/homepage'
 import { addSkuToCartWithStock } from '@/api/cart'
-import { getProductDetail } from '@/api/product'
+import { getProductDetail, type ProductDetail } from '@/api/product'
 import { ApiRequestError, isApiRequestError } from '@/utils/request'
 import { PURCHASE_LIMIT_ERROR_CODE, PURCHASE_LIMIT_MESSAGE } from '@/utils/dividend-limit'
 import { createThrottle } from '@/utils/interaction'
@@ -12,6 +12,9 @@ import { isLoggedIn } from '@/utils/auth'
 import LoginGuide from '@/components/LoginGuide.vue'
 import CategoryProductCard from '@/components/category/CategoryProductCard.vue'
 import CategoryTopBar from '@/components/category/CategoryTopBar.vue'
+// ⚠️ 组件放在**本分包内**（`subpkg-goods/components/`）而不是 `components/`：
+//    微信按目录分包，主包目录下的组件**一律进主包**，而主包余量已不足 12KB（见 source-package-size 契约）。
+import SkuSheet from '@/subpkg-goods/components/SkuSheet.vue'
 
 type CategoryTheme = 'nutrition' | 'heritage' | 'landmark'
 
@@ -285,6 +288,10 @@ function goDetail(id: string): void {
   uni.navigateTo({ url: `/subpkg-goods/detail/detail?id=${encodeURIComponent(id)}` })
 }
 
+/** 规格弹层状态（多规格商品快捷加购前必过；2026-10-08 补）。 */
+const skuSheetVisible = ref(false)
+const skuSheetProduct = ref<ProductDetail | null>(null)
+
 async function onAddCart(product: CategoryProduct): Promise<void> {
   if (cartAdding.value) return
   if (String(product.id).startsWith('figma-demo-')) {
@@ -300,10 +307,19 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
     const detail = await getProductDetail(String(product.id))
     // ⚠️ 2026-09-30 加固：`detail.skuList` 可能为 `null`（后端惯用 null 表"无数据"），
     // 原先直接 `.find` 会抛 TypeError ⇒ 用户点加购只会看到「加购失败」，无法定位原因。
-    // 这里加可选链；真正的"无 SKU / 库存不足"由下一行的显式判断给出可读提示。
-    const sku = detail.skuList?.find((item) => item.enabled !== 0) || detail.skuList?.[0]
-    const stock = Number(sku?.stock ?? 0)
-    if (!sku || !Number.isFinite(stock) || stock <= 0) throw new ApiRequestError('库存不足', 3001)
+    const available = (detail.skuList || []).filter((item) => Number(item.enabled) !== 0)
+    if (!available.length) throw new ApiRequestError('库存不足', 3001)
+    // ⚠️ 2026-10-08 修（用户反馈「下单没有出现 SKU 弹层」）：**多规格必须先让用户选规格** ——
+    // 此前这里「默认取第一个可用 SKU」直接加购，多规格商品用户根本没机会选，加的永远是列表第一个。
+    if (available.length > 1) {
+      skuSheetProduct.value = detail
+      skuSheetVisible.value = true
+      return
+    }
+    // 单规格：直接加购（保持列表页一步到位的快捷）
+    const sku = available[0]
+    const stock = Number(sku.stock)
+    if (!Number.isFinite(stock) || stock <= 0) throw new ApiRequestError('库存不足', 3001)
     await addSkuToCartWithStock({
       productId: Number(product.id),
       skuId: Number(sku.id),
@@ -311,6 +327,36 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
       quantity: 1,
       dividendEnabled: detail.dividendEnabled,
       price: Number(sku.price),
+    })
+    uni.showToast({ title: '已加入购物车', icon: 'success' })
+  } catch (error) {
+    uni.showToast({
+      title: isApiRequestError(error) && error.code === 3001
+        ? '库存不足'
+        : isApiRequestError(error) && error.code === PURCHASE_LIMIT_ERROR_CODE
+          ? PURCHASE_LIMIT_MESSAGE
+          : (error instanceof Error ? error.message : '加购失败'),
+      icon: 'none',
+    })
+  } finally {
+    cartAdding.value = false
+  }
+}
+
+/** 规格弹层确认：列表页只有加购动作（弹层已关掉「立即购买」）。 */
+async function onSkuCartConfirm(payload: { action: 'cart' | 'buy'; sku: { id: string; price: number; stock: number }; quantity: number }): Promise<void> {
+  skuSheetVisible.value = false
+  const detail = skuSheetProduct.value
+  if (!detail) return
+  cartAdding.value = true
+  try {
+    await addSkuToCartWithStock({
+      productId: Number(detail.id),
+      skuId: Number(payload.sku.id),
+      stock: Number(payload.sku.stock),
+      quantity: payload.quantity,
+      dividendEnabled: detail.dividendEnabled,
+      price: Number(payload.sku.price),
     })
     uni.showToast({ title: '已加入购物车', icon: 'success' })
   } catch (error) {
@@ -492,6 +538,8 @@ onMounted(() => {
     </view>
 
     <LoginGuide v-model="loginGuideVisible" />
+    <!-- 规格选择弹层（多规格商品快捷加购前必过；列表页只提供加购，故关掉「立即购买」） -->
+    <SkuSheet v-model:visible="skuSheetVisible" :product="skuSheetProduct" :show-buy="false" @confirm="onSkuCartConfirm" />
   </view>
 </template>
 
