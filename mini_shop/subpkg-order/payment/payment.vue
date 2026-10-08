@@ -122,6 +122,27 @@ const deliveryQuote = ref<DeliveryQuote | null>(null)
 const quoteLoading = ref(false)
 /** 试算失败 / 不可配送的提示文案。 */
 const quoteError = ref('')
+/**
+ * 收货地址**没有真实坐标**时的提示文案。
+ *
+ * ⚠️⚠️ 2026-10-08 修（用户反馈「手动输入地址时超出范围也能下单」）：
+ *   同城配送的范围判定**只能**基于收货地址的真实坐标（后端契约：LOCAL 渠道必须传选点坐标，
+ *   且目前**不解析** `address` 文本）。此前这里用「收货地址 ?? 当前位置 ?? 发货门店」三级兜底，
+ *   等于**伪造坐标**给后端 —— 退到门店坐标时后端必然判「可送」，范围校验完全失效。
+ *   ⇒ 现在拿不到地址坐标就**如实阻断**：宁可让用户去地图选点，也绝不编一个坐标。
+ */
+const ADDRESS_NEEDS_MAP_PICK_TEXT = '该地址没有定位信息，请在地图上选点后再使用同城配送'
+/**
+ * 收货地址的**真实**坐标 —— 同城配送坐标的**唯一合法来源**。
+ * ⚠️ 只认地址自身的定位；0 / NaN / 缺失一律视为"没有坐标"
+ *    （`(0, 0)` 是几内亚湾，不可能是有效收货点）。绝不用 `??` 兜底到别的位置。
+ */
+const addressCoords = computed(() => {
+  const lat = Number(selectedAddress.value?.latitude)
+  const lng = Number(selectedAddress.value?.longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return null
+  return { lat, lng }
+})
 /** 地址表单里的定位状态：idle（还没试） / ok（已自动填入省市区） / fail（拿不到，需手选）。 */
 const locationState = ref<'idle' | 'ok' | 'fail'>('idle')
 
@@ -151,7 +172,23 @@ interface PaymentFormCache {
   remark: string
 }
 
-const PAYMENT_FORM_CACHE_KEY = 'payment_form_cache'
+/** 表单缓存 key（**已升版到 `_v2`**）：旧缓存的地址可能带着修复前写入的伪造坐标，改名让旧缓存自然失效。 */
+const PAYMENT_FORM_CACHE_KEY = 'payment_form_cache_v2'
+
+/**
+ * 一次性清理升版前的旧 storage（`_v1`）。
+ * ⚠️ 为什么必须清：旧草稿/旧表单缓存里可能带着**修复前写入的伪造坐标**
+ *    （地址编辑页曾把自动定位的「当前位置」当成地址坐标写入），只要它还在，
+ *    同城配送的「地址无坐标就拦住」门禁就会被旧数据满足 ⇒ 超范围仍可下单。
+ */
+function purgeLegacyStorage(): void {
+  try {
+    uni.removeStorageSync('payment_address_draft')
+    uni.removeStorageSync('payment_form_cache')
+  } catch { /* 忽略：清理失败不影响主流程（新 key 已保证旧数据不会被读取） */ }
+}
+// 在模块初始化时立即清（早于 loadFormCache / 地址草稿的任何读取）。
+purgeLegacyStorage()
 
 /** 读取上次填写的结算表单并自动填入。 */
 function loadFormCache(): void {
@@ -1018,15 +1055,23 @@ async function refreshDeliveryQuote(): Promise<void> {
     return
   }
   const address = selectedAddress.value
+  const coords = addressCoords.value
+  // ⚠️ 没有真实坐标 ⇒ **不试算**（绝不拿别的位置冒充），如实告知原因；
+  //    提交侧另有拦截（见 submitPayment），二者共同保证「无坐标不可能下单成功」。
+  if (!coords) {
+    deliveryQuote.value = null
+    quoteError.value = ADDRESS_NEEDS_MAP_PICK_TEXT
+    return
+  }
   quoteLoading.value = true
   quoteError.value = ''
   try {
     const quote = await quoteDelivery({
       merchantId: selectedShop.value.id,
       goodsAmount: subtotal.value,
-      // 坐标优先级：收货地址自身的定位 → 进页面时采到的当前位置 → 发货门店坐标（最后兜底）
-      receiverLat: address.latitude ?? userLocation.value?.latitude ?? selectedShop.value.latitude,
-      receiverLng: address.longitude ?? userLocation.value?.longitude ?? selectedShop.value.longitude,
+      // 坐标**只**来自收货地址自身的定位（见 addressCoords），绝不兜底到当前位置 / 发货门店
+      receiverLat: coords.lat,
+      receiverLng: coords.lng,
       address: fullAddress(address),
     })
     deliveryQuote.value = quote
@@ -1726,6 +1771,13 @@ async function submitPayment(): Promise<void> {
     openAddressEditor()
     return
   }
+  // ⚠️ 2026-10-08 新增：同城配送**必须有真实收货坐标** —— 没有就绝不放行。
+  //    不能依赖上面那条「试算返回不可送」的拦截：无坐标时我们**故意不试算**（deliveryQuote 为 null），
+  //    那条拦截的 `deliveryQuote.value &&` 条件会短路，等于放行。
+  if (!isExistingOrder && pickupType.value === 2 && selectedAddress.value && !addressCoords.value) {
+    uni.showToast({ title: ADDRESS_NEEDS_MAP_PICK_TEXT, icon: 'none' })
+    return
+  }
   // 试算说不可送就不放行（超配送范围 / 门店未开配送等），提示以后端 reason 为准
   if (!isExistingOrder && pickupType.value === 2 && deliveryQuote.value && deliveryQuote.value.canDelivery === false) {
     uni.showToast({ title: quoteError.value || '该地址超出配送范围', icon: 'none' })
@@ -1776,9 +1828,12 @@ async function submitPayment(): Promise<void> {
         ...(pickupType.value === 2 && selectedShop.value ? {
           // 发货门店：后端 OrderCreateDTO.merchantId 收的就是门店 ID
           merchantId: selectedShop.value.id,
-          // 同城必须带坐标：收货地址定位 → 当前位置 → 发货门店坐标（依次兜底）
-          receiverLat: selectedAddress.value?.latitude ?? userLocation.value?.latitude ?? selectedShop.value.latitude,
-          receiverLng: selectedAddress.value?.longitude ?? userLocation.value?.longitude ?? selectedShop.value.longitude,
+          // ⚠️ 2026-10-08 修：同城坐标**只提交收货地址自身的真实定位**（见 addressCoords）。
+          //    此前这里是「收货地址 ?? 当前位置 ?? 发货门店」三级兜底 —— 等于**伪造坐标**给后端
+          //    （退到发货门店坐标时，后端拿门店自己的位置判「能否送到」，必然可送）。
+          //    无坐标的情况在 submitPayment 里已被拦截（ADDRESS_NEEDS_MAP_PICK_TEXT），
+          //    这里保持「有真实坐标才带」，绝不用别的位置顶上。
+          ...(addressCoords.value ? { receiverLat: addressCoords.value.lat, receiverLng: addressCoords.value.lng } : {}),
         } : {}),
         ...(remark.value.trim() ? { remark: remark.value.trim() } : {}),
       })

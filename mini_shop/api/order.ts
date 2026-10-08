@@ -2,10 +2,19 @@ import { request } from '@/utils/request'
 
 export type OrderStatus = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 /**
- * 配送地址草稿的 storage key。
+ * 配送地址草稿的 storage key（**已升版到 `_v2`**）。
  * 「配送地址」独立页面（`subpkg-order/address/edit`）保存后写这里，确认订单页读取并清空。
+ *
+ * ⚠️ **为什么必须升版（2026-10-08，P1 履约事故第三层）**：
+ * 同城配送的坐标曾由前端**伪造** —— 地址编辑页的 `locate()` 会把「当前位置」写进地址表单的
+ * `latitude/longitude`，用户**只手动打字**、从没在地图上选点，地址也带着一个与他所填内容无关的坐标。
+ * 修好写入侧（layer 1/2）**并不够**：**修复前写进 storage 的旧草稿仍然带着那个伪造坐标**，
+ * 升级后的用户只要本地还留着旧草稿，同城配送「地址没有坐标就拦住」的门禁就会被旧数据满足
+ * ⇒ 超出配送范围仍然可以下单。所以把 key 改名 ⇒ **旧草稿自然失效**（读不到 ⇒ 用户重新填一次地址）。
+ *
+ * 接受的代价：正在填写、还没提交的地址草稿会丢一次（**安全优先**，宁可让用户重填，也不放行超范围订单）。
  */
-export const ADDRESS_DRAFT_KEY = 'payment_address_draft'
+export const ADDRESS_DRAFT_KEY = 'payment_address_draft_v2'
 /** 配送方式：0=物流 1=线下自提 2=同城配送（占位，本期不开放下单）。 */
 export type PickupType = 0 | 1 | 2
 /** 地址修改申请状态：0=待审核，1=已通过，2=已拒绝。 */

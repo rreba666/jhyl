@@ -5,7 +5,8 @@
  * 为什么从「弹层」改成独立页面（2026-09-19 用户要求，弹层方案确实别扭）：
  * 1. 弹层里塞省市区选择器 + 定位 + 地图选点，空间不够，说明文字还会被挤到表单下方；
  * 2. 独立页面可以正常调用定位能力：`getLocation` 自动填省市区、`chooseLocation` 地图选点拿**精确坐标**；
- * 3. 同城配送下单**必须带收货坐标**（否则距离算成 0），所以这里把「拿到经纬度」当一等目标。
+ * 3. 同城配送下单**必须带收货地址的真实坐标** —— 坐标**只能**来自用户明确的「地图选点」
+ *    （`chooseLocation`）；自动定位只负责填省市区，**一律不写坐标**（2026-10-08 修，见 `locate`）。
  *
  * 2026-09-22 起本页承接**两种模式**（`onLoad` 查询参数区分）：
  * - `mode=book`（默认，地址簿管理）：新增 / 修改都直接写后端 `收货地址簿` 接口，
@@ -49,7 +50,10 @@ const locating = ref(false)
 const saving = ref(false)
 /** 新增模式下，地址簿里是否还没有任何地址（第一个地址后端会自动设为默认，用于文案提示）。 */
 const bookEmpty = ref(false)
-/** 是否已经拿到坐标（用于给「地图选点」按钮加一个已选中的态，不再写说明文字）。 */
+/**
+ * 是否已经**由用户在地图上选点**拿到了坐标（用于给「地图选点」按钮加一个已选中的态）。
+ * ⛔ 自动定位不再写坐标，所以这里为 false 时，这条地址就是**真的没有**坐标。
+ */
 const hasCoordinate = computed(() => form.latitude != null && form.longitude != null)
 
 const regionValue = computed(() => [form.province, form.city, form.district].filter(Boolean))
@@ -114,7 +118,8 @@ function fillFromEntity(address: AddressEntity): void {
 }
 
 /**
- * 自动定位：填省市区（**不覆盖已填**）+ 记录经纬度。
+ * 自动定位：**只**用来填省市区（**不覆盖已填**）。
+ * ⛔ **不记录经纬度** —— 坐标只能来自用户明确的「地图选点」（见 `pickOnMap`）。
  * 失败静默 —— 用户还可以手选省市区、或点「地图选点」，不因为定位失败卡住。
  */
 async function locate(): Promise<void> {
@@ -128,8 +133,11 @@ async function locate(): Promise<void> {
         fail: () => reject(new Error('定位失败')),
       })
     })
-    form.latitude = Number(res.latitude)
-    form.longitude = Number(res.longitude)
+    // ⛔⛔ 这里**不得**写 `form.latitude/longitude`（2026-10-08）：
+    //    自动定位拿到的是**用户当前所在位置**，与用户随后手动输入的详细地址**无关**。
+    //    把它当成该地址的坐标 = **伪造数据**，会让同城配送的范围校验失效
+    //    （超范围也能下单）。坐标**只能**来自用户明确的「地图选点」（见 chooseLocation）。
+    //    代价：只自动定位 + 手填详细地址的地址**没有坐标** ⇒ 同城配送会如实要求用户去选点。
     const addr = res.address || {}
     if (!form.province && addr.province) form.province = String(addr.province)
     if (!form.city && addr.city) form.city = String(addr.city)
@@ -162,7 +170,8 @@ function parseRegion(text: string): { province: string; city: string; district: 
 
 /**
  * 地图选点：拿到**精确坐标**与地址文本。
- * 同城配送的距离就是靠这个坐标算的 —— 自动定位只到「省市区」精度，选点才够准。
+ * 同城配送的距离就是靠这个坐标算的 —— 这是本页**唯一**写坐标的地方
+ * （自动定位只填省市区，**不提供**坐标）。
  *
  * ⚠️ 2026-09-22 修：选点后要把省市区回填到「所在地区」，
  * 详细地址只用**选点名称**（如「XX小区」）或剥掉省市区后的街道部分 —— 见 parseRegion。
@@ -191,9 +200,11 @@ function pickOnMap(): void {
  * 授权微信地址：调微信原生地址簿，一键带入用户在微信里保存的收货地址。
  *
  * ⚠️ 三个必须知道的点：
- * 1. **拿不到坐标**：微信原生地址不返回经纬度 ⇒ 导入后 `latitude/longitude` 仍是「自动定位」那次的
- *    （定位失败就为空）。同城配送的距离靠坐标，所以导入后**建议再用上方「地图选点」微调**；
- *    下单侧的坐标兜底链（收货地址坐标 → 当前位置 → 发货门店坐标）仍在，不会因此卡住。
+ * 1. **拿不到坐标**：微信原生地址不返回经纬度，导入后 `latitude/longitude` **保持为空**；
+ *    自动定位（`locate`）也**不再写坐标**（见该函数内的说明）。同城配送的距离靠坐标，
+ *    所以导入后**必须**用上方「地图选点」明确选一次收货点，否则同城配送会如实要求去选点。
+ *    ⛔ 旧的坐标兜底写法（拿不到就用别的位置顶上）**已删除** —— 那等于**伪造数据**给后端，
+ *    会让范围校验失效（这正是「手动输入地址、超范围也能下单」的成因）。⛔ 不要再加回来。
  * 2. **字段名与微信原生不同**：`uni.chooseAddress` 把微信的 `provincialName` 统一成了 **`provinceName`**
  *    （见 uni-app 官方文档「uni.chooseAddress」），所以这里两个名字都读一遍以兼容。
  * 3. **新版选择器的详细地址在 `detailInfoNew`**（微信小程序专属），旧字段 `detailInfo` 可能为空 ——
@@ -367,13 +378,13 @@ function goBack(): void {
       <view class="locate-card" @click="pickOnMap">
         <view class="locate-icon">📍</view>
         <view class="locate-text">
-          <text class="locate-title">{{ hasCoordinate ? '已定位，可在地图上微调' : (locating ? '正在定位…' : '点击地图选点') }}</text>
-          <text class="locate-sub">选点后配送距离更准确，也可手动填写下方地址</text>
+          <text class="locate-title">{{ hasCoordinate ? '已选点，可在地图上调整' : '点击地图选点' }}</text>
+          <text class="locate-sub">{{ locating ? '正在定位省市区…' : '同城配送需要坐标：请在地图上选中收货点' }}</text>
         </view>
         <text class="locate-arrow">›</text>
       </view>
 
-      <!-- 授权微信地址：一键带入微信里保存的收货地址（不返回坐标，导入后建议再用上方地图选点微调） -->
+      <!-- 授权微信地址：一键带入微信里保存的收货地址（微信不返回坐标，导入后必须用上方「地图选点」补选收货点，否则同城配送无法试算） -->
       <view class="wx-entry" @click="chooseWechatAddress">
         <text class="book-entry-label">授权微信地址</text>
         <text class="book-entry-arrow">›</text>
@@ -406,7 +417,7 @@ function goBack(): void {
         </view>
       </view>
 
-      <view class="tip">同城配送需要精确到门牌，建议用上方「地图选点」自动带出坐标。</view>
+      <view class="tip">同城配送需要收货点坐标：请用上方「地图选点」选中收货点，仅手填详细地址无法计算配送范围。</view>
       <!-- 地址簿模式且是已有地址：提供删除 -->
       <view v-if="pageMode === 'book' && addressId" class="remove" @click="confirmRemove">删除该地址</view>
       <view class="bottom-space" />
