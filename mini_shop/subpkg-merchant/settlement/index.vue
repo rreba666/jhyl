@@ -42,6 +42,12 @@ import {
 import { isApiRequestError, resolveImageUrl, uploadFile } from '@/utils/request'
 // ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
 import WithdrawRulesSheet from '@/components/WithdrawRulesSheet.vue'
+// ⚠️ 2026-10-08 Step2：同城资金释放口径改为「送达次日 0 点起，普通 +7 天 / 生鲜 +3 天」，并**按档位分叉**。
+//    文案取自 `utils/timing-category`（与 C 端「售后窗口」同一份口径来源，避免两处漂移）。
+import { SETTLEMENT_RELEASE_TEXT_SAME_CITY } from '@/utils/timing-category'
+
+/** 同城资金释放规则文案（模板用；单一来源见 `utils/timing-category`）。 */
+const RELEASE_RULE_SAME_CITY = SETTLEMENT_RELEASE_TEXT_SAME_CITY
 
 const statusBarHeight = ref(0)
 /** 内容区顶部留白 = 状态栏 + 自定义导航栏高度（与 bill/index.vue 同口径）。 */
@@ -487,10 +493,13 @@ function goBack(): void {
 
         <!-- ⚠️ 2026-10-02 新增（P1P2 §二.1 明确要求「前端文案请相应说明，避免商家以为钱丢了」）：
              用户实测反馈「钱过了一天还躺在待结算、提不出来，不知道为什么」⇒ 这里把释放期讲清楚。
-             ⚠️⚠️ 2026-10-02 晚 **口径重大变更**（后端《给前端的反馈-契约缺口补充》§四，业务定案
-             「**不能退款才能到账**」）⇒ **同城从"送达次日（1 天）"推迟到"订单完成后 7 天"**；
-             物流仍是完成后 7 天（**若妥投慢、签收晚于完成，则等「签收 + 7 天」，只会更晚**）；
-             自提不变（核销 + 1 天）。⇒ 本卡文案已按新口径更新。 -->
+             ⚠️⚠️ 2026-10-02 晚 **口径变更**（后端《给前端的反馈-契约缺口补充》§四，业务定案
+             「**不能退款才能到账**」）⇒ 释放期与订单的退款窗口对齐。
+             ⚠️⚠️ **2026-10-08 Step2 再次修订「同城」那一行**（《前端对接-Step2-同城时效与资金口径》§一/§三-3）：
+               ① 起算点由「订单完成」改为「**送达次日 0 点**」；
+               ② 并按档位分叉：普通 +7 天 / 生鲜（`timingCategory=1`）+3 天；
+               ③ 后端同时修掉"同城送达即可提现"的缺陷 ⇒ **送达后不会立即入账是预期**。
+             ⚠️ **物流与自提两行未变**（Step2 §二 明确要求"不要跟着改"）。 -->
         <view class="card">
           <text class="card-title">钱什么时候能提现？</text>
           <text class="rule-lead">订单完成后，钱不会立刻可提现，而是先进「待结算」，过了释放期才转成「可提现」：</text>
@@ -502,8 +511,9 @@ function goBack(): void {
             <text class="release-hint">若签收晚于订单完成，则按「签收后 7 天」计算（只会更晚）；查不到签收轨迹时按发货后 15 天估算</text>
             <view class="release-item">
               <text class="release-form">同城配送</text>
-              <text class="release-rule">订单完成后 7 天</text>
+              <text class="release-rule">{{ RELEASE_RULE_SAME_CITY }}</text>
             </view>
+            <text class="release-hint">同城的起算点是「送达的次日 0 点」，并区分档位：普通商品 +7 天、生鲜·鲜活易腐商品 +3 天（且不早于售后窗口关闭）</text>
             <view class="release-item">
               <text class="release-form">门店自提</text>
               <text class="release-rule">核销后 1 天</text>

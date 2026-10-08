@@ -21,7 +21,7 @@ import {
   rejectMyOrder,
   type DeliveryStaff,
 } from '@/api/shop-delivery'
-import { ASSIGNMENT_TYPE_LABELS, DELIVERY_STATUS_OPTIONS, deliveryStatusLabel, deliveryStatusTagType } from '@/utils/deliveryStatus'
+import { ASSIGNMENT_TYPE_LABELS, CANCEL_AUTO_APPROVE_HINT, CANCEL_AUTO_APPROVE_HINT_SHORT, DELIVERY_STATUS_OPTIONS, deliveryStatusLabel, deliveryStatusTagType } from '@/utils/deliveryStatus'
 
 const props = defineProps<{ shopId: string }>()
 /** 安排配送成功后通知父级刷新「配送任务」面板。 */
@@ -269,7 +269,7 @@ defineExpose({ loadOrders })
       <el-table-column label="实付" width="100"><template #default="{ row }">¥ {{ Number(row.payAmount || 0).toFixed(2) }}</template></el-table-column>
       <el-table-column prop="createTime" label="下单时间" min-width="170" />
       <!-- 操作：按配送状态给下一步动作，避免商家不知道点哪里 -->
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <div class="operator-actions">
             <!-- 待接单：接单 / 拒单 -->
@@ -290,9 +290,17 @@ defineExpose({ loadOrders })
               <el-button size="small" type="success" @click="openDispatch(row)">安排配送</el-button>
             </template>
             <!-- 取消申请：同意 / 驳回 -->
+            <!-- ⚠️ 2026-10-08 Step5：同城单的取消申请**超时会由系统自动同意并退款**
+                 （未备货 30 分钟 / 已备货·配送中 3 小时）⇒ 这里给商家一句提示，避免"放着不管"。
+                 ⚠️ 该提示**只挂在本分支**（`CANCEL_REQUESTED`）—— 物流/自提单不会进入这个状态，
+                    不要往它们的界面加。自动同意的事件 `operator_type = SYSTEM`，
+                    时间轴会显示「系统自动」而不是「商家同意」（见 `utils/labels.ts`）。 -->
             <template v-else-if="row.deliveryStatus === 'CANCEL_REQUESTED'">
               <el-button size="small" type="danger" plain @click="audit(row, true)">同意取消</el-button>
               <el-button size="small" @click="audit(row, false)">驳回</el-button>
+              <el-tooltip :content="CANCEL_AUTO_APPROVE_HINT" placement="top">
+                <p class="cancel-auto-hint">{{ CANCEL_AUTO_APPROVE_HINT_SHORT }}</p>
+              </el-tooltip>
             </template>
             <!-- 配送异常：骑手上报后任务卡在 EXCEPTION，恢复后回到异常前的节点继续履约 -->
             <template v-else-if="row.deliveryStatus === 'EXCEPTION'">
@@ -347,5 +355,8 @@ defineExpose({ loadOrders })
 .operator-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .operator-actions :deep(.el-button) { margin-left: 0; padding: 4px 8px; }
 .muted { color: var(--vben-muted); font-size: 13px; }
+/* ⚠️ 2026-10-08 Step5：取消申请的「超时自动同意」短提示（完整规则在 tooltip 里）——
+   必须整行独占（`width: 100%`），否则会和两个按钮挤在同一行把「驳回」压变形。 */
+.cancel-auto-hint { width: 100%; margin: 0; color: var(--vben-muted); font-size: 12px; line-height: 1.4; cursor: help; }
 .tip { margin-bottom: 12px; }
 </style>

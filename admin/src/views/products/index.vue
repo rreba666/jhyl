@@ -49,6 +49,16 @@ const deliverySwitchEchoed = ref(true)
  * ⇒ 三个开关**各自独立**决定本次要不要提交（后端对三者都是"不传 = 不修改"）。
  */
 const sameCitySwitchEchoed = ref(true)
+/**
+ * 编辑回显是否拿到了「**时效档位**」`timingCategory`（2026-10-08 Step1 新增）。
+ *
+ * ⚠️ 语义与那三个开关**一样是「不传 = 不修改」，但后果更严重**：
+ *    `timingCategory` 承载的是**业务档位**（0=普通 / 1=生鲜·鲜活易腐），不是开关。
+ *    详情没返回它时若按默认 0 提交，会把商家的**生鲜商品打回普通**
+ *    （售后窗口从 48 小时变 7 天、资金释放从 +3 天变 +7 天）—— 对应对接文档 §六 验收点 3。
+ * ⇒ 与 `sameCitySwitchEchoed` **同样独立判断**（老后端详情里同样不会有本字段）。
+ */
+const timingSwitchEchoed = ref(true)
 const detailUploadCount = ref(0)
 /**
  * 打开表单那一刻的详情图快照（保存后回读比对用）。
@@ -180,7 +190,7 @@ async function loadBrandOptions(): Promise<void> {
 /** 创建新增商品的默认表单。 */
 function createEmptyForm(): AdminProductSaveDTO {
   // pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增）后端默认 1：新增商品默认两种配送方式都支持
-  return { id: undefined, name: '', categoryIds: [], goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1, sameCityEnabled: 1 }
+  return { id: undefined, name: '', categoryIds: [], goodsBrandId: null, merchantId: null, shopIds: [],  mainImage: '', images: [], videoUrl: '', description: '', descriptionTitle: '', originPlace: '', detailImages: [], promotionFund: 0, promotionEnabled: 1, dividendFund: 0, dividendEnabled: 1, status: 1, isRecommended: 0, recommendTextEnabled: 0, sortOrder: 0, skuList: [], pickupEnabled: 1, deliveryEnabled: 1, sameCityEnabled: 1, timingCategory: 0 }
 }
 
 function getMinSkuPrice(skuList: AdminProductSaveDTO['skuList'] = form.skuList): number {
@@ -238,8 +248,12 @@ function fillForm(detail?: ProductDetail): void {
   const deliveryEcho = detail ? normalizeSwitchOrNull(detail.deliveryEnabled) : 1
   // ⚠️ 同城开关是第十二批新增字段：老后端详情里没有 ⇒ **单独**判断是否提交（见 sameCitySwitchEchoed 的说明）
   const sameCityEcho = detail ? normalizeSwitchOrNull(detail.sameCityEnabled) : 1
+  // ⚠️ 时效档位（2026-10-08 Step1）：同样是新增字段 ⇒ 同样独立判断。
+  //    新增态（无 detail）用 0 显式提交（后端本来默认就是 0，显式传更明确）。
+  const timingEcho = detail ? normalizeSwitchOrNull(detail.timingCategory) : 0
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
   sameCitySwitchEchoed.value = sameCityEcho !== null
+  timingSwitchEchoed.value = timingEcho !== null
   // ⚠️ 2026-09-30 诊断（多分类回显）：后端若**没有**返回 `categoryIds`，下面会**静默回退**到单个
   //    `categoryId`，表现就是用户反馈的「保存后再次打开，新加的分类没了」。
   //    这里在"有 categoryId 但没有 categoryIds"时打印一次 —— 用来区分两种根因：
@@ -252,7 +266,7 @@ function fillForm(detail?: ProductDetail): void {
       '；请核对 GET /api/admin/v2/product/detail/{id} 的响应里是否有 categoryIds',
     )
   }
-  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryIds: (detail.categoryIds?.length ? detail.categoryIds : (detail.categoryId ? [String(detail.categoryId)] : [])).map(String), merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, sameCityEnabled: sameCityEcho ?? 1, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
+  Object.assign(form, detail ? { id: detail.id, name: detail.name, categoryIds: (detail.categoryIds?.length ? detail.categoryIds : (detail.categoryId ? [String(detail.categoryId)] : [])).map(String), merchantId: detail.merchantId == null ? null : Number(detail.merchantId), shopIds: (detail.shopIds || []).map((id) => Number(id)),  mainImage: detail.mainImage, images: [...(detail.images || [])], videoUrl: detail.videoUrl || '', description: detail.description || '', descriptionTitle: detail.descriptionTitle || '', originPlace: detail.originPlace || '', goodsBrandId: detail.goodsBrandId ?? null, detailImages: [...(detail.detailImages || [])], promotionFund: detail.promotionFund ?? 0, promotionEnabled: normalizeBinary(detail.promotionEnabled), dividendFund: detail.dividendFund ?? 0, dividendEnabled: normalizeBinary(detail.dividendEnabled), pickupEnabled: pickupEcho ?? 1, deliveryEnabled: deliveryEcho ?? 1, sameCityEnabled: sameCityEcho ?? 1, timingCategory: timingEcho ?? 0, status, isRecommended: status === 1 ? normalizeBinary(detail.isRecommended) : 0, recommendTextEnabled: status === 1 && normalizeBinary(detail.isRecommended) === 1 ? normalizeBinary(detail.recommendTextEnabled) : 0, sortOrder: detail.sortOrder || 0, skuList: (detail.skuList || []).map((sku) => ({ ...sku, skuName: sku.skuName || sku.specName || ((detail.skuList || []).length === 1 ? '默认' : ''), id: sku.id == null ? undefined : String(sku.id), enabled: normalizeBinary(sku.enabled) })) } : createEmptyForm())
   // 回填后按该商户加载门店选项（否则 shopIds 在选项里找不到，多选显示为空）
   // ⚠️ 第二参传 true：该商户只有**一个**门店、且本次没回填到 shopIds 时，自动选中它；
   //    若 `detail.shopIds` 已有值，上面的 Object.assign 已写入 ⇒ 自动跳过，不覆盖用户原有选择。
@@ -387,7 +401,7 @@ async function submitForm(): Promise<void> {
   // 后端 categoryId / goodsBrandId 是 integer：传非数字字符串会被 Jackson 判为「请求体格式错误」
   // （2026-09-19 实测复现：categoryId="分类A" → code=1000 请求体格式错误）。
   // 这里提前拦下来给出可读提示，空值则整个字段都不提交。
-  const { categoryIds: rawCategoryIds, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, sameCityEnabled: rawSameCityEnabled, ...rest } = form
+  const { categoryIds: rawCategoryIds, goodsBrandId: rawBrandId, merchantId: rawMerchantId, shopIds: rawShopIds, skuList: rawSkuList, pickupEnabled: rawPickupEnabled, deliveryEnabled: rawDeliveryEnabled, sameCityEnabled: rawSameCityEnabled, timingCategory: rawTimingCategory, ...rest } = form
   // ⚠️ 2026-09-30 多分类：数组逐个数字化。
   //    · 后端 `categoryIds` 是 **long[]**，传字符串会被 Jackson 判为「请求体格式错误」；
   //    · 契约明确「**空数组会报错**」⇒ 空数组时干脆**整个字段不提交**
@@ -441,6 +455,10 @@ async function submitForm(): Promise<void> {
       // 同城配送开关（2026-09-29 第十二批新增）：同样是"不传 = 不修改"，
       // 但**独立判断** —— 老后端详情没有该字段时只跳过它，不影响上面两个开关的提交。
       ...(sameCitySwitchEchoed.value ? { sameCityEnabled: normalizeBinary(rawSameCityEnabled) } : {}),
+      // 时效档位（2026-10-08 Step1 新增）：同样"不传 = 不修改"，独立判断。
+      // ⚠️ `timingCategory=0`（普通）是合法值而非"空"⇒ 必须原样提交 0，不能因为"看着像空"就跳过
+      //    （跳过 = 不修改 = 生鲜商品改不回普通，对应文档验收点 3 的反向场景）。
+      ...(timingSwitchEchoed.value ? { timingCategory: normalizeBinary(rawTimingCategory) } : {}),
       // 规格名必须**两个字段名都带同值**：后端 2026-09-22 起对 `skuList[].skuName` 强校验（@NotBlank，
       // 缺失/空串 → 1000 skuList[0].skuName: SKU 名称不能为空），而写库历史上用的是 `specName`（2026-09-19 实测）。
       // 后端 Jackson 忽略未知字段，所以两个都带上可同时兼容两套字段名。
@@ -762,6 +780,20 @@ onMounted(() => {
             <el-switch v-model="form.sameCityEnabled" :active-value="1" :inactive-value="0" active-text="支持同城配送" inactive-text="不支持同城配送" />
           </div>
           <p class="upload-hint">三个开关各自独立：关闭后用户下单不能选择对应方式（自提 13023；物流 / 同城 13024，后端文案已按三档区分）。按详情回显值原样提交，详情未返回的字段单独不提交（后端语义：不传 = 不修改）。</p>
+        </el-form-item>
+        <!-- 时效档位（2026-10-08 Step1 上线）：
+             ⚠️ 它是**档位**不是开关（0=普通、1=生鲜，两者都是合法业务值），但提交语义同样是「不传 = 不修改」
+                ⇒ 回显拿不到时整个字段不提交，否则会把生鲜商品打回普通。
+             ⚠️ 与「售后类型」（仅退款 / 退货退款）**正交、互不推导**，是两个独立表单项，别拿来互相推。
+             ⚠️ 行为差异**只在同城配送单**体现（售后窗口 / 资金释放档位）；物流与自提一律不变。 -->
+        <el-form-item label="时效档位" class="form-item-full">
+          <div class="delivery-switch-row">
+            <el-switch v-model="form.timingCategory" :active-value="1" :inactive-value="0" active-text="生鲜 · 鲜活易腐" inactive-text="普通（商超 / 日用等）" />
+          </div>
+          <p class="upload-hint">
+            标记为「生鲜 · 鲜活易腐」后，<strong>仅同城配送单</strong>的售后窗口与资金释放按生鲜档位计算（签收次日 0 点起 48 小时内可申请售后、资金 +3 天）；
+            普通档位为 7 天（资金 +7 天）。<strong>物流与自提订单不受本档位影响</strong>，其时效仍由配送方式决定。
+          </p>
         </el-form-item>
         <el-form-item label="首页推荐"><el-switch v-model="form.isRecommended" :disabled="normalizeBinary(form.status) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
         <el-form-item label="推荐文本"><el-switch v-model="form.recommendTextEnabled" :disabled="normalizeBinary(form.status) === 0 || normalizeBinary(form.isRecommended) === 0" :active-value="1" :inactive-value="0" /></el-form-item>

@@ -10,6 +10,9 @@ import { bindStoredPromotionIfLoggedIn, buildPromotionSharePath, capturePromotio
 import { getPromotionCode } from '@/api/promotion'
 import { isApiRequestError } from '@/utils/request'
 import { PURCHASE_LIMIT_ERROR_CODE, PURCHASE_LIMIT_MESSAGE } from '@/utils/dividend-limit'
+// ⚠️ 2026-10-08 Step1/Step2/Step3：时效档位与「售后窗口」文案的**单一来源**
+//    （同城按档位分叉、物流/自提与档位无关）。**不要在页面里另拼一份** —— 本批刚改过口径。
+import { afterSaleTextsForProduct, isFreshTiming } from '@/utils/timing-category'
 import PromotionCodePoster from '@/components/PromotionCodePoster.vue'
 import LoginGuide from '@/components/LoginGuide.vue'
 import SkuSheet from '@/subpkg-goods/components/SkuSheet.vue'
@@ -52,6 +55,24 @@ const coverImage = computed(() => product.value?.mainImage || galleryImages.valu
  * 没有图时会留一块灰板，看起来就像"详情图没显示出来"（2026-09-22 用户反馈的观感问题之一）。
  */
 const detailImageList = computed(() => (product.value?.detailImages || []).filter(Boolean))
+
+/**
+ * 该商品是否为「生鲜 · 鲜活易腐」档位（`timingCategory === 1`，2026-10-08 Step1/Step3）。
+ *
+ * ⚠️ 它是**商品属性**，但行为差异**只在同城配送单**体现 —— 所以下面只拿它决定
+ *    「生鲜」标注与同城那条售后说明，**绝不能**用它去改物流/自提的窗口文案。
+ */
+const isFreshProduct = computed(() => isFreshTiming(product.value?.timingCategory))
+
+/**
+ * 「售后保障」条目（2026-10-08 Step3 §二 的表格）。
+ *
+ * 商品详情页**不知道用户最终选哪种配送方式**，所以按该商品**支持的每一种方式**如实列出窗口
+ * （同城 / 物流 / 自提，后端三个开关各自独立，2026-09-29 起 `deliveryEnabled` 语义已收窄为"仅物流"）。
+ * ⚠️ 文案全部取自 `@/utils/timing-category` 的单一来源，**不要在页面里再拼一份** ——
+ *    本批（Step2）刚刚改过同城的起算点与档位分叉，硬编码的地方下次还会漂。
+ */
+const afterSaleRules = computed(() => afterSaleTextsForProduct(product.value))
 
 /**
  * 加载失败的详情图 URL 集合。
@@ -426,8 +447,30 @@ onShow(() => {
 
           <view class="tag-row">
             <view class="tag"><image class="tag-icon" src="/static/ProductDetails/包邮_slices/包邮.png" mode="aspectFit" /><text>包邮</text></view>
-            <view class="tag"><image class="tag-icon" src="/static/ProductDetails/七天无理由_slices/七天无理由.png" mode="aspectFit" /><text>七天无理由</text></view>
+            <!-- ⚠️ 2026-10-08 Step3：生鲜·鲜活易腐商品**不适用七日无理由退货**
+                 （《网络购买商品七日无理由退货暂行办法》第二十条明确列举"鲜活易腐"为除外情形），
+                 而这枚标签的图标本身就是「7」字盾牌 ⇒ **生鲜商品不渲染它**，
+                 改由下方「售后保障」块如实给出该商品真正的窗口（同城 48 小时 + 质量问题走人工）。
+                 ⚠️ 非生鲜商品保留这枚标签（物流/自提/同城普通的 7 天窗口与它一致）。 -->
+            <view v-if="!isFreshProduct" class="tag"><image class="tag-icon" src="/static/ProductDetails/七天无理由_slices/七天无理由.png" mode="aspectFit" /><text>七天无理由</text></view>
           </view>
+        </view>
+
+        <!-- 售后保障（2026-10-08 Step3 新增，依据《前端对接-Step3》§二 + 《前端对接-Step2》§三）：
+             按该商品**支持的配送方式**逐条列出售后窗口；同城那条再按生鲜/普通档位分叉。
+             ⚠️ 物流与自提**永远不出现**"次日 0 点""48 小时"这类同城专属口径 —— 这一点由
+                `afterSaleTextsForProduct` 的结构保证（档位只在同城分支被读取），不靠模板自觉。 -->
+        <view v-if="afterSaleRules.length" class="after-sale-card">
+          <view class="after-sale-head">
+            <text class="after-sale-title">售后保障</text>
+            <text v-if="isFreshProduct" class="after-sale-fresh-tag">生鲜 · 鲜活易腐</text>
+          </view>
+          <view v-for="rule in afterSaleRules" :key="rule.label" class="after-sale-row">
+            <text class="after-sale-label">{{ rule.label }}</text>
+            <text class="after-sale-text">{{ rule.text }}</text>
+          </view>
+          <text v-if="isFreshProduct" class="after-sale-note">生鲜·鲜活易腐商品不适用「七日无理由退货」；若存在质量问题，不受上述时限限制，请联系客服处理。</text>
+          <text v-else class="after-sale-note">不同配送方式的售后时限不同，以您下单时选择的配送方式为准。</text>
         </view>
 
         <!-- 详情图（2026-09-22 加固）：没有详情图时**不渲染这一整块**（避免留灰板）；
@@ -519,6 +562,16 @@ onShow(() => {
 .tag-row { display: flex; align-items: center; gap: 32rpx; padding: 24rpx 0 28rpx; border-bottom: 1px solid #eee; }
 .tag { display: flex; align-items: center; color: #555; font-size: 23rpx; }
 .tag-icon { width: 36rpx; height: 36rpx; margin-right: 12rpx; flex-shrink: 0; }
+/* 「售后保障」块（2026-10-08 Step3 新增）：按配送方式列出售后窗口 + 生鲜标注。
+   ⚠️ 色值沿用本页既有中性灰（#555/#999）与页面底色，不引入新配色。 */
+.after-sale-card { margin-top: 20rpx; padding: 22rpx 20rpx; background: #fff; }
+.after-sale-head { display: flex; align-items: center; gap: 14rpx; margin-bottom: 14rpx; }
+.after-sale-title { color: #222; font-size: 27rpx; font-weight: 600; }
+.after-sale-fresh-tag { padding: 4rpx 14rpx; border: 1rpx solid #ff9301; border-radius: 6rpx; color: #ff6a00; background: #fff6ec; font-size: 21rpx; line-height: 1.4; }
+.after-sale-row { display: flex; align-items: flex-start; margin-top: 10rpx; }
+.after-sale-label { width: 132rpx; flex-shrink: 0; color: #555; font-size: 23rpx; line-height: 1.5; }
+.after-sale-text { flex: 1; min-width: 0; color: #666; font-size: 23rpx; line-height: 1.5; }
+.after-sale-note { display: block; margin-top: 14rpx; color: #999; font-size: 21rpx; line-height: 1.5; }
 .detail-heading { display: flex; align-items: center; justify-content: center; height: 116rpx; color: #555; background: #fff; font-size: 25rpx; }
 .detail-media { min-height: 520rpx; background: #d6d6d6; }
 .product-detail-image { display: block; width: 100%; height: auto; }

@@ -274,3 +274,86 @@ export function canFastRefundNow(
   if (isFastRefundDailyQuotaExhausted()) return false
   return !isFastRefundBlocked(order?.id)
 }
+
+/* ------------------------------------------------------------------ *
+ * 秒退被「后端闸门」拦下后的「按码分流」（2026-10-08 Step2 抽出）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ⚠️⚠️ 为什么把它抽到这里（Step2 §三-6 / §四 的硬要求）：
+ *
+ * 1. **文案必须用后端 `message`，不要自己拼时间口径** —— Step2 刚把同城的起算点
+ *    从「送达那刻」改成「**送达次日 0 点**」，并新增了「普通 7 天 / 生鲜 48 小时」分叉。
+ *    前端若继续写死"已超过秒退时限（支付后 30 分钟）"这类句子，**下一次口径变更还会漂**。
+ *    后端的 `message` 天然带着**当时的**准确口径（含同城生鲜的 48 小时与"质量问题走人工"）。
+ * 2. **但仍要按 `code` 分流去向**（`error.message` 只说明"为什么不行"，不说明"那该怎么办"）：
+ *     `2013`（已备货完成/已出餐）该引导去「**申请取消 → 商家审核**」，
+ *     其余该引导去「**售后申请（人工审核）**」。
+ * 3. **`2012` 是账号级闸门**（今日次数已用完，影响当天**所有**订单）⇒ 必须调用
+ *    {@link markFastRefundDailyQuotaExhausted}；其余是**订单级** ⇒ {@link markFastRefundBlocked}。
+ *    这条判据原先在**两个页面各写一遍**（列表页 / 详情页），已踩过"只修一处"的坑。
+ *
+ * ⚠️ `8703`（超过**售后**申请窗口）虽然与秒退同表，但**不引导去售后** ——
+ *    它恰恰表示售后窗口也已关闭，再引导只会让用户白跑一趟；此时只如实展示后端 `message`。
+ */
+export type FastRefundGateAction =
+  /** 引导去「售后申请（人工审核）」。 */
+  | 'after-sale'
+  /** 引导去「申请取消 → 商家审核」。 */
+  | 'cancel-request'
+  /** 只如实展示后端文案，不额外引导。 */
+  | 'none'
+
+/** {@link resolveFastRefundGate} 的判定结果。 */
+export interface FastRefundGateDecision {
+  /** 该把用户引导到哪一步（页面据此决定要不要跳「退款/售后」分类）。 */
+  action: FastRefundGateAction
+  /** 展示给用户的文案：**优先后端 `message`**，后端没下发才用本地兜底。 */
+  text: string
+  /** 是否**账号级**闸门（仅 `2012`）：为真时页面要记「今日次数已用完」。 */
+  accountLevel: boolean
+}
+
+/**
+ * 各码的**本地兜底文案** —— ⚠️ **只在后端没下发 `message` 时使用**，
+ * 且刻意**不含任何时间口径**（不写"30 分钟""7 天""48 小时"），避免与后端口径漂移。
+ */
+const FAST_REFUND_GATE_FALLBACK: Record<number, string> = {
+  2011: '已超过秒退时限',
+  2012: '今日秒退次数已达上限',
+  2013: '商家已备货完成，无法直接退款',
+  2014: '订单金额超过秒退上限',
+  8703: '已超过售后申请时限',
+}
+
+/** 各码的「下一步」提示（**同样不含时间口径**，只说去哪儿办）。 */
+const FAST_REFUND_GATE_RULES: Record<number, { action: FastRefundGateAction; hint: string; accountLevel?: boolean }> = {
+  2011: { action: 'after-sale', hint: '请提交售后申请（人工审核）' },
+  2012: { action: 'after-sale', hint: '请提交售后申请（人工审核）', accountLevel: true },
+  2013: { action: 'cancel-request', hint: '可提交取消申请，由商家确认' },
+  2014: { action: 'after-sale', hint: '请提交售后申请（人工审核）' },
+  // ⚠️ 售后窗口也已关闭 ⇒ **不引导**，只展示后端文案（见上方类型注释）
+  8703: { action: 'none', hint: '' },
+}
+
+/**
+ * 秒退被后端闸门拦下时，把**错误码 + 后端 message** 解析成「文案 + 去向 + 作用域」。
+ *
+ * 命中闸门码返回判定结果；**不是闸门类错误**（如 `8705` 已有处理中售后单、网络错误等）返回 `null`，
+ * 由调用方走各自的原有分支（不要在这里吞掉其它错误码）。
+ */
+export function resolveFastRefundGate(
+  code: number | string | null | undefined,
+  backendMessage?: string | null,
+): FastRefundGateDecision | null {
+  const n = Number(code)
+  const rule = FAST_REFUND_GATE_RULES[n]
+  if (!rule) return null
+  // ⚠️ 去掉后端文案结尾的句号再拼提示，否则会出现「…。；请提交…」这种双标点
+  const base = String(backendMessage ?? '').trim().replace(/[。．.;；]+$/, '') || FAST_REFUND_GATE_FALLBACK[n]
+  return {
+    action: rule.action,
+    accountLevel: Boolean(rule.accountLevel),
+    text: rule.hint ? `${base}；${rule.hint}` : base,
+  }
+}

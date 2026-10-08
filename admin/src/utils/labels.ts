@@ -9,6 +9,14 @@
 /**
  * 操作方类型（审计日志 / 配送事件的 `operatorType`）。
  * 平台级留痕（留痕台账）会下发 `SUPER_ADMIN` / `MERCHANT` / `DELIVERY_PERSON` / `PLATFORM`，一并收录。
+ *
+ * ⚠️ 2026-10-08 Step5：`SYSTEM` 的中文由「系统」改为「**系统自动**」。
+ * 依据《前端对接-Step5-取消超时自动同意-2026-10-08》§一：
+ * 同城单的取消申请超时后由 `CancelAutoApproveJob` 自动同意，事件 `CANCEL_APPROVED` 的
+ * `operator_type = SYSTEM` ⇒ 时间轴上**必须判读为"系统自动"**，
+ * **绝不能**被展示成"商家同意"（后台却没有任何人点过按钮，事后追责会追错人）。
+ * 该映射是「操作方」的唯一来源（配送时间轴 / 操作追溯 / 留痕台账共用），
+ * 所以统一在这里改一处，避免各地各写一套、日后又漂。
  */
 export const OPERATOR_TYPE_LABELS: Record<string, string> = {
   STAFF: '店员',
@@ -19,7 +27,7 @@ export const OPERATOR_TYPE_LABELS: Record<string, string> = {
   USER: '用户',
   DELIVERY_PERSON: '配送员',
   PLATFORM: '平台/系统代理',
-  SYSTEM: '系统',
+  SYSTEM: '系统自动',
   SELF: '本人',
 }
 

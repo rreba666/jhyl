@@ -39,6 +39,8 @@ import { getEnabledShops } from '@/api/shop'
 import { getMyStaff, getMyTasks, cancelMyTask, resumeMyTask, type DeliveryStaff, type DeliveryTask } from '@/api/shop-delivery'
 import type { Shop } from '@/types/shop'
 import {
+  CANCEL_AUTO_APPROVE_HINT,
+  CANCEL_AUTO_APPROVE_HINT_SHORT,
   DELIVERY_STATUS_OPTIONS,
   REFUND_STATUS_LABELS,
   deliveryEventLabel,
@@ -904,12 +906,19 @@ onMounted(async () => {
             <el-table-column label="配送费" width="100"><template #default="{ row }">¥ {{ Number(row.deliveryFee || 0).toFixed(2) }}</template></el-table-column>
             <el-table-column label="实付" width="100"><template #default="{ row }">¥ {{ Number(row.payAmount || 0).toFixed(2) }}</template></el-table-column>
             <el-table-column prop="createTime" label="下单时间" min-width="170" />
-            <el-table-column label="操作" width="250" fixed="right">
+            <el-table-column label="操作" width="270" fixed="right">
               <template #default="{ row }">
                 <!-- 需要运营介入的两种状态；铃铛跳进来即可直接处理 -->
+                <!-- ⚠️ 2026-10-08 Step5：同城单的取消申请**超时会被系统自动同意并退款**
+                     （未备货 30 分钟 / 已备货·配送中 3 小时）⇒ 运营代审核时也给出提示。
+                     ⚠️ 仅此分支（`CANCEL_REQUESTED`）；自动同意的事件 `operator_type = SYSTEM`，
+                        时间轴显示「系统自动」，不是运营/商家点的（见 `utils/labels.ts`）。 -->
                 <div v-if="row.deliveryStatus === 'CANCEL_REQUESTED'" class="operator-actions">
                   <el-button size="small" type="danger" plain @click="auditCancel(row, true)">同意取消</el-button>
                   <el-button size="small" @click="auditCancel(row, false)">驳回</el-button>
+                  <el-tooltip :content="CANCEL_AUTO_APPROVE_HINT" placement="top">
+                    <p class="cancel-auto-hint">{{ CANCEL_AUTO_APPROVE_HINT_SHORT }}</p>
+                  </el-tooltip>
                 </div>
                 <!-- 配送异常：骑手上报后任务卡在 EXCEPTION。① 恢复 → 回异常前节点继续送；② 终止履约 → 取消任务并把订单收口为已取消（不退款） -->
                 <div v-else-if="row.deliveryStatus === 'EXCEPTION'" class="operator-actions">
@@ -1218,6 +1227,10 @@ onMounted(async () => {
 /* 配送状态列的副行：异常类型/说明（后端 2026-09-17 新增字段），异常单不必跳任务时间轴就能看出原因 */
 .status-note { margin-top: 4px; color: #909399; font-size: 12px; line-height: 1.4; }
 .heading-actions { display: flex; align-items: center; gap: 10px; }
+/* ⚠️ 2026-10-08 Step5：取消申请的「超时自动同意」短提示（完整规则在 tooltip 里）。
+   本页的操作列**没有** `.operator-actions` 的 flex 规则（按钮默认行内排列），
+   所以这里显式整行独占，避免被挤到「驳回」旁边。 */
+.cancel-auto-hint { width: 100%; margin: 4px 0 0; color: var(--vben-muted); font-size: 12px; line-height: 1.4; cursor: help; }
 .master-label { color: var(--vben-muted); font-size: 14px; }
 .tip { margin-bottom: 16px; }
 .content-card { margin-bottom: 16px; }

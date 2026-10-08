@@ -100,6 +100,19 @@ export interface ProductDetail extends ProductListItem {
    * ⚠️ 为 `undefined` = 详情接口未返回该字段（后端未部署/旧数据）⇒ 提交时**整个字段不提交**（不传 = 不修改）。
    */
   sameCityEnabled?: ProductSwitchStatusValue
+  /**
+   * **时效档位**（`timingCategory`，2026-10-08 Step1 新增）：**0=普通**（商超/日用等，默认）/ **1=生鲜·鲜活易腐**。
+   *
+   * ⚠️⚠️ 与 `pickupEnabled` / `deliveryEnabled` / `sameCityEnabled` 的语义**不同**：
+   *    - 那三个是「开关」（1=开、0=关）；本字段是**档位**（0 和 1 都是合法业务值，不是"关"）。
+   *    - 但**提交语义相同**：后端是「**不传 = 不修改**」⇒ 详情没回显到该字段时**整个不提交**，
+   *      否则会把商家的生鲜商品**打回普通**（对应对接文档 §六 验收点 3）。
+   * ⚠️ **不要与 `afterSaleType` 混**（售后类型：仅退款 / 退货退款）：两者**正交、互不推导**，
+   *    是两个独立表单项（对接文档 §四）。生鲜商品也可能配成"退货退款"。
+   * ⚠️ 适用边界：该档位**只对同城配送单（pickupType=2）产生行为差异**；
+   *    物流(0) 与自提(1) 的售后窗口 / 资金释放口径**一律不变**（对接文档 §三）。
+   */
+  timingCategory?: ProductSwitchStatusValue
 }
 
 export interface AdminProductSaveDTO {
@@ -143,6 +156,12 @@ export interface AdminProductSaveDTO {
   deliveryEnabled: ProductStatus
   /** 商品级「支持**同城配送**」（2026-09-29 新增）：1=支持（默认）, 0=不支持。 */
   sameCityEnabled: ProductStatus
+  /**
+   * **时效档位**（2026-10-08 Step1 新增）：0=普通（默认）/ 1=生鲜·鲜活易腐。
+   * ⚠️ 语义是「**不传 = 不修改**」（新增商品不传则取后端默认 0）——
+   * 想把生鲜商品改回普通**必须显式传 0**，而回显拿不到时必须**整个不提交**。
+   */
+  timingCategory: ProductStatus
 }
 
 /**
@@ -177,11 +196,12 @@ export interface AdminSkuSaveItem {
  * ⚠️ 后端 `categoryId` / `goodsBrandId` 是 **integer**：传非数字字符串会被 Jackson 判为
  * **「请求体格式错误」**（2026-09-19 实测复现：`categoryId="分类A"` → `code=1000 请求体格式错误`）。
  * 所以这里用 number 类型，空值一律**不传该字段**（而不是传空串）。
- * ⚠️ `pickupEnabled` / `deliveryEnabled` / `sameCityEnabled` 三个配送开关的语义都是「**不传 = 不修改**」：
- * 详情接口没回显到某个字段时，**该字段单独不提交**（传默认值 1 会把商家已关掉的开关重新打开）。
- * ⇒ 三个字段各自独立判断，不要"一个没回显就全都不提交"（那会导致明明回显到的开关也保存不了）。
+ * ⚠️ `timingCategory`（2026-10-08 Step1 新增）与上面三个开关**同样是「不传 = 不修改」**，
+ * 但它**承载业务档位而非开关语义**（0=普通 / 1=生鲜），也必须纳入"回显不到就不提交"的守卫，
+ * 否则保存一次就会把生鲜商品打回普通。
+ * ⇒ 四个字段**各自独立**判断，不要"一个没回显就全都不提交"（那会导致明明回显到的开关也保存不了）。
  */
-export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryIds' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled' | 'sameCityEnabled'> {
+export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'categoryIds' | 'goodsBrandId' | 'skuList' | 'merchantId' | 'shopIds' | 'pickupEnabled' | 'deliveryEnabled' | 'sameCityEnabled' | 'timingCategory'> {
   /** 所属分类（**多选**，long[]）。⚠️ 空数组不提交（后端会报错）。 */
   categoryIds?: number[]
   goodsBrandId?: number
@@ -196,6 +216,11 @@ export interface AdminProductSavePayload extends Omit<AdminProductSaveDTO, 'cate
   deliveryEnabled?: ProductStatus
   /** 支持**同城配送**（2026-09-29 新增）：1/0；undefined = 不提交（不修改）。 */
   sameCityEnabled?: ProductStatus
+  /**
+   * **时效档位**（2026-10-08 Step1 新增）：0=普通 / 1=生鲜·鲜活易腐；undefined = **不提交（不修改）**。
+   * ⚠️ 0 是**合法业务值**，不是"不传"——想把生鲜改回普通必须显式传 0。
+   */
+  timingCategory?: ProductStatus
 }
 
 /**

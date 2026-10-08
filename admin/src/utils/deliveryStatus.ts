@@ -36,6 +36,30 @@ export function deliveryStatusLabel(value?: string | null): string {
   return DELIVERY_STATUS_LABELS[key] || key
 }
 
+/**
+ * 用户取消申请的「**超时系统自动同意**」规则提示（2026-10-08 Step5）。
+ *
+ * ## 依据
+ * 《前端对接-Step5-取消超时自动同意-2026-10-08》§二-3：商家端取消审核页要提醒商家及时处理 ——
+ * > 「超过 30 分钟（未备货）或 3 小时（已备货/配送中）未处理，系统将自动同意并退款」
+ *
+ * ## 规则本身（后端 `CancelAutoApproveJob`）
+ * - **未备货**（待接单 / 已接单 / 备货中）：申请后 **30 分钟**未处理 ⇒ 自动同意；
+ * - **已备货 / 配送中**（备货完成及以后）：申请后 **3 小时**未处理 ⇒ 自动同意；
+ *   中途被置「配送异常」也**仍在 3 小时档兜底同意**，不会无限期卡住；
+ * - 自动同意 = **与商家点「同意取消」完全同一条实现**（按订单快照 `cancel_fee_policy` 扣费 + 原路退款），
+ *   但事件的 `operator_type = SYSTEM` ⇒ 时间轴显示「**系统自动**」，**不是**商家点的；
+ * - 商家已在阈值内同意/驳回 ⇒ 系统**不再**重复动作。
+ *
+ * ⚠️ **仅同城单有这条链路**（物流单与自提单不会进入 `CANCEL_REQUESTED`）⇒ 本提示**只挂**在
+ *    处于 `CANCEL_REQUESTED` 的行上，不要往物流/自提界面加。
+ */
+export const CANCEL_AUTO_APPROVE_HINT =
+  '超过 30 分钟（未备货）或 3 小时（已备货·配送中）未处理，系统将自动同意并退款'
+
+/** 上条规则的**短版**（表格操作列空间有限时用；完整句见 `CANCEL_AUTO_APPROVE_HINT` 的 tooltip）。 */
+export const CANCEL_AUTO_APPROVE_HINT_SHORT = '超时未处理将自动同意退款'
+
 /** 状态标签配色（与前端其余页面口径一致：待处理橙、进行中主色、完成灰、异常红）。 */
 export function deliveryStatusTagType(value?: string | null): 'primary' | 'success' | 'info' | 'warning' | 'danger' {
   const key = String(value ?? '').trim()
