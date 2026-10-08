@@ -5,7 +5,7 @@ import { getCartList, normalizeDeliverySwitch, type CartItem } from '@/api/cart'
 import { ADDRESS_DRAFT_KEY, cancelOrder, createOrder, getOrderDetail, type OrderDetail } from '@/api/order'
 import { createPrepay, requestPayment, payByBalance, switchToBalance, switchToWechat, releasePayChannel } from '@/api/payment'
 import { getEnabledShops, getDeliverableShops, type EnabledShop } from '@/api/shop'
-import { quoteDelivery, type DeliveryQuote } from '@/api/delivery-order'
+import { quoteDelivery, resolveQuoteFailCode, type DeliveryQuote } from '@/api/delivery-order'
 import { distanceMeters } from '@/utils/location'
 import { submitInvoice } from '@/api/invoice'
 import { getWalletInfo } from '@/api/user'
@@ -913,36 +913,73 @@ function navigateToShop(shop: EnabledShop): void {
  *   ⛔ 我们**绝不**为了让它通过而谎报 `MAP_PICK`（那是伪造来源，正是本次事故要根除的东西）。
  *   ⇒ 这类失败属于「**结论不可用**」：不能据此把「同城配送」置灰，
  *     真正的判定交给用户填好地址后的**带来源**的试算（`refreshDeliveryQuote`）。
+ *
+ * ⚠️ 入参必须已经是**归一化后的码**（见 `resolveQuoteFailCode`）—— 原因码字段名在后端交付物里
+ *   有 `failCode` / `quoteFailCode` 两种叫法（**已向后端提问**），**任何调用方都不要直接读字段**。
+ *
+ * ⚠️ 本函数对**空码**返回 `false`（空码不在这两个值里）⇒ 「拿不到原因码」这件事由
+ *   `shopQuoteBlocksDelivery` 单独处理（那里**不得**把空码当成"确定不可送"）。
  */
 function isCoordinateTrustFailure(failCode?: string): boolean {
   const code = String(failCode || '').trim().toUpperCase()
   return code === 'NO_COORDINATE' || code === 'COORDINATE_INVALID'
 }
 
-/** 预试算结论能否当成「这家门店送不到」：只有**有结论的失败**才算（见 `isCoordinateTrustFailure`）。 */
+/**
+ * 预试算结论能否当成「这家门店送不到」：只有**有结论的失败**才算（见 `isCoordinateTrustFailure`）。
+ * - `canDelivery !== false` ⇒ 送得到（或后端没给结论）⇒ 不算阻断；
+ * - `canDelivery === false` + 坐标不可信码 ⇒ **结论不可用** ⇒ 不算阻断；
+ * - `canDelivery === false` + **空码** ⇒ **结论不可用** ⇒ 不算阻断（见下）；
+ * - `canDelivery === false` + 其它码 ⇒ 有结论地送不到 ⇒ 算阻断。
+ *
+ * ⚠️ 2026-10-08：原因码读取一律走 `resolveQuoteFailCode`（`failCode` ?? `quoteFailCode`）——
+ *   只读一个名字时，预试算必然返回的 `NO_COORDINATE` 若读不到就会变成"确定送不到"，
+ *   同城配送即对**所有商品**置灰（本次 P0 的形态）。
+ *
+ * ⚠️ **为什么空码不置灰**（fail-safe，与后端排查文的问题 5 对齐）：
+ *   空码 = 「**后端没说为什么**」，本身**不是**"确定送不到"的结论。把它当成不可送，
+ *   等于用一个不完整的响应去禁用整个功能 —— 那正是本次 P0；而放宽它是**安全的**：
+ *   置灰只是提前预筛，真正的闸门在下游且仍然 fail-closed ——
+ *   ① 收货地址必须有**可信来源**的真实坐标（`addressCoords` + `addressCoordinateSource`），
+ *   ② 带来源的试算（`refreshDeliveryQuote`）返回 `canDelivery=false` 时提交被拦（见 `submitPayment`）。
+ *   ⇒ 既不伪造"能送"，也不伪造"不能送"。
+ */
 function shopQuoteBlocksDelivery(quote?: DeliveryQuote): boolean {
-  return !!quote && quote.canDelivery === false && !isCoordinateTrustFailure(quote.failCode)
+  if (!quote || quote.canDelivery !== false) return false
+  const code = resolveQuoteFailCode(quote)
+  if (!code) return false
+  return !isCoordinateTrustFailure(code)
 }
 
 /**
  * 当前定位下「同城配送」是否可选。
  * - 定位拿不到（未授权/失败）→ 返回 true（**不置灰**，避免误拦；真正下单时仍会按收货地址试算拦截）；
- * - 定位成功但所有试算门店都送不到 → false（选项置灰，点击给提示）；
- * - 只要有一家能送 → true。
- * ⚠️ 2026-10-08：预试算的 `NO_COORDINATE`（当前定位没有可信来源）**不算「送不到」**
- *    ⇒ 它不再参与置灰（详见 `isCoordinateTrustFailure` 的说明）。
+ * - 定位成功但**所有**候选门店都"有结论地"送不到 → false（选项置灰，点击给提示）；
+ * - 只要有一家能送、或**有任何一家的结论不可用** → true。
+ *
+ * ⚠️⚠️ 2026-10-08 **P0 修复（用户反馈「同城配送对所有商品不可用」）**：
+ *   此前实现是 `!quotes.some(shopQuoteBlocksDelivery)`，语义 = 「**每一家**都得能送」，
+ *   与本函数上面那句「只要有一家能送 → true」**正好相反**，也与 `pickerShops` 的兜底口径不一致
+ *   ⇒ **一家门店不可送就"连坐"整个同城配送**。而进页面预试算**刻意不带** `coordinateSource`
+ *   （当前定位不是用户在地图上选的收货点，标 `MAP_PICK` 属**谎报来源**，被硬规则禁止），
+ *   后端因此对**每一家**都 fail-closed 回 `NO_COORDINATE` ⇒ 只要这个码没被识别出来，
+ *   同城配送就对所有商品、所有用户、所有环境一律置灰。
+ *   ⇒ 现行口径：**只有"全部候选门店都有结论地不可送"才置灰**（`every`），
+ *     与 `pickerShops`（`quotable.length ? quotable : deliverable`）取**同一个判据**。
  */
 const sameCityAvailable = computed(() => {
   if (!userLocation.value) return true
   const quotes = Object.values(shopQuotes.value)
   if (!quotes.length) return true
-  return !quotes.some(shopQuoteBlocksDelivery)
+  return !quotes.every(shopQuoteBlocksDelivery)
 })
 
 /**
  * 置灰的具体原因：取预试算里任一「**有结论地**不可送」门店的后端 reason
  * （后端会带上距离，如「超出配送范围（当前距离约 1397.1 公里）」），展示在页面上而不是塞进 toast（会被截断）。
- * ⚠️ 与 `sameCityAvailable` 用**同一个判据**，否则会出现"没置灰却显示置灰原因"。
+ * ⚠️ 与 `sameCityAvailable` 用**同一个判据**（`shopQuoteBlocksDelivery`），否则会出现"没置灰却显示置灰原因"。
+ *    本文案**只在 `!sameCityAvailable` 时渲染**（模板 `v-if`），而那时是"每一家都有结论地不可送"
+ *    ⇒ 取任一家的 reason 都是有结论的，不会把"结论不可用"（含空码）当原因展示出来。
  */
 const sameCityUnavailableReason = computed(() => {
   const blocked = Object.values(shopQuotes.value).find(shopQuoteBlocksDelivery)
@@ -1142,13 +1179,17 @@ const quoteUsingShopFallback = computed(
  * 分工（⚠️ 别搞反）：
  * - **`canDelivery` 才是"能不能送"的唯一判据**：只有它为 `false` 时才调这里；
  *   后端老版本不下发 `failCode` ⇒ `failCode` 为空也**绝不**当成成功；
+ * - ⚠️ 原因码本身**两个字段名都读**（`failCode` ?? `quoteFailCode`，见 `resolveQuoteFailCode`；
+ *   字段名歧义已向后端提问）—— 这里**不要**绕过该函数去直接读响应对象的原始字段，
+ *   否则读错名字就会退回 `default` 分支：`reason` 仍能展示（后端文案可直接给用户看），
+ *   但「去地图选点」这类**可执行引导会消失**；
  * - 白名单外的失败码（`OUT_OF_RANGE` / `MIN_AMOUNT` / `SHOP_CLOSED` / `NOT_IN_DELIVERY_HOURS` /
  *   `DELIVERY_DISABLED` / `GOODS_NOT_PROVIDED` / `SHOP_NO_COORDINATE`）⇒ **直接用后端 `reason`**
  *   （后端文案已可直接给用户看，例如「超出配送范围（当前距离约 12.3 公里）」）。
  */
 function quoteFailureText(quote: DeliveryQuote | null | undefined): string {
   const reason = quote?.reason && quote.reason !== 'ok' ? quote.reason : ''
-  switch (String(quote?.failCode || '').trim().toUpperCase()) {
+  switch (resolveQuoteFailCode(quote)) {
     // 没有可信坐标（缺失 / 来源不在白名单）⇒ 唯一出路就是去地图选点（页面另给可点按钮）
     case 'NO_COORDINATE':
       return ADDRESS_NEEDS_MAP_PICK_TEXT
@@ -1219,7 +1260,9 @@ async function refreshDeliveryQuote(): Promise<void> {
     })
     deliveryQuote.value = quote
     if (quote && quote.canDelivery === false) {
-      quoteFailCode.value = String(quote.failCode || '')
+      // ⚠️ 两个字段名都读（`failCode` ?? `quoteFailCode`）—— 契约字段名在后端交付物里自相矛盾，
+      //    已向后端提问；读错会让「去地图选点」按钮不出现（见 `resolveQuoteFailCode`）
+      quoteFailCode.value = resolveQuoteFailCode(quote)
       quoteError.value = quoteFailureText(quote)
     }
   } catch {

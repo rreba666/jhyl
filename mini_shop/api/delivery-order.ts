@@ -244,8 +244,27 @@ export interface DeliveryQuote {
    * `SHOP_NO_COORDINATE`（门店未配坐标）、`OUT_OF_RANGE`、`DELIVERY_DISABLED`、
    * `MIN_AMOUNT`、`SHOP_CLOSED`、`NOT_IN_DELIVERY_HOURS`、`GOODS_NOT_PROVIDED`。
    * ⚠️ 可能缺省（老版本后端）⇒ 判空后再按 `reason` 展示，**不得**把缺失当成成功。
+   *
+   * ⚠️⚠️ **字段名在后端交付物里不一致，本字段是"两个都读"的一半**（另一半见 `quoteFailCode`）：
+   *   · 后端回执 §六-3 写「按 **`failCode`** 分流」；
+   *   · 同一份回执 **§七 标题**写「附：**`quoteFailCode`** 全量枚举」；
+   *   · `api_doc.json` 的 `Quote` schema（= `ResultQuote.data` 的 `$ref` 目标）里**只有 `failCode`**，
+   *     且**没有任何 description** ⇒ 契约层面无法自证字段名与层级。
+   *   ⇒ **已向后端书面提问确认确切字段名与所在层级**（问题登记：
+   *     `docs/26/10.08/后端排查-同城配送全部不可用-2026-10-08.md` §三-1 / §三-2）。
+   *   ⇒ 读码一律走 {@link resolveQuoteFailCode}（`failCode` 优先），**任何调用方都不要直接读字段**。
    */
   failCode?: string
+  /**
+   * 结构化失败码的**另一个可能字段名**（见上方 `failCode` 的说明）。
+   *
+   * ⚠️ **不是"后端确实下发了两个字段"**，而是**同一个字段在交付物里出现了两种叫法**，
+   *   在拿到后端确认前两边都读，避免"选错名字 ⇒ 把『坐标不可信』误读成『超出配送范围』"。
+   *   选错的代价是**真实故障**：进页面预试算**刻意不带** `coordinateSource` ⇒ 后端必然 fail-closed
+   *   回 `NO_COORDINATE`，若前端读不到该码，每家门店都会像"确定送不到" ⇒
+   *   同城配送对**所有商品**置灰（2026-10-08 用户反馈的 P0）。
+   */
+  quoteFailCode?: string
   /** 不可配送的原因（可配送时为 'ok'）——后端文案**可直接展示**。 */
   reason?: string
   /** 配送费（元）。 */
@@ -258,6 +277,25 @@ export interface DeliveryQuote {
   estimatedDeliveryMinutes?: number
   /** 距离（km）。 */
   distanceKm?: number
+}
+
+/**
+ * 读取试算响应的**结构化失败码**，大写归一。
+ *
+ * ⚠️⚠️ 为什么需要这个函数（而不是直接读 `quote.failCode`）：
+ *   「失败原因码」的确切字段名在**后端交付物里自相矛盾** ——
+ *   回执 §六-3 写 `failCode`、回执 §七 标题写 `quoteFailCode`、`api_doc.json` 的 `Quote` schema
+ *   里只有 `failCode` 且无描述（**已向后端提问**，见 {@link DeliveryQuote.failCode} 的说明）。
+ *   只读一个名字的代价是 **P0 真实故障**：读错 ⇒ 预试算必然返回的 `NO_COORDINATE`
+ *   （进页面用"当前位置"试算、刻意不谎报 `coordinateSource`）被误判成"确定送不到"
+ *   ⇒ 同城配送对**所有商品**置灰。
+ *
+ * ⇒ 兼容读取：**`failCode` 优先**，缺失时再读 `quoteFailCode`（顺序不可颠倒 —— 契约里
+ *   `api_doc.json` 认的是 `failCode`）。两个都没有时返回**空串**，调用方必须按
+ *   「**结论不可用**」处理，⛔ **绝不能**把空码当成"确定不可送"（那正是本次故障的形态）。
+ */
+export function resolveQuoteFailCode(quote?: DeliveryQuote | null): string {
+  return String(quote?.failCode ?? quote?.quoteFailCode ?? '').trim().toUpperCase()
 }
 
 /**

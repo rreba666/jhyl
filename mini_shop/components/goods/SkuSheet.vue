@@ -325,6 +325,19 @@ watch(() => props.visible, (visible) => {
   min-height: 0;
   max-height: 46vh;
   padding: 0 31rpx;
+  /* ⚠️⚠️ 2026-10-08 修复（用户反馈「SKU 弹层里数量行的 `＋` 被右边缘裁掉」）：
+     **事实**（可复核）：本项目 **26** 条带正向右内边距的 `scroll-view` 规则里，**25** 条是
+     `border-box`，**只有本组件**原来是 `content-box`。
+     **算术**：`content-box` 下 border box = 750 + 31 + 31 = **812rpx**（比弹层/视口宽 62rpx），
+     内容盒落在 x=31..781 ⇒ 数量行 `justify-content: space-between` 把 `.stepper` 顶到 781rpx
+     ⇒ **右侧 31rpx 落在视口外**，而 `＋` 按钮正好宽 62rpx ⇒ **被裁掉一半、图标中心压在屏幕边缘**，
+     与用户截图完全吻合。改成 `border-box` 后内容盒 = 750 − 62 = 688rpx，右边缘回到 719rpx。
+     ⚠️ **未能本地验证的部分（待真机确认）**：`scroll-view` 为何会按 `content-box` 把内边距
+     加在 750rpx 之外（推测基础库给它的是块级宽度、不参与 flex 的 `stretch`）—— 本机没有
+     微信基础库的 wxss 可读，此机制属**推断**；但"25/26 都写 border-box + 算术正好裁掉一半"
+     已足以定性，且这一行在小程序里**没有副作用**（无右内边距时 `border-box` 与 `content-box` 等价）。
+     ⇒ 别再删掉这一行。 */
+  box-sizing: border-box;
 }
 .block {
   padding: 23rpx 0;
@@ -378,18 +391,28 @@ watch(() => props.visible, (visible) => {
   align-items: center;
   justify-content: space-between;
 }
+/* 「数量」是行里**唯一可以变窄**的东西（文字可换行）⇒ 让它在任何挤压下先让位，
+   而不是让右边的定尺控件被压/被顶出可视区。`min-width: 0` 是必需的：
+   flex 项默认 `min-width: auto`（= 内容的 min-content），不写它这一步形同虚设。 */
 .qty-row .block-label {
   margin-bottom: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
+/* ⚠️ 步进器是**定尺控件**（62 + 4 + 77 + 4 + 62 = 209rpx），`flex: none` 钉住它，
+   免得作为 flex 项被默认的 `flex-shrink: 1` 压缩后反而溢出。 */
 .stepper {
   display: flex;
   align-items: center;
   gap: 4rpx;
+  flex: none;
 }
 .step-btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* ⚠️ 同上：`＋` 是全角字符，按钮被压到小于字形时字形会溢出盒子 ⇒ 定尺 62rpx 不许缩 */
+  flex: none;
   width: 62rpx;
   height: 62rpx;
   border-radius: 12rpx;
