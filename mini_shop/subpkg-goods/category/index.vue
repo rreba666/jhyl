@@ -14,7 +14,11 @@ import CategoryProductCard from '@/components/category/CategoryProductCard.vue'
 import CategoryTopBar from '@/components/category/CategoryTopBar.vue'
 // ⚠️ 组件放在**本分包内**（`subpkg-goods/components/`）而不是 `components/`：
 //    微信按目录分包，主包目录下的组件**一律进主包**，而主包余量已不足 12KB（见 source-package-size 契约）。
-import SkuSheet from '@/subpkg-goods/components/SkuSheet.vue'
+// ⚠️ 2026-10-08：`SkuSheet` 已从 `subpkg-goods/components/` **挪回主包** `components/goods/` ——
+//    主包体积在 CDN 迁移后由 1860.7 KB 降到 867.4 KB、余量充足，于是**主包分类页（tabBar 页）也能用它**了
+//    （此前因主包只剩 12 KB 余量，只能降级为「toast + 跳详情」，与分包分类页体验不一致）。
+//    ⚠️ 分包页面引用**主包**组件是 uni-app 允许的方向；反之（主包页引用分包组件）**不允许**。
+import SkuSheet from '@/components/goods/SkuSheet.vue'
 
 type CategoryTheme = 'nutrition' | 'heritage' | 'landmark'
 

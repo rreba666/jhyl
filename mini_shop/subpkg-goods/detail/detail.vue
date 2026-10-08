@@ -15,7 +15,9 @@ import { PURCHASE_LIMIT_ERROR_CODE, PURCHASE_LIMIT_MESSAGE } from '@/utils/divid
 import { afterSaleTextsForProduct, isFreshTiming } from '@/utils/timing-category'
 import PromotionCodePoster from '@/components/PromotionCodePoster.vue'
 import LoginGuide from '@/components/LoginGuide.vue'
-import SkuSheet from '@/subpkg-goods/components/SkuSheet.vue'
+// ⚠️ 2026-10-08：`SkuSheet` 已挪回**主包** `components/goods/`（原因见该组件头部注释：
+//    主包经 CDN 迁移后余量充足，主包 tabBar 页也要用它弹层）。分包页引用主包组件合法。
+import SkuSheet from '@/components/goods/SkuSheet.vue'
 
 const menuTop = ref(0)
 const menuHeight = ref(32)

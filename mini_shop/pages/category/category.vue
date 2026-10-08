@@ -3,13 +3,17 @@ import { computed, onMounted, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { getCategoryList, getCategoryProducts, type CategoryNode, type CategoryProduct } from '@/api/category'
 import { addSkuToCartWithStock } from '@/api/cart'
-import { getProductDetail } from '@/api/product'
+import { getProductDetail, type ProductDetail } from '@/api/product'
 import { ApiRequestError, isApiRequestError } from '@/utils/request'
 import { PURCHASE_LIMIT_ERROR_CODE, PURCHASE_LIMIT_MESSAGE } from '@/utils/dividend-limit'
 import { createThrottle } from '@/utils/interaction'
 import { isLoggedIn } from '@/utils/auth'
 import RequestState from '@/components/RequestState.vue'
 import LoginGuide from '@/components/LoginGuide.vue'
+// ⚠️ 2026-10-08：规格弹层组件已挪回**主包**（原因见 SkuSheet 头部注释）—— 此前主包余量仅 12 KB，
+//    本页（tabBar 页）只能把多规格降级为「toast + 跳详情」，与分包分类页的弹层体验不一致。
+//    ⚠️ 主包页面**只能**引用主包组件（分包组件引用不到），这正是当初必须降级的根因。
+import SkuSheet from '@/components/goods/SkuSheet.vue'
 
 const menuTop = ref(0)
 const menuLeft = ref(0)
@@ -32,6 +36,10 @@ const FALLBACK_CATS: CategoryNode[] = [
 const cats = ref<CategoryNode[]>([...FALLBACK_CATS])
 const active = ref(0)
 const goods = ref<CategoryProduct[]>([])
+/** 规格弹层是否可见（2026-10-08：主包分类页也能弹层了，见 import 处注释）。 */
+const skuSheetVisible = ref(false)
+/** 弹层对应的商品详情（进弹层前已拉好，弹层内不再发请求）。 */
+const skuSheetProduct = ref<ProductDetail | null>(null)
 
 /**
  * 主图是否「加载结束」（成功或失败都算），按商品 id 分别记录。
@@ -162,12 +170,13 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
     if (!available.length) throw new ApiRequestError('库存不足', 3001)
     // ⚠️ 2026-10-08 修（用户反馈「下单没有出现 SKU 弹层」）：**多规格不能再"默认取第一个"**，
     //    否则用户加的永远不是他想要的规格。
-    // ⚠️ 但本页是**主包 tabBar 页**，**不能**引入规格弹层组件 —— 微信按目录分包，
-    //    `components/` 下的组件一律进主包，而主包余量已不足 12KB（见 source-package-size 契约）。
-    //    ⇒ 多规格改为**跳转商品详情页**选规格（详情页在 subpkg-goods 分包，可正常弹层）。
+    // ✅ 2026-10-08 二次修：主包经 CDN 迁移后体积由 1860.7 KB 降到 867.4 KB，余量充足 ⇒
+    //    `SkuSheet` 已挪回主包，**本页直接弹层**，不再降级为「toast + 跳详情」——
+    //    至此主包分类页与分包分类页的多规格体验一致。
+    //    ⚠️ 详情在这里**已经拉好了**（上面 `getProductDetail`），直接喂给弹层，弹层内不再发请求。
     if (available.length > 1) {
-      uni.showToast({ title: '请选择规格', icon: 'none' })
-      uni.navigateTo({ url: `/subpkg-goods/detail/detail?id=${product.id}` })
+      skuSheetProduct.value = detail
+      skuSheetVisible.value = true
       return
     }
     // 单规格：直接加购（保持列表页一步到位的快捷）
@@ -181,6 +190,36 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
       quantity: 1,
       dividendEnabled: detail.dividendEnabled,
       price: Number(sku.price),
+    })
+    uni.showToast({ title: '已加入购物车', icon: 'success' })
+  } catch (error) {
+    uni.showToast({
+      title: isApiRequestError(error) && error.code === 3001
+        ? '库存不足'
+        : isApiRequestError(error) && error.code === PURCHASE_LIMIT_ERROR_CODE
+          ? PURCHASE_LIMIT_MESSAGE
+          : (error instanceof Error ? error.message : '加购失败'),
+      icon: 'none',
+    })
+  } finally {
+    cartAdding.value = false
+  }
+}
+
+/** 规格弹层确认：列表页只有加购动作（弹层已关掉「立即购买」）。 */
+async function onSkuCartConfirm(payload: { action: 'cart' | 'buy'; sku: { id: string; price: number; stock: number }; quantity: number }): Promise<void> {
+  skuSheetVisible.value = false
+  const detail = skuSheetProduct.value
+  if (!detail) return
+  cartAdding.value = true
+  try {
+    await addSkuToCartWithStock({
+      productId: Number(detail.id),
+      skuId: Number(payload.sku.id),
+      stock: Number(payload.sku.stock),
+      quantity: payload.quantity,
+      dividendEnabled: detail.dividendEnabled,
+      price: Number(payload.sku.price),
     })
     uni.showToast({ title: '已加入购物车', icon: 'success' })
   } catch (error) {
@@ -262,6 +301,7 @@ onShow(() => { void refreshCategories() })
       </view>
     </view>
     <LoginGuide v-model="loginGuideVisible" />
+    <SkuSheet v-model:visible="skuSheetVisible" :product="skuSheetProduct" :show-buy="false" @confirm="onSkuCartConfirm" />
   </view>
 </template>
 
