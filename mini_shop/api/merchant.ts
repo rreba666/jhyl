@@ -146,6 +146,15 @@ export interface MerchantProductVO {
   sameCityEnabled?: 0 | 1 | number | null
   /** 启用规格数（=1 单规格；>1 多规格商品，改门店价会统一作用于全部规格）。 */
   skuCount?: number
+  /**
+   * **累计销量**（契约 `MerchantProductVO.soldCount`，来源 `product.sold_count`，
+   * 口径与 C 端商品卡一致）。
+   *
+   * ✅ 2026-10-08 补录：后端**早已下发**该字段（契约注释明确），但前端类型此前**没声明**、
+   *    商品卡也没展示 ⇒ 商家端一直少一行「累计销量」（CLAUDE.md §九残余待办 2 记的
+   *    「等后端补字段」实际是**前端漏接**）。
+   */
+  soldCount?: number
   /** 启用规格明细（编辑页回填；size 恒等于 skuCount）。 */
   skus?: MerchantSkuVO[]
   /**

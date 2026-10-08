@@ -454,29 +454,27 @@ function submitStock(): void {
  * 与后台端点**逐字同构**，唯一差别是商家端**不带 `shopId`**（门店由登录态解析）。
  */
 interface SkuEditRow extends MerchantSkuPriceVO {
-  /** 输入框用字符串（小程序 input 天然是字符串），提交时再转数字。 */
-  editingPrice: string
-  editingStock: string
-  /** true = 本店不单独设价，跟随上一级（提交时传 null 清除 SKU 级设置）。 */
-  usePriceDefault: boolean
-  /** true = 本店不单独设库存，跟随上一级。 */
-  useStockDefault: boolean
+  /** 门店价输入框（字符串；**空 = 跟随上一级**）。 */
+  inputPrice: string
+  /** 门店库存输入框（字符串；**空 = 跟随上一级**）。 */
+  inputStock: string
 }
 
 const skuTarget = ref<MerchantProductVO | null>(null)
 const skuRows = ref<SkuEditRow[]>([])
 const skuLoading = ref(false)
-/** 正在保存的**规格行**（按行 loading，避免"整表一起转"）。 */
-const savingSkuId = ref<number | null>(null)
+/** 整表提交中（京东风格是底部「确定」**一次性提交所有改动行**，故用一个整体 loading）。 */
+const skuSaving = ref(false)
 
-/** 把契约行转成编辑行（null = 该级未设置 ⇒ 开关打开 = 用上一级；⛔ 不要当成 0）。 */
+/**
+ * 契约行 → 编辑行：**只有"本店已按规格设置"才回填**，否则留空（= 跟随上一级）。
+ * ⚠️ 不把生效值填进输入框 —— 否则商家一进弹层就有值，容易被"确定"误写成 SKU 级设置。
+ */
 function toSkuEditRow(item: MerchantSkuPriceVO): SkuEditRow {
   return {
     ...item,
-    usePriceDefault: item.skuShopPrice == null,
-    useStockDefault: item.skuShopStock == null,
-    editingPrice: item.skuShopPrice != null ? String(item.skuShopPrice) : (item.price != null ? String(item.price) : ''),
-    editingStock: item.skuShopStock != null ? String(item.skuShopStock) : (item.stock != null ? String(item.stock) : ''),
+    inputPrice: item.skuShopPrice != null ? String(item.skuShopPrice) : '',
+    inputStock: item.skuShopStock != null ? String(item.skuShopStock) : '',
   }
 }
 
@@ -521,78 +519,87 @@ function skuMoneyText(value?: number | null): string {
   return `¥${num.toFixed(2).replace(/\.?0+$/, '')}`
 }
 
-/** 「用上一级」实际会跟到哪一级（拿不到显示「—」）。 */
-function upperPriceText(row: SkuEditRow): string {
-  if (row.spuShopPrice != null) return `商品级 ${skuMoneyText(row.spuShopPrice)}`
-  if (row.brandPrice != null) return `商品原价 ${skuMoneyText(row.brandPrice)}`
-  return '—'
+/**
+ * 该规格的**生效价 / 生效库存**，用作输入框 placeholder —— 让"留空会跟到哪一级"一目了然
+ * （京东风格不做额外开关，靠"留空 = 跟随"表达，且**填 `0` 与没填能区分**：库存 0 是合法值）。
+ */
+function effectivePriceText(row: SkuEditRow): string {
+  const text = skuMoneyText(row.price)
+  return text === '—' ? '跟随上一级' : `跟随 ${text}`
 }
-function upperStockText(row: SkuEditRow): string {
-  if (row.spuShopStock != null) return `商品级 ${row.spuShopStock}`
-  if (row.brandStock != null) return `商品原价库存 ${row.brandStock}`
-  return '—'
+function effectiveStockText(row: SkuEditRow): string {
+  const stock = row.stock
+  return stock === null || stock === undefined ? '跟随上一级' : `跟随 ${stock}`
+}
+
+/** 行内输入：小程序 `input` 用 `:value` + `@input` 才稳（直接 v-model 数组元素对象字段在真机上偶发不回写）。 */
+function onSkuPriceInput(index: number, e: { detail: { value: string } }): void {
+  const row = skuRows.value[index]
+  if (row) row.inputPrice = e.detail.value
+}
+function onSkuStockInput(index: number, e: { detail: { value: string } }): void {
+  const row = skuRows.value[index]
+  if (row) row.inputStock = e.detail.value
+}
+
+/** 解析某行待提交值：**空串 = `null`（清除该规格的 SKU 级设置、回退上一级）**，否则转数字。 */
+function parseSkuInput(raw: string): number | null {
+  const text = String(raw ?? '').trim()
+  return text === '' ? null : Number(text)
 }
 
 /**
- * 保存**单个规格**（价 / 库存两个接口分别调）。
+ * 底部「确定」：**一次性提交所有变更行**（京东风格）。
  *
- * ⚠️ 只提交**本行真正改动过**的那一项 —— 无关改动也提交会放大失败面
+ * ⚠️ 只提交**真正改动过**的那一项 —— 无关改动也提交会放大失败面
  *   （只改价却把库存一并写回，第二步失败时价已落库、却只报"保存失败"）。
- * ⚠️ 保存后**只刷新本行**（不整表重拉）—— 整表重拉会**静默丢弃其它行未保存的编辑**。
+ * ⚠️ 先**逐行校验**，任何一行不合法就整体不提交（避免"存了一半"）。
+ * ⚠️ 成功后**关闭弹层并刷新列表页** —— 弹层已关，不存在"整表重拉丢其它行编辑"的问题。
  */
-async function saveSkuRow(row: SkuEditRow): Promise<void> {
+async function submitSkuAll(): Promise<void> {
   const productId = skuTarget.value?.productId
   if (!productId) return
-  const nextPrice = row.usePriceDefault ? null : Number(row.editingPrice)
-  const nextStock = row.useStockDefault ? null : Number(row.editingStock)
-  if (nextPrice !== null && (!Number.isFinite(nextPrice) || nextPrice <= 0)) {
-    uni.showToast({ title: '价格需大于 0', icon: 'none' })
+  // 1) 整体校验 + 收集变更（不合法直接 return，不发任何请求）
+  const changes: Array<{ row: SkuEditRow; nextPrice: number | null; nextStock: number | null; priceChanged: boolean; stockChanged: boolean }> = []
+  for (const row of skuRows.value) {
+    const nextPrice = parseSkuInput(row.inputPrice)
+    const nextStock = parseSkuInput(row.inputStock)
+    if (nextPrice !== null && (!Number.isFinite(nextPrice) || nextPrice <= 0)) {
+      uni.showToast({ title: `「${row.skuName || row.skuId}」价格需大于 0`, icon: 'none' })
+      return
+    }
+    if (nextStock !== null && (!Number.isInteger(nextStock) || nextStock < 0)) {
+      uni.showToast({ title: `「${row.skuName || row.skuId}」库存需为非负整数`, icon: 'none' })
+      return
+    }
+    const priceChanged = (row.skuShopPrice ?? null) !== nextPrice
+    const stockChanged = (row.skuShopStock ?? null) !== nextStock
+    if (priceChanged || stockChanged) changes.push({ row, nextPrice, nextStock, priceChanged, stockChanged })
+  }
+  if (!changes.length) {
+    uni.showToast({ title: '没有改动', icon: 'none' })
     return
   }
-  if (nextStock !== null && (!Number.isInteger(nextStock) || nextStock < 0)) {
-    uni.showToast({ title: '库存需为非负整数', icon: 'none' })
-    return
-  }
-  const priceChanged = (row.skuShopPrice ?? null) !== nextPrice
-  const stockChanged = (row.skuShopStock ?? null) !== nextStock
-  if (!priceChanged && !stockChanged) {
-    uni.showToast({ title: '本行没有改动', icon: 'none' })
-    return
-  }
-  savingSkuId.value = row.skuId
-  const done: string[] = []
+  // 2) 逐行提交（只发变更过的项）
+  skuSaving.value = true
+  let doneRows = 0
   try {
-    if (priceChanged) {
-      await setMerchantSkuPrice(productId, row.skuId, nextPrice)
-      done.push('价')
+    for (const c of changes) {
+      if (c.priceChanged) await setMerchantSkuPrice(productId, c.row.skuId, c.nextPrice)
+      if (c.stockChanged) await setMerchantSkuStock(productId, c.row.skuId, c.nextStock)
+      doneRows++
     }
-    if (stockChanged) {
-      await setMerchantSkuStock(productId, row.skuId, nextStock)
-      done.push('库存')
-    }
-    uni.showToast({ title: `${done.join('与')}已保存`, icon: 'success' })
-    await reloadSkuRow(row)
+    uni.showToast({ title: '保存成功', icon: 'success' })
+    closeSkuDialog()
+    await loadList(true)
   } catch (error) {
-    // ⚠️ 半保存要说清楚：前面那半**已经写进库**了，不能只报"保存失败"让用户以为整行没动
-    const note = done.length ? `（${done.join('与')}已保存成功，仅后续项失败）` : ''
+    // ⚠️ 半保存要说清楚：前面那些行**已经写进库**了，不能只报"保存失败"让用户以为都没动
+    const note = doneRows > 0 ? `（前 ${doneRows} 个规格已保存成功，请重试其余）` : ''
     uni.showToast({ title: (error instanceof Error ? error.message : '保存失败') + note, icon: 'none' })
-    if (done.length) await reloadSkuRow(row)
+    if (doneRows > 0) await loadList(true)
   } finally {
-    savingSkuId.value = null
+    skuSaving.value = false
   }
-}
-
-/**
- * 只把**本行**的真实结果合并回来（生效价/生效库存/来源由后端三级回退算出，不本地猜），
- * 其它行**保持原编辑态**（不整表重拉）。
- */
-async function reloadSkuRow(row: SkuEditRow): Promise<void> {
-  const productId = skuTarget.value?.productId
-  if (!productId) return
-  const list = await getMerchantSkuPrices(productId)
-  const fresh = list.find((item) => item.skuId === row.skuId)
-  if (!fresh) return
-  Object.assign(row, toSkuEditRow(fresh))
 }
 
 // ===== 确认弹层 =====
@@ -747,77 +754,50 @@ function goBack(): void {
       </view>
     </view>
 
-    <!-- 按规格设价 / 设库存（多规格商品；SKU 级，2026-10-08 新增） -->
+    <!-- 按规格设价 / 设库存（多规格商品；SKU 级，**京东风格紧凑列表**，2026-10-08） -->
     <view v-if="skuTarget" class="mask mask-bottom" @click="closeSkuDialog">
       <view class="sku-sheet" @click.stop>
-        <view class="sheet-title">
-          <text class="sheet-title-text">按规格设价 / 设库存</text>
-          <text class="sheet-close" @click="closeSkuDialog">×</text>
+        <view class="sku-title">
+          <text class="sku-title-text">按规格设价 / 设库存</text>
+          <text class="sku-close" @click="closeSkuDialog">×</text>
         </view>
         <view class="sku-tip">
-          {{ skuTarget.name }}（共 {{ skuRows.length }} 个规格）。「生效价 / 生效库存」按<text class="sku-tip-strong">规格 → 商品 → 商品原价</text>三级回退算出；
-          开关打开 = 本店不单独设置、跟随上一级（右侧会显示实际跟到哪一级）。
+          {{ skuTarget.name }} · 共 {{ skuRows.length }} 个规格 ·
+          <text class="sku-tip-strong">留空 = 跟随上一级</text>（输入框里的灰色字是当前生效值）
+        </view>
+        <!-- 表头（与数据行同一套列宽，三列对齐） -->
+        <view class="sku-thead">
+          <text class="sku-col-name">规格</text>
+          <text class="sku-col">门店价</text>
+          <text class="sku-col">门店库存</text>
         </view>
         <scroll-view class="sku-list" scroll-y>
           <view v-if="skuLoading" class="sku-state">加载中…</view>
           <view v-else-if="!skuRows.length" class="sku-state">该商品暂无可设置的规格</view>
-          <view v-for="row in skuRows" :key="row.skuId" class="sku-card">
-            <view class="sku-head">
-              <text class="sku-name">{{ row.skuName || ('规格 ' + row.skuId) }}</text>
-              <text class="sku-effective">
-                生效价 {{ skuMoneyText(row.price) }}（{{ skuPriceSourceText(row.priceSource) }}）
-                · 生效库存 {{ row.stock ?? '—' }}（{{ skuStockSourceText(row.stockSource) }}）
-                · 可售 {{ row.effectiveStock ?? '—' }}
-              </text>
-            </view>
-
-            <!-- 门店价 -->
-            <view class="sku-line">
-              <text class="sku-label">门店价</text>
-              <view class="sku-switch" @click="row.usePriceDefault = !row.usePriceDefault">
-                <view class="sku-check" :class="{ 'is-on': row.usePriceDefault }">
-                  <text v-if="row.usePriceDefault" class="rider-icon rider-icon-gouxuan_tianchong sku-check-icon" />
-                </view>
-                <text class="sku-switch-text">用上一级</text>
-              </view>
-              <input
-                v-if="!row.usePriceDefault"
-                class="sku-input"
-                v-model="row.editingPrice"
-                type="digit"
-                placeholder="请输入"
-                placeholder-class="sheet-ph"
-              />
-              <text v-else class="sku-follow">跟随 {{ upperPriceText(row) }}</text>
-            </view>
-
-            <!-- 门店库存 -->
-            <view class="sku-line">
-              <text class="sku-label">门店库存</text>
-              <view class="sku-switch" @click="row.useStockDefault = !row.useStockDefault">
-                <view class="sku-check" :class="{ 'is-on': row.useStockDefault }">
-                  <text v-if="row.useStockDefault" class="rider-icon rider-icon-gouxuan_tianchong sku-check-icon" />
-                </view>
-                <text class="sku-switch-text">用上一级</text>
-              </view>
-              <input
-                v-if="!row.useStockDefault"
-                class="sku-input"
-                v-model="row.editingStock"
-                type="number"
-                placeholder="请输入"
-                placeholder-class="sheet-ph"
-              />
-              <text v-else class="sku-follow">跟随 {{ upperStockText(row) }}</text>
-            </view>
-
-            <button class="sku-save" :disabled="savingSkuId === row.skuId" @click="saveSkuRow(row)">
-              {{ savingSkuId === row.skuId ? '保存中…' : '保存本规格' }}
-            </button>
+          <view v-for="(row, index) in skuRows" :key="row.skuId" class="sku-row">
+            <text class="sku-col-name sku-name">{{ row.skuName || ('规格 ' + row.skuId) }}</text>
+            <input
+              class="sku-input"
+              :value="row.inputPrice"
+              type="digit"
+              :placeholder="effectivePriceText(row)"
+              placeholder-class="sku-ph"
+              @input="onSkuPriceInput(index, $event)"
+            />
+            <input
+              class="sku-input"
+              :value="row.inputStock"
+              type="number"
+              :placeholder="effectiveStockText(row)"
+              placeholder-class="sku-ph"
+              @input="onSkuStockInput(index, $event)"
+            />
           </view>
         </scroll-view>
+        <!-- 底部统一提交（京东风格：一次确定提交所有改动行） -->
         <view class="sku-actions">
-          <button class="sku-close-btn" @click="closeSkuDialog">关闭</button>
+          <button class="sku-btn sku-btn-cancel" :disabled="skuSaving" @click="closeSkuDialog">取消</button>
+          <button class="sku-btn sku-btn-ok" :disabled="skuSaving" @click="submitSkuAll">{{ skuSaving ? '保存中…' : '确定' }}</button>
         </view>
       </view>
     </view>
@@ -1137,32 +1117,73 @@ function goBack(): void {
   color: #ff5500;
 }
 
-/* ===== 按规格设价 / 设库存弹层（多规格商品，2026-10-08 新增）===== */
+/* ===== 按规格设价 / 设库存弹层（多规格商品；**京东风格紧凑列表**，2026-10-08）===== */
 /* 比普通底部弹层高（要容纳多行规格），故单独一套容器样式（不直接用 .sheet） */
 .sku-sheet {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: 85vh;
-  padding: 31rpx 23rpx calc(31rpx + env(safe-area-inset-bottom));
+  max-height: 80vh;
+  padding-bottom: env(safe-area-inset-bottom);
   border-radius: 24rpx 24rpx 0 0;
   background: #ffffff;
 }
+.sku-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96rpx;
+  border-bottom: 2rpx solid #f2f3f7;
+}
+.sku-title-text {
+  color: #1d2129;
+  font-size: 31rpx;
+  font-weight: 600;
+}
+.sku-close {
+  position: absolute;
+  right: 31rpx;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 8rpx;
+  color: #86909c;
+  font-size: 40rpx;
+  line-height: 1;
+}
 .sku-tip {
-  margin-top: 15rpx;
+  padding: 19rpx 31rpx;
+  background: #f7f8fa;
   color: #86909c;
   font-size: 23rpx;
   line-height: 34rpx;
 }
 .sku-tip-strong {
-  color: #1d2129;
+  color: #ff5500;
+  font-size: 23rpx;
+}
+/* 表头与数据行共用同一套列宽（规格 150rpx + 价格/库存各 flex:1），保证三列对齐 */
+.sku-thead {
+  display: flex;
+  align-items: center;
+  gap: 15rpx;
+  padding: 19rpx 31rpx;
+}
+.sku-thead .sku-col {
+  flex: 1;
+  color: #86909c;
+  font-size: 23rpx;
+}
+.sku-thead .sku-col-name {
+  flex: none;
+  width: 150rpx;
+  color: #86909c;
   font-size: 23rpx;
 }
 .sku-list {
   flex: 1;
   min-height: 0;
-  max-height: 58vh;
-  margin-top: 23rpx;
+  max-height: 52vh;
 }
 .sku-state {
   padding: 80rpx 0;
@@ -1170,66 +1191,23 @@ function goBack(): void {
   color: #86909c;
   font-size: 27rpx;
 }
-.sku-card {
-  margin-bottom: 19rpx;
-  padding: 23rpx;
-  border-radius: 15rpx;
-  background: #f6f7f9;
-}
-.sku-head {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  margin-bottom: 19rpx;
-}
-.sku-name {
-  color: #1d2129;
-  font-size: 29rpx;
-  font-weight: 500;
-}
-.sku-effective {
-  color: #86909c;
-  font-size: 23rpx;
-  line-height: 34rpx;
-}
-.sku-line {
+.sku-row {
   display: flex;
   align-items: center;
   gap: 15rpx;
-  margin-bottom: 15rpx;
+  padding: 19rpx 31rpx;
+  border-top: 2rpx solid #f2f3f7;
 }
-.sku-label {
+.sku-col-name {
   flex: none;
-  width: 120rpx;
+  width: 150rpx;
+}
+.sku-name {
   color: #1d2129;
   font-size: 27rpx;
-}
-.sku-switch {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-}
-.sku-check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36rpx;
-  height: 36rpx;
-  border-radius: 50%;
-  border: 3rpx solid #d7dbe0;
-  background: #ffffff;
-}
-.sku-check.is-on {
-  border-color: transparent;
-}
-.sku-check-icon {
-  color: #ff5500;
-  font-size: 32rpx;
-}
-.sku-switch-text {
-  color: #1d2129;
-  font-size: 25rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sku-input {
   flex: 1;
@@ -1237,49 +1215,44 @@ function goBack(): void {
   height: 69rpx;
   padding: 0 19rpx;
   border-radius: 12rpx;
-  background: #ffffff;
-  color: #1d2129;
-  font-size: 27rpx;
-}
-.sku-follow {
-  flex: 1;
-  min-width: 0;
-  color: #86909c;
-  font-size: 25rpx;
-}
-.sku-save {
-  margin: 0;
-  padding: 0;
-  height: 69rpx;
-  border-radius: 12rpx;
-  background: #fff4e8;
-  color: #ff5500;
-  font-size: 27rpx;
-  font-weight: 500;
-  line-height: 69rpx;
-}
-.sku-save::after {
-  border: 0;
-}
-.sku-save[disabled] {
-  opacity: 0.6;
-}
-.sku-actions {
-  margin-top: 23rpx;
-}
-.sku-close-btn {
-  margin: 0;
-  padding: 0;
-  height: 92rpx;
-  border-radius: 24rpx;
   background: #f6f7f9;
   color: #1d2129;
+  font-size: 27rpx;
+  text-align: right;
+}
+.sku-ph {
+  color: #c1c5cc;
+  font-size: 23rpx;
+}
+.sku-actions {
+  display: flex;
+  gap: 15rpx;
+  padding: 23rpx 31rpx;
+  border-top: 2rpx solid #f2f3f7;
+}
+.sku-btn {
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  height: 88rpx;
+  border-radius: 16rpx;
   font-size: 31rpx;
   font-weight: 600;
-  line-height: 92rpx;
+  line-height: 88rpx;
 }
-.sku-close-btn::after {
+.sku-btn::after {
   border: 0;
+}
+.sku-btn[disabled] {
+  opacity: 0.6;
+}
+.sku-btn-cancel {
+  background: #f6f7f9;
+  color: #1d2129;
+}
+.sku-btn-ok {
+  background: linear-gradient(90deg, #ff9301 0%, #ff6a01 50%, #ff4202 100%);
+  color: #ffffff;
 }
 
 /* 居中对话框 */

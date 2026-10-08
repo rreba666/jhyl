@@ -91,6 +91,21 @@ const specText = computed(() => {
   return first
 })
 
+/**
+ * 累计销量文案（契约 `MerchantProductVO.soldCount`，与 C 端商品卡同口径）。
+ *
+ * ⚠️ 三条口径：
+ *  1. 字段**真的下发**才显示这一项 —— 不下发时返回空串，不留「累计销量 —」这种噪声行；
+ *  2. **不兜底成 0**：0 是"确实没卖过"、缺失是"没拿到"，两者不能混（§15.4 不兜底假数字）；
+ *  3. 千分位与「库存」行保持一致（设计稿件数带千分位）。
+ */
+const soldText = computed(() => {
+  const value = props.product.soldCount
+  if (value === null || value === undefined) return ''
+  const num = Number(value)
+  return Number.isFinite(num) ? `累计销量 ${num.toLocaleString('en-US')}` : ''
+})
+
 /** 金额：保留最多 2 位小数，去掉多余的 0。 */
 function formatMoney(value: number): string {
   const num = Number(value)
@@ -133,6 +148,7 @@ function onAction(type: 'left' | 'price' | 'stock' | 'sku' | 'edit'): void {
           <text class="name">{{ product.name || '—' }}</text>
           <text v-if="specText" class="spec">{{ specText }}</text>
           <view class="meta">
+            <text v-if="soldText" class="meta-item">{{ soldText }}</text>
             <text class="meta-item">库存 {{ stockText }}</text>
           </view>
           <view class="price"><text class="price-yen">¥</text><text class="price-num">{{ priceText }}</text></view>
@@ -161,6 +177,7 @@ function onAction(type: 'left' | 'price' | 'stock' | 'sku' | 'edit'): void {
         <text class="name">{{ product.name || '—' }}</text>
         <text v-if="specText" class="spec">{{ specText }}</text>
         <view class="meta">
+          <text v-if="soldText" class="meta-item">{{ soldText }}</text>
           <text class="meta-item">库存 {{ stockText }}</text>
         </view>
         <view class="price"><text class="price-yen">¥</text><text class="price-num">{{ priceText }}</text></view>
