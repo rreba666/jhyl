@@ -193,3 +193,42 @@ export function parseMerchantCommissionRateInput(
 export function validateMerchantCommissionRate(text: string | number | null | undefined): string | null {
   return validateProductCommissionRate(text)
 }
+
+// ===========================================================================
+// 商家**自助修改**品牌（商户）级让利比例 —— 结算页（`subpkg-merchant/settlement/index.vue`）
+// 依据：`docs/26/10.09/前端对接说明-入驻申请让利比例与商家自改-2026-10-09.md` §一.3
+//      + 契约 `PUT /api/merchant/business/commission-rate`（query 参数、**无请求体**、`Result<Void>`）
+// ===========================================================================
+//
+// ⚠️⚠️ **三个「不传 / 留空」的语义各不相同，用户可见文案不得互抄。**
+//      本节把它们并排列在这里，就是为了让"复制粘贴串味"在 review 时一眼可见：
+//
+// | 端点 | 层级 | 「不传 / 留空」的含义 |
+// |---|---|---|
+// | `PUT /api/merchant/business/commission-rate`（本节「自助调整」） | 品牌级 | **不修改**（保留当前值） |
+// | `POST /api/merchant/apply`（入驻申请，见上一节） | 品牌级（**新建**申请单） | **用平台默认**（不是 0，也不是"不结算"） |
+// | `POST /api/merchant/products`（保存商品，见文件顶部） | 商品级 | **不修改**（沿用「物流专用 → 品牌级 → 平台默认」链） |
+//
+// ⇒ 区间 3~20 / 解析 / 校验 / 越界文案**仍共用上面唯一一份实现**（同一个后端错误码 `13018`）；
+//   本节只加**这一端点自己的**用户可见文案。
+
+/** 结算页「让利比例」卡片上的**自助调整**入口文案。 */
+export const MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT = '自助调整'
+
+/**
+ * 自助修改弹窗的输入框占位。
+ *
+ * ⛔ **不得**写成入驻申请那句「留空按平台默认」—— 本端点的「不传」是「**不修改**」，
+ *    两者是本批最容易搞混的一处（见本节表格）。
+ */
+export const MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER = '3~20，如 5.5；留空 = 本次不修改'
+
+/** 自助修改的说明：必须让商家知道「留空 = 什么都不改」，**不是**掉回平台默认。 */
+export const MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE =
+  '⚠️ 留空 = 本次不修改（比例保持不变；不会清成 0，也不会回到平台默认）。'
+
+/** 自助修改成功提示（顺带把快照语义讲清：只影响之后新下的订单）。 */
+export const MERCHANT_COMMISSION_RATE_EDIT_SUCCESS_TEXT = '让利比例已更新，只影响之后新下的订单'
+
+/** 输入框留空时的提示（**不是**"已用平台默认"，就是"没改"）。 */
+export const MERCHANT_COMMISSION_RATE_EDIT_BLANK_TOAST = '未填写比例，本次不修改'

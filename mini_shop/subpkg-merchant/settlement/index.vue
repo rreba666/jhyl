@@ -43,6 +43,23 @@ import {
   type SettlementWithdrawRulesVO,
 } from '@/api/settlement'
 import { isApiRequestError, resolveImageUrl, uploadFile } from '@/utils/request'
+// ⚠️ 2026-10-09（W16）：**品牌（商户）级**让利比例的**自助修改**接口
+//    （`PUT /api/merchant/business/commission-rate`，query 参数、**无请求体**、**不带 merchantId**）。
+import { updateMerchantBusinessCommissionRate } from '@/api/merchant'
+// ⚠️ 让利比例的区间 / 解析 / 校验 / 越界文案**只有这一份实现**（后端同码 13018）。
+//    ⚠️ 本页用的是「**自助修改**」那一组文案（`MERCHANT_COMMISSION_RATE_EDIT_*`，语义 = 留空**不修改**）；
+//    ⛔ 绝不能搬入驻页那一组（`..._INPUT_PLACEHOLDER` 写的"留空按平台默认"是**另一个端点**的语义）。
+import {
+  MERCHANT_COMMISSION_RATE_EDIT_BLANK_TOAST,
+  MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT,
+  MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE,
+  MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER,
+  MERCHANT_COMMISSION_RATE_EDIT_SUCCESS_TEXT,
+  MERCHANT_COMMISSION_RATE_ERROR_CODE,
+  MERCHANT_COMMISSION_RATE_RANGE_TEXT,
+  parseMerchantCommissionRateInput,
+  validateMerchantCommissionRate,
+} from '@/utils/product-commission'
 // ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
 import WithdrawRulesSheet from '@/components/WithdrawRulesSheet.vue'
 // ⚠️ 2026-10-08 Step2：同城资金释放口径改为「送达次日 0 点起，普通 +7 天 / 生鲜 +3 天」，并**按档位分叉**。
@@ -231,6 +248,79 @@ async function refreshData(): Promise<void> {
     await Promise.all([loadAccount(), loadRules()])
   } finally {
     loading.value = false
+  }
+}
+
+// ===== 让利比例（**品牌级**）自助修改（2026-10-09 W16）=====
+
+/** 自助修改提交中（防连点 + 入口置灰）。 */
+const commissionSubmitting = ref(false)
+
+/**
+ * 自助修改**品牌（商户）级**让利比例。
+ *
+ * 契约：`PUT /api/merchant/business/commission-rate?commissionRate=5.5`
+ * （**query 参数、无请求体**；身份由服务端从登录态解析 —— ⛔ 页面**不得**带 `merchantId`，
+ * 那个请求属性装的是**门店 ID**，用在本接口上是错的）。
+ *
+ * ⚠️ 三条口径（改前先读 `utils/product-commission.ts` 的「自助修改」一节）：
+ * 1. **本端点是「不传 = 不修改」** —— 与**入驻申请**的「不传/null = 用平台默认 3%」**不是一回事**：
+ *    输入框留空 = **一个请求都不发**（既不改成 0，也不掉回平台默认），只如实提示"本次不修改"。
+ *    ⇒ 文案只用 `MERCHANT_COMMISSION_RATE_EDIT_*`；⛔ 不得搬入驻页那组（那句写的是"留空按平台默认"）。
+ * 2. 区间 **3~20** 与越界文案**复用** `utils/product-commission`（同一个后端码 `13018`），
+ *    本页**不重写**任何字面量；后端仍报 `13018` 时用同一句话兜底。
+ * 3. 成功后**重新拉账户**（`loadAccount()`）—— 卡片显示的必须是最新值，**不信本地缓存**。
+ *
+ * ⚠️ 生效口径：只影响之后**新下**的订单（下单快照），在途/历史订单不变。
+ */
+async function editCommissionRate(): Promise<void> {
+  if (commissionSubmitting.value) return
+  // 当前值只作为弹窗里的"现状"展示；⛔ 不当默认输入值（否则"没改"与"改成同值"分不清）
+  const currentRateText = commissionRateText.value
+  const input = await new Promise<{ confirm?: boolean; content?: string }>((resolve) => {
+    uni.showModal({
+      title: MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT,
+      content: `当前品牌级比例：${currentRateText}`,
+      editable: true,
+      placeholderText: MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER,
+      success: (result: { confirm?: boolean; content?: string }) => resolve(result || {}),
+      fail: () => resolve({}),
+    })
+  })
+  // 用户取消 = 什么都不做
+  if (!input.confirm) return
+  const text = String(input.content ?? '').trim()
+  // ⚠️ 留空 = **不修改**（本端点语义）：**不发请求**，也**不**谎报"已更新"
+  if (!text) {
+    uni.showToast({ title: MERCHANT_COMMISSION_RATE_EDIT_BLANK_TOAST, icon: 'none' })
+    return
+  }
+  // 本地硬校验 3~20（越界用后端 13018 同一句话）
+  const commissionError = validateMerchantCommissionRate(text)
+  if (commissionError) {
+    uni.showToast({ title: commissionError, icon: 'none' })
+    return
+  }
+  const commissionParsed = parseMerchantCommissionRateInput(text)
+  if (commissionParsed.kind !== 'value') {
+    uni.showToast({ title: MERCHANT_COMMISSION_RATE_RANGE_TEXT, icon: 'none' })
+    return
+  }
+  commissionSubmitting.value = true
+  try {
+    await updateMerchantBusinessCommissionRate(commissionParsed.value)
+    // 成功即刷新卡片（后端写的是**品牌级** `wx_merchant.commission_rate`）
+    await loadAccount()
+    uni.showToast({ title: MERCHANT_COMMISSION_RATE_EDIT_SUCCESS_TEXT, icon: 'success' })
+  } catch (error) {
+    // 13018（越界）：本地已拦一遍，这里是后端兜底 —— 用同一句话
+    if (isApiRequestError(error) && Number(error.code) === MERCHANT_COMMISSION_RATE_ERROR_CODE) {
+      uni.showToast({ title: MERCHANT_COMMISSION_RATE_RANGE_TEXT, icon: 'none' })
+      return
+    }
+    uni.showToast({ title: resolveSettlementErrorMessage(error, '让利比例修改失败'), icon: 'none' })
+  } finally {
+    commissionSubmitting.value = false
   }
 }
 
@@ -596,18 +686,32 @@ function goBack(): void {
              提升为独立卡片。起因：商家只看到一行「当前让利比例（平台抽成）X%」，
              既不知道**为什么**是这个数，也不知道**要去哪改**。
              ⚠️ 2026-10-08 口径更正：**商品级**比例商家**可以自己设**（商品管理 → 编辑商品），
-                卡片里那句"商家端不能改比例"已作废 ⇒ 现改为分别说明「品牌级」与「商品级」两条路径。
-             ⚠️ 平台默认抽成 2026-10-08 由 5% 改为 **3%**（spec §6）⇒ 未设置时的文案必须点到 3%，
+                卡片里那句"商家端不能改比例"已作废。
+             ⚠️⚠️ 2026-10-09（W16）**再更正**：**品牌（商户）级**比例商家**现在也能自己改**了
+                （`PUT /api/merchant/business/commission-rate`）⇒ 原第 3 条指引
+                「需要调整请联系平台（由平台在 PC 商户后台设置）」是**假话**，**已删除**；
+                改为卡片里直接给「自助调整」入口（`rate-edit-entry`），商家不必再找平台。
+             ⚠️ 平台默认让利比例 2026-10-08 由 5% 改为 **3%**（spec §6）⇒ 未设置时的文案必须点到 3%，
                 否则商家无法判断要不要设商品级比例。 -->
         <view class="card">
           <text class="card-title">让利比例（平台抽成）</text>
-          <!-- ⚠️ 取不到比例时显示「未设置（按上级/平台默认 3%）」，**绝不能显示 0%**：
-               0% 会让商家以为平台不抽成，而实际会按 物流专用 → 品牌级 → 平台默认 3% 链来抽。 -->
-          <text v-if="commissionRateText === '—'" class="rate-value rate-unset">未设置（按上级/平台默认 3%）</text>
-          <text v-else class="rate-value">{{ commissionRateText }}</text>
+          <view class="rate-row">
+            <!-- ⚠️ 取不到比例时显示「未设置（按上级/平台默认 3%）」，**绝不能显示 0%**：
+                 0% 会让商家以为平台不抽成，而实际会按 物流专用 → 品牌级 → 平台默认 3% 链来抽。 -->
+            <text v-if="commissionRateText === '—'" class="rate-value rate-unset">未设置（按上级/平台默认 3%）</text>
+            <text v-else class="rate-value">{{ commissionRateText }}</text>
+            <!-- ⚠️ 2026-10-09（W16）：品牌级比例的**自助调整**入口。
+                 ⚠️ 本入口的「留空 = 不修改」与**入驻申请**的「留空 = 平台默认」**是两个端点的两种语义**，
+                    文案单一出口在 `utils/product-commission.ts` 且按端点分开命名，**不得互相搬运**。 -->
+            <view class="rate-edit-entry" :class="{ 'is-disabled': commissionSubmitting }" @click="editCommissionRate">
+              <text class="rate-edit-text">{{ MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT }}</text>
+            </view>
+          </view>
           <text class="rule-note">平台从每笔订单中抽取的比例，按商品金额计算；⚠️ 配送费全额归商家，不参与抽成。</text>
           <text class="rule-note">⚠️ 比例调整只对之后新下的订单生效；已完成订单按「下单当时」的比例结算，不会被追溯修改。</text>
-          <text class="rule-note">⚠️ 这里展示的是「品牌（商户）级」比例：需要调整请联系平台（由平台在 PC 商户后台设置）。</text>
+          <!-- ⚠️ 这里展示的是**品牌（商户）级**比例；「自助调整」走的正是改它的那个端点
+               （写品牌级 `wx_merchant.commission_rate`）。留空的语义由 OMIT_NOTE 说清（= 不修改）。 -->
+          <text class="rule-note">⚠️ 这里展示的是「品牌（商户）级」比例，点右侧入口即可自助修改（3%~20%）。{{ MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE }}</text>
           <text class="rule-note">⚠️ 想只给某个商品单独设比例？在「商品管理 → 编辑商品 → 商品让利比例」里设置即可（3%~20%，留空 = 不修改）。</text>
         </view>
 
@@ -968,6 +1072,12 @@ function goBack(): void {
 }
 /* 未设置时的占位文案（字号小一些，避免和真比例一样抢眼） */
 .rate-value.rate-unset { color: #86909c; font-size: 30rpx; font-weight: 600; }
+/* ⚠️ 2026-10-09（W16）：比例数字与「自助调整」入口同一行（入口靠右、可点） */
+.rate-row { display: flex; align-items: center; justify-content: space-between; }
+.rate-row .rate-value { flex: 1; min-width: 0; }
+.rate-edit-entry { flex: none; margin-top: 12rpx; padding: 8rpx 26rpx; border: 1rpx solid #ff5500; border-radius: 999rpx; }
+.rate-edit-entry.is-disabled { opacity: .5; }
+.rate-edit-text { color: #ff5500; font-size: 26rpx; line-height: 40rpx; }
 .total-grid {
   display: flex;
   flex-wrap: wrap;

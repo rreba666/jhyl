@@ -1,4 +1,11 @@
-import { request } from '@/utils/request'
+import { ApiRequestError, request } from '@/utils/request'
+// ⚠️ 商户（品牌）级让利比例的**区间 / 解析 / 越界文案**全部复用这一份实现（同一个后端码 13018），
+//    本文件**不重写**任何 3 / 20 字面量或那句话（见 `utils/product-commission.ts` 的三节表格）。
+import {
+  MERCHANT_COMMISSION_RATE_ERROR_CODE,
+  MERCHANT_COMMISSION_RATE_RANGE_TEXT,
+  parseMerchantCommissionRateInput,
+} from '@/utils/product-commission'
 
 /** 首店信息（入驻必填）。 */
 export interface MerchantApplyShopDTO {
@@ -49,13 +56,13 @@ export interface MerchantApplyDTO {
    *    （商品级有「物流专用 → 品牌级 → 平台默认」链，商户级**没有上级**）。
    * ⚠️ **入驻是新建申请**（驳回后重提也是**新建一条申请单**）⇒ 这里**没有**「不传 = 不修改」的语义：
    *    留空 = 整个字段不提交 = 后端按平台默认结算；**绝不**兜底成 `0` / `null`（那是伪造数据）。
-   * ⚠️ 2026-10 核对 `api_doc.json`（**未定论，等后端确认**）：`commissionRate`（选填，3~20，
-   *    "商户级让利比例（%）…参与结算"）定义在 **`MerchantRegisterDTO`**，而它属于**另一个端点**
-   *    `POST /api/public/merchant/register`（"商家注册开店"，公开注册）；本页走的
-   *    `POST /api/merchant/apply` 的 **`MerchantApplyDTO` 在 api_doc 里没有声明该字段**。
-   *    ⇒ 若后端确实不认这个字段：Spring 默认**忽略未知字段**（不报错），该值会被**静默丢弃**
-   *      ⇒ 商家会以为已设置成功。实测结论见 `docs/logs/`（或本文件所在提交的报告）；
-   *      后端确认支持/补齐后，本段注释即可删。
+   * ⚠️ 2026-10-09 **已由契约确认**（`api_doc.json` 的 `MerchantApplyDTO.commissionRate` 描述原文：
+   *    「【2026-10-09】商户级让利比例（%，3~20）。选填；**不传/null = 用平台默认**
+   *     （`sys_config` 的 `platform_commission_rate`，当前 3%）；越界报 13018。参与结算、按订单快照，
+   *     只影响之后新下的订单」）——
+   *    原先"该字段只声明在 `MerchantRegisterDTO`（另一个端点）、本端点没声明 ⇒ 未定论等后端确认"的
+   *    疑义**已消除**；`POST /api/public/merchant/register` 与本端点口径已统一
+   *    （同字段名 / 同区间 3~20 / 同错误码 **13018** / 同「`null` = 平台默认」语义）。
    */
   commissionRate?: number
   remark?: string
@@ -83,6 +90,15 @@ export interface MerchantApplyVO {
   accountBound?: boolean
   applyTime?: string
   auditTime?: string
+  /**
+   * 申请时申报的**商户（品牌）级**让利比例（%）—— 2026-10-09（W16 §2）后端新增的**回显**字段。
+   *
+   * ⚠️ `null` = 当时**未填** ⇒ 将按**平台默认**比例结算（`platform_commission_rate`，当前 3%）——
+   *    **不是 0**、也不是"不参与结算"。
+   * ⚠️ 它的**唯一用途**是「**被驳回后重新提交不必重填**」：见 `subpkg-merchant/apply/apply.vue`
+   *    的 `loadApply()` 回填。⛔ 页面**不得**把 `null` 兜成 `0` 或任何猜测值。
+   */
+  commissionRate?: number | null
 }
 
 /** 提交入驻申请（需 C 端登录态）。重复提交 → code 7315「您有正在审核中的入驻申请」。 */
@@ -93,6 +109,44 @@ export function submitMerchantApply(payload: MerchantApplyDTO): Promise<Merchant
 /** 我的申请（无则返回 null），用于页面状态机。 */
 export function getMyMerchantApply(): Promise<MerchantApplyVO | null> {
   return request<MerchantApplyVO | null>({ url: '/api/merchant/apply/my', method: 'GET' })
+}
+
+// ===== 商家端 · 商户（品牌）级让利比例**自助修改** =====
+
+/**
+ * 商家自助修改**商户（品牌）级**让利比例（%）—— 结算页「让利比例」卡片上的「自助调整」。
+ *
+ * 契约：`PUT /api/merchant/business/commission-rate?commissionRate=5.5` → `Result<Void>`
+ * （`api_doc.json`：`MerchantBusinessController_updateCommissionRate`）。
+ *
+ * ⚠️ 四条必须守住（写歪任何一条都会打错接口或**静默失败**）：
+ * 1. **`commissionRate` 是 query 参数，不是请求体**；本接口**没有请求体**（`Result<Void>`）
+ *    ⇒ 参数**直接拼进 URL**，这里**不传 `data`**（`utils/request` 会把 `data` 当 body 发出去）。
+ * 2. ⛔ **绝不带 `merchantId`**。契约描述原文：「身份取 `ATTR_OWNER_MERCHANT_ID`（品牌级）；
+ *    **请求属性 `merchantId` 装的是门店 ID，不可用于本接口**」
+ *    ⇒ 传了不但没用，还会把「品牌级比例」表达成「门店级」，语义整个错掉。身份由服务端从登录态解析。
+ * 3. 路径在 **`/api/merchant/business`** 下：**不是** `/api/merchant/shop`，也不是商品级的
+ *    `/api/merchant/products/**`；写入的是**品牌级** `wx_merchant.commission_rate`
+ *    （门店级 `wx_shop.commission_rate` 结算侧不读，**别写那儿**）。
+ * 4. **「不传 = 不修改」**（与入驻申请的「不传/null = 用平台默认 3%」**不是一回事**）
+ *    ⇒ 入参是**必填**：页面既已让用户输入，就不该存在"发一个空调用"的路径 ——
+ *    那会返回 `code=0` 却什么都没改，是最难查的静默失败。
+ *
+ * 越界（不在 3~20 / 非数字）在**本地就拒**：既避免把 `undefined` 拼成字面量 `"undefined"` 发出去，
+ * 也不给后端添一条注定失败的请求。拒绝沿用后端同码同一句话（`13018`，
+ * 文案单一出口在 `utils/product-commission`），所以页面按码兜底时仍能命中。
+ *
+ * ⚠️ 生效口径：**只影响之后新下的订单**（下单快照），在途/历史订单不变。
+ */
+export function updateMerchantBusinessCommissionRate(commissionRate: number): Promise<void> {
+  const parsed = parseMerchantCommissionRateInput(commissionRate)
+  if (parsed.kind !== 'value') {
+    return Promise.reject(new ApiRequestError(MERCHANT_COMMISSION_RATE_RANGE_TEXT, MERCHANT_COMMISSION_RATE_ERROR_CODE))
+  }
+  return request<void>({
+    url: `/api/merchant/business/commission-rate?commissionRate=${encodeURIComponent(String(parsed.value))}`,
+    method: 'PUT',
+  })
 }
 
 // ===== 商家端 · 商品管理（/api/merchant/products/**） =====

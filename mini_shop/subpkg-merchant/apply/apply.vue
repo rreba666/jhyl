@@ -69,8 +69,11 @@ const form = ref({
    * ⚠️ 这里存的是**输入框原文**（字符串），提交时才解析成数字 ⇒ 「清空输入框」自然回到「不提交」，
    *    谁也没机会给它兜一个 `0`（兜 0 = 伪造数据，本仓库硬红线）。
    * ⚠️ 与商品级比例是**不同层级**（商户级对商户下所有门店生效），文案/常量见 `utils/product-commission.ts`。
-   * ⚠️ 入驻是**新建**申请（驳回后重提也是新建一条申请单，且后端不回显该字段）⇒
-   *    这里**没有**「不传 = 不修改」的语义：留空就是留空（= 用平台默认）。
+   * ⚠️ 入驻是**新建**申请（驳回后重提也是新建一条申请单）⇒ 这里**没有**「不传 = 不修改」的语义：
+   *    留空就是留空（= 用平台默认）。
+   * ⚠️ 2026-10-09（W16 §2）：后端**已新增回显** `MerchantApplyVO.commissionRate`
+   *    （`null` = 当时未填）⇒ `loadApply()` 会把**驳回后重提**时申报过的比例**回填**到这里，
+   *    商家**不必重填**；回填值仍是"输入框原文"，提交路径不变（仍然只解析、不兜底）。
    */
   commissionRate: '',
   remark: '',
@@ -125,6 +128,15 @@ async function loadApply(): Promise<void> {
     if (result && result.status === 2) {
       form.value.brandName = result.brandName || ''
       form.value.shopName = result.shopName || ''
+      // ⚠️ 2026-10-09（W16 §2）：后端已**回显**申请时申报的商户（品牌）级让利比例
+      //    （`MerchantApplyVO.commissionRate`）⇒ **驳回后重提不必重填**（这就是该字段的唯一用途）。
+      // ⚠️ `null` = 当时**未填**（将按平台默认结算）⇒ 保持空串：提交时该键整个**不进请求体**
+      //    （见 submit() 里那处有条件展开），⛔ **绝不**兜成 `0` / 任何猜测值。
+      // ⚠️ 非空值**原样回填**（不在这里做范围兜底）：万一后端回了越界值，就让**提交时的本地校验**
+      //    用 `13018` 那句话说清楚 —— 若在这里悄悄清空，等于把用户申报过的比例改成"平台默认"，
+      //    那才是真正的静默改数据。
+      const echoedCommissionRate = result.commissionRate
+      form.value.commissionRate = echoedCommissionRate == null ? '' : String(echoedCommissionRate)
     }
   } catch {
     apply.value = null
