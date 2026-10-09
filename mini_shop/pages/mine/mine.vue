@@ -895,10 +895,13 @@ onShow(() => { void refreshData() })
         </view>
       </view>
 
-      <!-- 退出登录：仅登录态展示（游客不显示） -->
-      <view v-if="isLoggedIn()" class="logout-section">
-        <button class="logout-btn" @click="doLogout">退出登录</button>
-      </view>
+      <!-- 退出登录：仅登录态展示（游客不显示）。
+           ⚠️ 2026-10-10：**按钮自身就是那张白卡**，外层「白卡套浅灰药丸按钮」的那层已删
+           （用户按截图要求：直接白色按钮就行，因为底色本来就是灰的）。
+           去掉外层后按钮仍是**原生 `<button>`**（`@click="doLogout"` / `v-if` 登录态判断**逐字未动**）：
+           微信 `<button>` 的 UA 样式本来就是 `display: block`，所以它照旧铺满「屏宽 − 左右各 16rpx」，
+           与上方四张卡左右边界对齐（`.logout-btn` 里把 `display`/`width` 显式钉住，见样式注释）。 -->
+      <button v-if="isLoggedIn()" class="logout-btn" @click="doLogout">退出登录</button>
 
     </scroll-view>
 
@@ -1193,10 +1196,28 @@ onShow(() => { void refreshData() })
  *      · `white-space: nowrap` = **不折行**机制，与上方 `.order-label` 同一条（格子等分保证宽度也够）。
  */
 .menu-label { display: block; margin-top: 12rpx; color: #1E1E1E; font-size: 24rpx; font-weight: 500; line-height: 32rpx; white-space: nowrap; }
-/* 退出登录（仅登录态展示）：同样是白底圆角卡（按钮自身的 #f5f5f5 底在白卡上仍清晰可辨，
-   不会出现"白卡上的白按钮"）；40rpx 的下边距 = 页面**最底部**留白。 */
-.logout-section { margin: 0 16rpx 40rpx; padding: 8rpx 16rpx; border-radius: 20rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; }
-.logout-btn { margin: 0; border-radius: 44rpx; background: #f5f5f5; color: #ff5500; font-size: 28rpx; font-weight: 500; line-height: 88rpx; }
+/**
+ * 退出登录（仅登录态展示）：**按钮自身就是白底圆角卡**。
+ *
+ * ⚠️ 2026-10-10 双层合一（用户按截图要求：「退出登录这里直接白色按钮就行，因为底色本来就是灰色的」）：
+ *    原来是「外层白卡（`.logout-section`，`background: #fff` + `padding: 8rpx 16rpx`）
+ *    ＋ 卡内浅灰药丸按钮（`#f5f5f5` / `border-radius: 44rpx`）」两层；页面底色本身就是灰的，
+ *    所以外层白卡纯属多余 ⇒ 整条规则删除，**卡面规格搬到按钮自己身上**：
+ *      · `background: #fff` = 卡面白，与上方四张卡**同一色值**；
+ *      · `border-radius: 20rpx` = 卡圆角（原按钮自己的 44rpx 药丸圆角随之作废）；
+ *      · `margin: 0 16rpx …` = 与四张卡**同一条左右卡槽**（16rpx 实测值），左右边界逐像素对齐；
+ *      · 底部仍是 **40rpx**（不是卡间的 16rpx）：它承担的是**页面最底部留白**，
+ *        原本挂在外层白卡的 `margin-bottom` 上，现在由按钮承担，**值不变 ⇒ 页面底部间距与改版前一致**；
+ *      · `font-family` 也从被删的外层白卡挪到按钮上（按钮此前靠继承拿到它，删掉外层就不能再靠继承）。
+ *    · `line-height: 88rpx` / `font-size: 28rpx` / `font-weight: 500` / `color: #ff5500` **逐字未改**
+ *      ⇒ 文字规格与点按区都不变（88rpx ≈ 44px，达触控目标下限）。
+ *    · `display: block` + `width: auto` + `padding: 0` 是**把 UA 默认显式钉住**（微信 `<button>` 默认
+ *      就是 block 全宽 + 左右各 14px 内边距）：改版后按钮要独立当卡用，**不再依赖 UA 默认值**——
+ *      三者叠加后按钮的**外框**与原先那个外层 `<view>` 卡完全等宽，文字仍居中（故不产生视觉变化）。
+ * ⚠️ 白底 `#fff` 与页面灰 `#f5f6f8` 的对比度与上方四张卡**完全一致**（同一对色值），
+ *    所以这里**有意不加边框、不加阴影/描边**：加了反而与其它卡不一致；用户只要求"白色按钮"。
+ */
+.logout-btn { display: block; width: auto; margin: 0 16rpx 40rpx; padding: 0; border-radius: 20rpx; background: #fff; color: #ff5500; font-family: 'PingFang SC', '苹方-简', sans-serif; font-size: 28rpx; font-weight: 500; line-height: 88rpx; }
 .logout-btn::after { border: 0; }
 .mask { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .62); }
 .sheet { width: 100%; padding: 30rpx 28rpx calc(30rpx + env(safe-area-inset-bottom)); background: #fff; box-sizing: border-box; }
