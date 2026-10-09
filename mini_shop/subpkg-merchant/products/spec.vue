@@ -20,7 +20,18 @@ onLoad(() => {
   uni.setNavigationBarTitle({ title: '规格' })
   const cached = uni.getStorageSync(SKUS_STORAGE_KEY) as MerchantSkuItem[] | ''
   if (Array.isArray(cached)) {
-    skus.value = cached.map((s) => ({ specName: s.specName || '', price: s.price ?? 0, stock: s.stock ?? 0 }))
+    // ⚠️ 2026-10-09：本页只编辑 规格名 / 价格 / 库存，但**必须把 `skuId` 与 `skuImage`
+    //    原样带过去再带回来** —— 这一页是「商品编辑页 → 规格页 → 商品编辑页」的中转站，
+    //    以前的展开只留三个字段 ⇒ 经过一次规格页，`skuId`（后端定位规格行的依据）与
+    //    规格图 `skuImage` 都会被丢掉（`skuId` 丢了 ⇒ 改个规格名就变成"新增规格"）。
+    //    提交逻辑与合并规则见 `edit.vue` 的 `buildPayload` / `mergeSkusFromSpecPage`。
+    skus.value = cached.map((s) => ({
+      ...(typeof s.skuId === 'number' && Number.isFinite(s.skuId) ? { skuId: s.skuId } : {}),
+      ...(typeof s.skuImage === 'string' ? { skuImage: s.skuImage } : {}),
+      specName: s.specName || '',
+      price: s.price ?? 0,
+      stock: s.stock ?? 0,
+    }))
   }
 })
 

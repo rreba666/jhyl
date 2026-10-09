@@ -81,9 +81,10 @@ export function getMyMerchantApply(): Promise<MerchantApplyVO | null> {
 
 /**
  * SKU 规格明细（**列表返回**）。
- * ⚠️ 字段名**以实际响应为准**：`{skuId, specName, price, stock}`。
+ * ⚠️ 字段名**以实际响应为准**：`{skuId, specName, skuImage, price, stock}`。
  * 2026-09-19 复核 `api_doc.json` 与真实响应后修正 —— 此前这里写的是 `id` / `skuName`，
  * 导致编辑商品回填时规格名读不到（变成空串，一提交就报「请填写规格名称」）。
+ * 2026-10-09 再补 `skuImage`（后端 W14 新增，见 `api_doc.json` 的 `MerchantProductSkuVO`）。
  * 提交用的结构见 `MerchantSkuSaveItem`（在 `{specName, price, stock}` 基础上多带同值 `skuName`）。
  */
 export interface MerchantSkuVO {
@@ -91,6 +92,14 @@ export interface MerchantSkuVO {
   skuId?: number
   /** 规格名称（文本摘要，如「大果-5斤装」）。 */
   specName?: string
+  /**
+   * 该规格的图片 URL（契约 `MerchantProductSkuVO.skuImage`，**2026-10-09 W14 后端新增**）。
+   *
+   * ⚠️ 值本身可以是空串 / null（= 该规格确实没配图，是**合法状态**）⇒ 想判「后端**有没有下发**
+   * 这个字段」必须看**键是否存在**（对 VO 用 `'skuImage' in sku`），**绝不能看值**
+   * （`''` 与 `undefined` 在这里的含义完全不同：前者=确实没图，后者=我们不知道）。
+   */
+  skuImage?: string | null
   /** 规格售价（下单成交价，元）。 */
   price?: number
   /** 当前库存。 */
@@ -646,8 +655,30 @@ export function maskPhone(phone?: string | null): string {
 
 /** 规格项（扁平结构：一行一个可下单规格）。 */
 export interface MerchantSkuItem {
+  /**
+   * **规格 ID**（契约 `MerchantProductSkuItem.skuId`，与 `id` 等价，两者都传时以 `id` 为准）。
+   *
+   * ⚠️⚠️ **2026-10-09 补**（此前类型里**没有**这个字段，页面 `map` 时被整批丢掉）：后端定位规格行
+   * 优先用回填的 `skuId`；**没有 id 时按 `specName` 文本匹配** —— 商家一旦改了规格名，
+   * 后端就把它当成**新增规格**（旧行留着重名、新行建出来，越改越多）。
+   * 所以「回显 → 原样提交」必须**带着 `skuId` 走完整条链路**（见 `subpkg-merchant/products/edit.vue`
+   * 的 `fillFromEditCache` / `mergeSkusFromSpecPage` 与 `spec.vue` 的 `onLoad` 展开）。
+   * 新增规格（还没落库）自然没有 id ⇒ 不传。
+   */
+  skuId?: number
   /** 规格名（如 950ml / 550ml / 330ml，或 单份/双份）。 */
   specName: string
+  /**
+   * 该规格的图片 URL（契约 `MerchantProductSkuItem.skuImage`，**2026-10-09 W14 后端新增**）。
+   *
+   * ⚠️⚠️ 更新语义与中控的「清除」按钮**不同**：**不传 / null = 不修改**（不会清空已有图）。
+   * ⇒ 页面只有在三种情况下才写这个字段（见 `edit.vue` 的 `buildPayload`）：
+   *   ① 商家本次**设/换了图** ⇒ 传 URL；
+   *   ② 商家**点过「清除」** ⇒ 传**空串** `''`（这是唯一能清空已有图的写法）；
+   *   ③ 详情**确实回显到了**该字段（`'skuImage' in sku`）⇒ 逐行原样回传（含空串）。
+   *   其余（没碰过、且后端没回显）⇒ **整个字段不出现**。
+   */
+  skuImage?: string
   /** 规格售价（元，>0）。 */
   price: number
   /** 规格库存（件，≥0）。 */
@@ -662,6 +693,11 @@ export interface MerchantSkuItem {
  * - `skuName`：平台端 `POST /api/admin/v2/product/save` 2026-09-22 起对 `skuList[].skuName` 加了
  *   `@NotBlank` 强校验（《商户提现-前端开发文档-2026-09-22》§7b①）；后端 Jackson 忽略未知字段
  *   （2026-09-19 实测多传 `specs`/`skuImage`/`enabled` 仍 `code=0`），多带一个同值字段不影响商家端保存。
+ *
+ * ⚠️ **2026-10-09 更正上面那条实测结论**：当时后端**确实静默忽略了** `skuImage`（保存时映射没搬
+ * 这个字段）—— 现已按《前端对接说明-排序权重与SKU规格图-2026-10-09》§一-2 真正落库，
+ * 与中控写的是**同一列** `product_sku.sku_image`。所以 `skuImage` 现在是**有效字段**，
+ * 不能再当成"多传也无所谓"的装饰品（它的更新语义见 {@link MerchantSkuItem.skuImage}）。
  */
 export interface MerchantSkuSaveItem extends MerchantSkuItem {
   skuName: string

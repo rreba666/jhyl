@@ -17,6 +17,13 @@
  *      语义是「不传 = 不修改」，提交默认值 1 会把商家已关掉的开关重新打开（后端下单拦截 13023/13024）；
  *   4. **`commissionRate`（商品级让利比例）留空就不提交** —— 语义同样是「不传 = 不修改」；
  *      清空输入框**绝不能**翻译成 `0` / `null`（那等于把比例清成 0，且 0 越界会被后端判 13018）。
+ *   5. （2026-10-09 追加）**`skus[].skuId` 必须回显→原样提交** —— 后端优先按它定位规格行，
+ *      没有 id 时退化为按 `specName` 文本匹配 ⇒ **改个规格名就会变成"新增规格"**（旧行留着重名）。
+ *      这一条此前是**真 bug**：类型里没有 `skuId`、`fillFromEditCache` 与 `buildPayload` 两处
+ *      `map` 都把它丢了（详见 `fillFromEditCache` / `mergeSkusFromSpecPage` 注释）。
+ *   6. （2026-10-09 追加）**`skus[].skuImage` 只在"商家真的动过"或"详情确实回显到了"时才提交** ——
+ *      更新语义是「**不传 / null = 不修改**」（**不会清空**已有图），与中控那个「清除」按钮
+ *      不是一回事；见 `buildPayload` 里 `skuImageChanged(s)` 的三种状态说明。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
@@ -27,6 +34,8 @@ import {
   type MerchantProductSaveDTO,
   type MerchantProductVO,
   type MerchantSkuItem,
+  type MerchantSkuSaveItem,
+  type MerchantSkuVO,
 } from '@/api/merchant'
 import { isApiRequestError, uploadFile } from '@/utils/request'
 // ⚠️ 生鲜开关的提示语**取单一来源**（同城 48 小时 / 资金 3 天可提 + 「物流与自提不受影响」），
@@ -86,6 +95,25 @@ const detailImagesEchoed = ref(false)
  * 这比"显示一条限制说明"严重得多 —— 所以宁可多一个标志位，也不靠文字提示糊过去。
  */
 const descTouched = ref(false)
+
+// ===== 规格图（按规格上传，2026-10-09 W14 新增）=====
+/**
+ * 编辑态：商品详情（= 列表项 `MerchantProductVO`）里**有没有下发** `skus[].skuImage`。
+ *
+ * 与 `descEchoed` / `detailImagesEchoed` **同一思路**（拿不到回显就别拿空值去覆盖线上数据），
+ * 只是作用面是**行级**的：
+ * - `true`（详情确实带了这个字段，或新增态）：**逐行原样回传** `skuImage` ——
+ *   空串就是"这行本来就没图"，原样提交不会改变任何东西（后端「不传/null = 不修改」，
+ *   而空串提交的是"确实是空的"，两者在**已回显**的前提下等价）；
+ * - `false`（老后端没下发该字段）⇒ **只提交商家本次真的动过的行**（设了图 or 点了清除）——
+ *   否则会把"我们不知道有没有图"当成"没有图"提交，把线上已有的规格图抹掉。
+ *
+ * ⚠️ 判据是**键是否存在**（`'skuImage' in sku`），**不是值**：`''` 是完全合法的值
+ * （该规格确实没配图），拿值判会把"确实没图"误判成"后端没下发"。
+ */
+const skuImageEchoed = ref(false)
+/** 正在上传规格图的规格（用**行对象**而不是下标：上传期间用户可能又改了别处）。 */
+const skuImageUploadingRow = ref<MerchantSkuItem | null>(null)
 
 // ===== 商品级「配送方式」开关（2026-09-22 新增，§7b②） =====
 /** 支持线下自提：1=支持, 0=不支持（新增态默认 1）。 */
@@ -171,12 +199,53 @@ onLoad((options) => {
 })
 
 onShow(() => {
-  // 规格页保存后把 skus 写回 storage，这里读取
+  // 规格页保存后把 skus 写回 storage，这里读取。
+  // ⚠️ 不能用「直接整体覆盖」：规格页只编辑 规格名/价格/库存，
+  //    而 `skuId`（后端定位规格行用）与 `skuImage`（规格图，后端语义「不传 = 不修改」）
+  //    都**不在它那一页的编辑范围**里 ⇒ 整体覆盖等于把两者一起丢掉。
+  //    合并规则见 `mergeSkusFromSpecPage`。
   const cached = uni.getStorageSync(SKUS_STORAGE_KEY) as MerchantSkuItem[] | ''
   if (Array.isArray(cached)) {
-    skus.value = cached
+    skus.value = mergeSkusFromSpecPage(skus.value, cached)
   }
 })
+
+/**
+ * 把**规格页返回的**规格行合并回本页的规格行。
+ *
+ * 每一行以 specs 页返回的 **specName / price / stock** 为准（用户就是在那里编辑的），
+ * 但 **`skuId` / `skuImage` 必须从本页原有行带过来**（见 `onShow`）：
+ * 规格页的输入事件是 `{ ...skus[index], xxx }`（保留 skuId / skuImage），
+ * 但它的 `onLoad` 只展开 `specName/price/stock`、`confirm()` 又 `filter` 增删行
+ * ⇒ **顺序一对一匹配是不可靠的**（将来谁改了规格页就会静默错位）。
+ * 这里按「先 id、再规格名、最后按下标」三级匹配，宁可保守也不乱配。
+ *
+ * ⚠️ 匹配不到的行（规格页新增的规格）没有 `skuId` ⇒ 后端会按 `specName` 新增/复用（正确行为）。
+ */
+function mergeSkusFromSpecPage(current: MerchantSkuItem[], incoming: MerchantSkuItem[]): MerchantSkuItem[] {
+  const byId = new Map<number, MerchantSkuItem>()
+  const byName = new Map<string, MerchantSkuItem>()
+  for (const row of current) {
+    if (typeof row.skuId === 'number' && Number.isFinite(row.skuId)) byId.set(row.skuId, row)
+    const key = String(row.specName || '').trim()
+    if (key && !byName.has(key)) byName.set(key, row)
+  }
+  return incoming.map((row, index) => {
+    const idKey = typeof row.skuId === 'number' && Number.isFinite(row.skuId) ? row.skuId : null
+    const nameKey = String(row.specName || '').trim()
+    const origin =
+      (idKey != null ? byId.get(idKey) : undefined) ??
+      (nameKey ? byName.get(nameKey) : undefined) ??
+      current[index]
+    return {
+      ...(origin && typeof origin.skuId === 'number' ? { skuId: origin.skuId } : {}),
+      ...(origin && typeof origin.skuImage === 'string' ? { skuImage: origin.skuImage } : {}),
+      specName: row.specName,
+      price: row.price,
+      stock: row.stock,
+    }
+  })
+}
 
 /**
  * 编辑模式：从列表页缓存（`EDIT_STORAGE_KEY`；列表页写入的是**整个列表行对象**）回填。
@@ -198,8 +267,19 @@ function fillFromEditCache(): void {
     // 兜底：万一后端未下发 mainImages（旧版本），至少保留单张，避免提交空数组
     mainImages.value = [cached.mainImage]
   }
-  skus.value = (cached.skus || []).map((s) => ({
+  // ⚠️ `skuId`（2026-10-09 修）与 `skuImage`（2026-10-09 新增）**必须一起读进来**：
+  //    · `skuId` 是后端**定位规格行**的依据，丢了它就只能按 `specName` 文本匹配
+  //      ⇒ 商家改个规格名就变成"新增规格"（旧行还在，越改越多）。此前这里只 map 了三个字段，
+  //      **skuId 被整批丢掉**：这是本次规格图功能暴露出来的**真实缺陷**（不只是本功能的问题）；
+  //    · `skuImage` 决定"这行要不要原样回传"（见 `skuImageEchoed`）。
+  // ⚠️ 判「后端有没有下发 skuImage」必须看**键是否存在**：`''` 也是合法值（该规格确实没图）。
+  const cachedSkus: MerchantSkuVO[] = Array.isArray(cached.skus) ? cached.skus : []
+  skuImageEchoed.value = !productId.value || cachedSkus.some((s) => 'skuImage' in s)
+  skus.value = cachedSkus.map((s) => ({
     // 列表返回的规格名字段是 `specName`（不是 skuName）：读错会让编辑时规格名回填为空，一提交就报「请填写规格名称」
+    ...(typeof s.skuId === 'number' && Number.isFinite(s.skuId) ? { skuId: s.skuId } : {}),
+    // 统一归一成字符串：UI 里"空串 = 未上传"，与后端的 null 是同一个意思（都不是一张真图）
+    ...(typeof s.skuImage === 'string' ? { skuImage: s.skuImage } : {}),
     specName: s.specName || '',
     price: Number(s.price) || 0,
     stock: Number(s.stock) || 0,
@@ -379,6 +459,78 @@ function removeImage(target: string[], index: number): void {
   target.splice(index, 1)
 }
 
+/**
+ * 某规格行是否**被商家动过图**（设过图，或点过「清除」）—— 决定这行要不要提交 `skuImage`。
+ *
+ * 三种状态必须分清（本页与中控的差别就在第 1 条）：
+ * 1. **没动过 ⇒ 整个字段不出现**。后端语义是「不传 / null = **不修改**」（不会清空已有图），
+ *    而中控那个「清除」按钮是**显式传空串**去清空 —— 本页的「清除」走的也是第 2 条，
+ *    与中控同口径。**没动过就绝不发空串**：那会变成"清空"，正好搞反。
+ * 2. **设/换过图 ⇒ 发 URL**（是空串以外的真 URL）。
+ * 3. **点过清除 ⇒ 发空串 `''`**（唯一能清空已有图的写法）。
+ *
+ * ⚠️ 判据只看**本行当前值是不是非空字符串**：本页所有写入口只有
+ * `onSkuImageChange`（写真实上传结果）与 `clearSkuImage`（写空串）——
+ * 因此"值非空" ⟺ "商家设过图"，不需要再加一个 touched 标志位
+ * （`clearSkuImage` 把值写回**原值**时确实是"清了个寂寞"，但那种情况只在已回显且原本就无图时出现，
+ *  此时该行**必然**已走上 `skuImageEchoed` 的逐行原样回传分支，结果一致）。
+ */
+function skuImageChanged(row: MerchantSkuItem): boolean {
+  return typeof row.skuImage === 'string' && row.skuImage !== ''
+}
+
+/**
+ * 上传某规格的规格图（走既有通用上传通道 `POST /api/common/upload`，C 端 token 有效）。
+ *
+ * - 成功：写回**该行**的 `skuImage`（用行对象引用，不用下标：上传期间列表可能已被改动）；
+ * - 失败：**不改动**原值（宁可没有图，也不留一个来路不明的 URL）；
+ * - ⛔ **空图 = 没有图**：不上传、也不填占位图 URL（未上传时界面显示「未上传」文案）。
+ */
+async function onSkuImageChange(row: MerchantSkuItem): Promise<void> {
+  // 全局只允许一个上传在跑（`uploading` 同时驱动底部保存按钮的 disabled）
+  if (uploading.value) {
+    uni.showToast({ title: '有图片正在上传，请稍候', icon: 'none' })
+    return
+  }
+  let paths: string[] = []
+  try {
+    const res = await uni.chooseImage({ count: 1, sizeType: ['compressed'] })
+    paths = res.tempFilePaths || []
+  } catch {
+    // 用户取消选图：**静默返回**（不是错误）
+    return
+  }
+  const tempPath = paths[0]
+  if (!tempPath) return
+  skuImageUploadingRow.value = row
+  uploading.value = true
+  try {
+    const url = await uploadFile(tempPath)
+    // ⛔ 上传成功但拿到空串：**不写**。空串会被后端理解成"清空该行规格图"，
+    //    而这次动作明明是"上传"，语义正好相反（拿不到真 URL 就该如实报错，不伪造也不误清）。
+    if (!url) {
+      uni.showToast({ title: '上传未返回图片地址，请重试', icon: 'none' })
+      return
+    }
+    row.skuImage = url
+    uni.showToast({ title: '规格图已上传，保存商品后生效', icon: 'none' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '规格图上传失败', icon: 'none' })
+  } finally {
+    skuImageUploadingRow.value = null
+    uploading.value = false
+  }
+}
+
+/**
+ * 清除某规格的规格图 —— 置为**空串**（= 没有规格图），走的是后端「不传/null = 不修改」之外
+ * 的**显式清空**语义（与中控「清除」按钮同口径）。
+ * ⛔ 不填占位图 / 默认图；真正落库发生在点保存时。
+ */
+function clearSkuImage(row: MerchantSkuItem): void {
+  row.skuImage = ''
+}
+
 // ===== 规格入口 =====
 function goSpec(): void {
   // 把当前 skus 传给规格页
@@ -420,7 +572,18 @@ function buildPayload(): MerchantProductSaveDTO {
       const specName = s.specName.trim()
       // 规格名两个字段名都带同值：商家端生效的是 specName（2026-09-19 实测），
       // 平台端 2026-09-22 起对 skuName 加了 @NotBlank 强校验（§7b①）；后端忽略未知字段，多带同值不影响
-      return { specName, skuName: specName, price: s.price, stock: s.stock }
+      const row: MerchantSkuSaveItem = { specName, skuName: specName, price: s.price, stock: s.stock }
+      // ⚠️ `skuId`（2026-10-09 修）：后端**优先按它定位规格行**；不带就只能按 `specName` 文本匹配
+      //    ⇒ 改了规格名的行会被当成**新增规格**（旧行留着，越改越多）。回显到了就原样带上，
+      //    新增规格（本就没有 id）自然不带。
+      if (typeof s.skuId === 'number' && Number.isFinite(s.skuId)) row.skuId = s.skuId
+      // ⚠️ `skuImage`（2026-10-09 新增）：三种状态 —— 没动过（**整个字段不出现**）/ 设了图（发 URL）
+      //    / 点过清除（发**空串**）。见 `skuImageChanged` 的注释。
+      //    `skuImageEchoed` 分支：详情**确实回显到了**该字段 ⇒ 逐行原样回传（空串也是原样，
+      //    语义上"这行本来就没图"，不会清掉任何东西）；详情**没回显**时只发商家真动过的行，
+      //    免得把"我们不知道有没有图"当成"没有图"提交、抹掉线上已有的规格图。
+      if (skuImageChanged(s) || skuImageEchoed.value) row.skuImage = String(s.skuImage ?? '')
+      return row
     }),
   }
   const desc = description.value.trim()
@@ -613,6 +776,42 @@ function goBack(): void {
             </view>
             <view v-if="detailImages.length < 5" class="upload-box small add" @click="chooseDetailImages">
               <text class="add-icon">+</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 卡 2b：**按规格上传规格图**（2026-10-09 W14 新增）
+           契约：读 `MerchantProductSkuVO.skuImage` / 写 `MerchantProductSkuItem.skuImage`，
+           与中控写的是**同一列** `product_sku.sku_image`（中控写、商家写、C 端详情读的是同一张图）。
+           ⚠️ 三条口径（写进模板注释，防止后人"顺手"改坏）：
+             ① 后端更新语义是「**不传 / null = 不修改**」（不会清空已有图）
+                ⇒ 没动过的行**整个字段不出现**（见 `skuImageChanged` / `buildPayload`）；
+             ② 本页「清除」= 显式传**空串**（与中控「清除」按钮同口径），没点过清除绝不发空串；
+             ③ 空图 = **没有图** ⇒ 只显示「未上传」文案，⛔ 绝不填占位图 / 默认图 URL。 -->
+      <view class="card">
+        <view class="field-label">
+          <text class="label-text">规格图</text>
+          <text class="label-sub">（按规格上传，可留空）</text>
+        </view>
+        <view v-if="!skus.length" class="sku-image-note">
+          <text>请先添加规格，再为每个规格上传图片</text>
+        </view>
+        <view v-for="(sku, index) in skus" :key="'skuimg-' + (sku.skuId ?? index)" class="sku-image-row">
+          <view class="sku-image-box">
+            <image v-if="sku.skuImage" class="sku-image-thumb" :src="sku.skuImage" mode="aspectFill" />
+            <text v-else class="sku-image-empty">未上传</text>
+          </view>
+          <view class="sku-image-copy">
+            <text class="sku-image-name">{{ sku.specName || '未命名规格' }}</text>
+            <text class="sku-image-hint">未设置时 C 端规格弹框回退商品主图</text>
+          </view>
+          <view class="sku-image-actions">
+            <view class="sku-image-btn" @click="onSkuImageChange(sku)">
+              <text>{{ skuImageUploadingRow === sku ? '上传中' : sku.skuImage ? '更换' : '上传' }}</text>
+            </view>
+            <view v-if="sku.skuImage" class="sku-image-clear" @click="clearSkuImage(sku)">
+              <text>清除</text>
             </view>
           </view>
         </view>
@@ -925,6 +1124,74 @@ function goBack(): void {
   gap: 15rpx;
   margin-top: 15rpx;
   flex-wrap: wrap;
+}
+
+/* 规格图（按规格上传，2026-10-09 新增）：一行一规格，左侧缩略图 / 未上传文案 */
+.sku-image-note {
+  margin-top: 15rpx;
+  color: #86909c;
+  font-size: 25rpx;
+}
+.sku-image-row {
+  display: flex;
+  align-items: center;
+  gap: 19rpx;
+  margin-top: 23rpx;
+}
+.sku-image-box {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 119rpx;
+  height: 119rpx;
+  border-radius: 15rpx;
+  background: #f6f7f9;
+  overflow: hidden;
+}
+.sku-image-thumb {
+  width: 100%;
+  height: 100%;
+}
+.sku-image-empty {
+  color: #86909c;
+  font-size: 23rpx;
+}
+.sku-image-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.sku-image-name {
+  color: #1d2129;
+  font-size: 27rpx;
+  font-weight: 500;
+}
+.sku-image-hint {
+  color: #86909c;
+  font-size: 23rpx;
+  line-height: 34rpx;
+}
+.sku-image-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+}
+.sku-image-btn {
+  padding: 10rpx 23rpx;
+  border-radius: 12rpx;
+  background: #f6f7f9;
+  color: #1d2129;
+  font-size: 25rpx;
+}
+.sku-image-clear {
+  padding: 4rpx 23rpx;
+  color: #f53f3f;
+  font-size: 25rpx;
 }
 
 /* 商品级「让利比例」（2026-10-08 新增）：输入框做出可见的框，与纯文本字段区分开 */
