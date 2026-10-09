@@ -840,7 +840,8 @@ onShow(() => { void refreshData() })
           <view class="order-grid-inner">
             <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
               <!-- ⚠️ 2026-10-09：图标由本地切图改为 **iconfont 字体图标**（`app-icon-*`，字体在 styles/rider-iconfont.wxss）。
-                   仍是 80.15rpx 见方的占位盒，只是把「图」换成「字形」—— 尺寸/间距/纵向节奏不变（见下方 .order-icon-font）。
+                   仍是 80.15rpx 见方的占位盒，只是把「图」换成「字形」—— 盒尺寸/间距/纵向节奏不变；
+                   盒内字形字号为 64rpx（真机反馈 80.15rpx 偏大后下调，见下方 .order-icon-font）。
                    缺字形（app-icon-* 未定义）时盒子里是空白，不再有旧的灰色占位块兜底。 -->
               <text class="order-icon order-icon-font app-icon" :class="entry.icon" aria-hidden="true" />
               <text class="order-label">{{ entry.label }}</text>
@@ -1010,7 +1011,7 @@ onShow(() => { void refreshData() })
    ⚠️ 2026-10-09：入口改成 5 项（待付款/待收货/待自提/售后/全部）后，最长的 label 是 3 个字，
    按 26.72rpx 字号算「装得下」，但**容器与自适应规则一律保留** —— 它是"多一项/文案变长就自动兜底"
    的安全网（5 项在窄屏 + 大字号系统设置下仍可能超宽），拆掉等于把这层兜底丢了。
-   ⚠️ scroll-view 必须有确定高度否则会塌陷，这里按「图标 80.15 + 间距 16 + 文字行高」留足。 */
+   ⚠️ scroll-view 必须有确定高度否则会塌陷，这里按「图标盒 80.15 + 间距 16 + 文字行高」留足。 */
 .order-grid { width: 100%; height: 152rpx; box-sizing: border-box; padding: 24rpx 38.17rpx 0; white-space: nowrap; }
 .order-grid-inner { display: inline-flex; min-width: 100%; box-sizing: border-box; justify-content: space-between; gap: 20rpx; }
 .order-item { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; }
@@ -1022,17 +1023,24 @@ onShow(() => { void refreshData() })
    · `line-height: 80.15rpx` + `text-align: center` —— 把字形**在 80.15rpx 的盒子里居中**。
      字形本身没有 <image> 的固有尺寸问题，但字体默认行高（约 1.2em）会把这一行悄悄撑高
      24rpx 左右 ⇒ 整行下移、与下方「公告 / 功能菜单」的间距跟着变。这里显式钉成盒高，纵向节奏与切图版一致。
-   · `font-size: 80.15rpx`（= 盒宽）—— 依据**实测**取值。把新 ttf 的 5 个字形按本规则
-     （`line-height: 80.15rpx` + `text-align: center`）渲染后**逐像素量测**（Pillow，4× 放大再折回 rpx）：
-       墨迹 64.0–72.2rpx 宽 × 57.5–68.2rpx 高，**全部落在 80.15rpx 的盒子里**（横向最大 72.2 < 80.15，
-       两侧各留 ≈4rpx 内边距），水平/垂直中心偏差 ≤0.33rpx（无需 translateY 校正）。
-       被替换掉的 5 张切图墨迹为 56.3–76.3 × 66.8–78.2rpx、面积 4403–5097rpx²；
-       80.15rpx 下字形面积 3680–4223rpx²（约小 13%，是"绝不溢出盒子"前提下的最大取值）。
+   · `font-size: 64rpx`（**小于**盒宽 80.15rpx，≈ 盒宽的 80%）—— 依据**实测**取值；
+     2026-10-09 首版取的是盒宽 80.15rpx（"绝不横向溢出"前提下的极大值），真机反馈
+     「大小有点太大了，需要小一点」⇒ 下调到 64rpx。
+     量测方法（两轮相同）：把新 ttf 的 5 个字形按本规则（`line-height: 80.15rpx` + `text-align: center`）
+     渲染后**逐像素量测**（Pillow，4× 放大再折回 rpx）：
+       · **64rpx（当前值）**：墨迹 50.8–57.8rpx 宽 × 46.0–54.8rpx 高，只占盒宽 63–72%（四周留白明显）；
+         水平中心偏差 ≤0.25rpx、垂直 ≤0.12rpx（无需 translateY 校正）。
+       · **80.15rpx（首版，已弃用；以下数字标注为「80.15rpx 时的量测」）**：
+         墨迹 64.0–72.2rpx 宽 × 57.5–68.2rpx 高（2026-10-09 首版记录值；本次复测 57.8–68.5，差 ≤0.3rpx），
+         横向最大 72.2 < 80.15 ⇒ **当时也没有溢出**、两侧各留 ≈4rpx 内边距。
+         被替换掉的 5 张切图墨迹为 56.3–76.3 × 66.8–78.2rpx ⇒ 首版字形已略小于切图，
+         但真机观感仍偏大，故再降到 64rpx。
      ⚠️ 这 5 个字形在字体里都是**满 em 宽**（advance = 1em）、墨迹只占 em 的 0.79–0.90，
-     所以 font-size 取到盒宽也不会横向溢出 —— 但**再往上调就会溢出盒子**，别调大。
+     所以字号取到盒宽也不会横向溢出（按实测比例推算要约 89rpx 起才溢出）——
+     但**别据此调大**：64rpx 才是真机反馈认可的值。
    · 选择器写成两段是为了稳过 `.app-icon { line-height: 1 }`（同权重时页面样式虽在后，
      但两段权重更高，不依赖 app.wxss / page.wxss 的加载顺序）。 */
-.order-icon.order-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 80.15rpx; line-height: 80.15rpx; text-align: center; }
+.order-icon.order-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 64rpx; line-height: 80.15rpx; text-align: center; }
 .order-label { margin-top: 16rpx; color: #1E1E1E; font-size: 26.72rpx; font-weight: 500; white-space: nowrap; }
 
 .announcement-bar { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 38.17rpx; background: #fff; border-bottom: 22.9rpx solid #f5f5f5; }
