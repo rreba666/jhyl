@@ -70,24 +70,43 @@ const announcements = ref<Announcement[]>([])
 const announcementVisible = ref(false)
 const activeAnnouncement = ref<Announcement | null>(null)
 
-// 仅映射设计稿中已有的本地切图，缺失资源的条目由模板保留占位块。
+/**
+ * 「我的订单」入口（5 项）。
+ *
+ * ⚠️ 2026-10-09 改造（用户确认）：
+ *   1. 图标由**本地切图**（`/static/my/*_slices/`）换成 **iconfont 字体图标** —— `icon` 字段现在存的是
+ *      `styles/rider-iconfont.wxss` 里的 `app-icon-*` 类名，模板把该类名**动态绑到** `<text class="app-icon">` 上渲染。
+ *      原 5 个切图目录已确认无其它引用，已删除（字体本身与 19 个既有 `rider-icon-*` 字形共用同一个 ttf）。
+ *   2. 「待发货」入口**下线**（与「待收货」同属 delivery 模块，用户只要 5 项）。
+ *   3. 「退款/售后」文案收短为「**售后**」（键名也从 `completed` 改为 `aftersale`，与模块键同名，一眼对得上）。
+ *   4. 新增「**全部**」：与右上角「全部 >」**同一目的地**（订单列表全量、不带筛选）——
+ *      用户明确「其他的不变」，故右上角那个入口原样保留；两处指向同一页是有意为之，不是重复。
+ */
 const orderEntries = [
-  { key: 'pending', label: '待付款', icon: '/static/my/待付款_slices/待付款.png' },
-  { key: 'shipped', label: '待发货', icon: '/static/my/待发货_slices/待发货.jpg' },
-  { key: 'received', label: '待收货', icon: '/static/my/待收货_slices/待收货.jpg' },
-  { key: 'pickup', label: '待自提', icon: '/static/my/待自提_slices/待自提.jpg' },
-  { key: 'completed', label: '退款/售后', icon: '/static/my/售后_slices/售后.jpg' },
+  { key: 'pending', label: '待付款', icon: 'app-icon-daifukuan' },
+  { key: 'received', label: '待收货', icon: 'app-icon-daishouhuo' },
+  { key: 'pickup', label: '待自提', icon: 'app-icon-daiziti' },
+  { key: 'aftersale', label: '售后', icon: 'app-icon-shouhou' },
+  { key: 'all', label: '全部', icon: 'app-icon-quanbu' },
 ]
 
-/** 订单入口可见性按模块开关过滤：待发货/待收货→delivery，待自提→pickup，退款/售后→aftersale，待付款→basic 恒开。 */
+/**
+ * 订单入口可见性按模块开关过滤：待收货→delivery，待自提→pickup，售后→aftersale，待付款/全部→basic（恒开）。
+ *
+ * ⚠️ 模块键**只能用 `utils/config.ts` 里已有的**（basic / delivery / pickup / samecity / wallet /
+ *    promotion / aftersale / invoice / merchant），不要为新入口新造 key。
+ * ⚠️ 「全部」= 订单列表**全量**入口，订单列表本身不设任何模块闸门 ⇒ 用恒开的 `basic`：
+ *    它既不属于物流(delivery)也不属于自提(pickup)/售后(aftersale)，挂到任何一个业务模块上都会
+ *    因为「别的模块被关掉」而连带消失，那是错的。
+ */
 const visibleOrderEntries = computed(() => {
   const modules = moduleConfig.value
   const moduleOf: Record<string, string> = {
     pending: 'basic',
-    shipped: 'delivery',
     received: 'delivery',
     pickup: 'pickup',
-    completed: 'aftersale',
+    aftersale: 'aftersale',
+    all: 'basic',
   }
   return orderEntries.filter((entry) => isModuleEnabled(modules, moduleOf[entry.key] || 'basic'))
 })
@@ -397,19 +416,20 @@ function goOrder(key: string): void {
     showLoginGuide()
     return
   }
-  if (key === 'completed') {
-    // 退款售后入口直接落到订单列表的「退款售后」分类
+  // 售后入口直接落到订单列表的「退款售后」分类（键名与上方的模块键一致）
+  if (key === 'aftersale') {
     uni.navigateTo({ url: '/subpkg-order/orders/list?tab=aftersale' })
     return
   }
-  // 待发货(status=1,物流) 与 待自提(status=1,自提) 用 pickupType 区分
+  // ⚠️ 2026-10-09：「待发货」入口已下线，它原有的 deeplink 映射（物流 status=1 + pickupType=0）随之删除
+  //    （`status=1` 现在只由「待自提」用 `pickupType=1` 表达）；待收货(status=2)。
   const tabMap: Record<string, { status?: number; pickupType?: number }> = {
     pending: { status: 0 },
-    shipped: { status: 1, pickupType: 0 },
     received: { status: 2 },
     pickup: { status: 1, pickupType: 1 },
   }
   const target = tabMap[key]
+  // key='all'（及任何未映射的 key）→ 订单列表**全量**，与右上角「全部 >」同一目的地（goAllOrders 的 url 必须一致）
   if (!target || target.status === undefined) { uni.navigateTo({ url: '/subpkg-order/orders/list' }); return }
   const pickup = target.pickupType !== undefined ? `&pickupType=${target.pickupType}` : ''
   uni.navigateTo({ url: `/subpkg-order/orders/list?status=${target.status}${pickup}` })
@@ -819,8 +839,10 @@ onShow(() => { void refreshData() })
         >
           <view class="order-grid-inner">
             <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
-              <image v-if="entry.icon" class="order-icon order-icon-image" :src="entry.icon" mode="aspectFit" />
-              <view v-else class="order-icon" />
+              <!-- ⚠️ 2026-10-09：图标由本地切图改为 **iconfont 字体图标**（`app-icon-*`，字体在 styles/rider-iconfont.wxss）。
+                   仍是 80.15rpx 见方的占位盒，只是把「图」换成「字形」—— 尺寸/间距/纵向节奏不变（见下方 .order-icon-font）。
+                   缺字形（app-icon-* 未定义）时盒子里是空白，不再有旧的灰色占位块兜底。 -->
+              <text class="order-icon order-icon-font app-icon" :class="entry.icon" aria-hidden="true" />
               <text class="order-label">{{ entry.label }}</text>
             </view>
           </view>
@@ -985,6 +1007,9 @@ onShow(() => { void refreshData() })
 /* ⚠️ 2026-09-29 订单入口改为横向滚动容器（原来这里是 flex + space-between 的等分栅格）。
    原因：「退款/售后」有 5 个字、宽度超过固定 80.15rpx ⇒ label 折行，看起来像"两排"。
    现在 item 宽度自适应内容：内容总宽 < 屏宽时仍靠 space-between 均分铺满，超出时即可左右滑动。
+   ⚠️ 2026-10-09：入口改成 5 项（待付款/待收货/待自提/售后/全部）后，最长的 label 是 3 个字，
+   按 26.72rpx 字号算「装得下」，但**容器与自适应规则一律保留** —— 它是"多一项/文案变长就自动兜底"
+   的安全网（5 项在窄屏 + 大字号系统设置下仍可能超宽），拆掉等于把这层兜底丢了。
    ⚠️ scroll-view 必须有确定高度否则会塌陷，这里按「图标 80.15 + 间距 16 + 文字行高」留足。 */
 .order-grid { width: 100%; height: 152rpx; box-sizing: border-box; padding: 24rpx 38.17rpx 0; white-space: nowrap; }
 .order-grid-inner { display: inline-flex; min-width: 100%; box-sizing: border-box; justify-content: space-between; gap: 20rpx; }
@@ -992,7 +1017,22 @@ onShow(() => { void refreshData() })
 /* 点击反馈：轻微缩放 + 变淡，让"点到了"更可感知（配合问题三的交互动效） */
 .order-item:active { opacity: .6; transform: scale(.94); }
 .order-icon { width: 80.15rpx; height: 80.15rpx; background: #d8d8d8; }
-.order-icon-image { background: transparent; }
+/* ⚠️ 2026-10-09 由切图（<image>）改为 iconfont 字形（<text>），这条规则替掉原 `.order-icon-image`：
+   · `background: transparent` —— 去掉 .order-icon 的灰色占位底；
+   · `line-height: 80.15rpx` + `text-align: center` —— 把字形**在 80.15rpx 的盒子里居中**。
+     字形本身没有 <image> 的固有尺寸问题，但字体默认行高（约 1.2em）会把这一行悄悄撑高
+     24rpx 左右 ⇒ 整行下移、与下方「公告 / 功能菜单」的间距跟着变。这里显式钉成盒高，纵向节奏与切图版一致。
+   · `font-size: 80.15rpx`（= 盒宽）—— 依据**实测**取值。把新 ttf 的 5 个字形按本规则
+     （`line-height: 80.15rpx` + `text-align: center`）渲染后**逐像素量测**（Pillow，4× 放大再折回 rpx）：
+       墨迹 64.0–72.2rpx 宽 × 57.5–68.2rpx 高，**全部落在 80.15rpx 的盒子里**（横向最大 72.2 < 80.15，
+       两侧各留 ≈4rpx 内边距），水平/垂直中心偏差 ≤0.33rpx（无需 translateY 校正）。
+       被替换掉的 5 张切图墨迹为 56.3–76.3 × 66.8–78.2rpx、面积 4403–5097rpx²；
+       80.15rpx 下字形面积 3680–4223rpx²（约小 13%，是"绝不溢出盒子"前提下的最大取值）。
+     ⚠️ 这 5 个字形在字体里都是**满 em 宽**（advance = 1em）、墨迹只占 em 的 0.79–0.90，
+     所以 font-size 取到盒宽也不会横向溢出 —— 但**再往上调就会溢出盒子**，别调大。
+   · 选择器写成两段是为了稳过 `.app-icon { line-height: 1 }`（同权重时页面样式虽在后，
+     但两段权重更高，不依赖 app.wxss / page.wxss 的加载顺序）。 */
+.order-icon.order-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 80.15rpx; line-height: 80.15rpx; text-align: center; }
 .order-label { margin-top: 16rpx; color: #1E1E1E; font-size: 26.72rpx; font-weight: 500; white-space: nowrap; }
 
 .announcement-bar { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 38.17rpx; background: #fff; border-bottom: 22.9rpx solid #f5f5f5; }

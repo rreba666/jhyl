@@ -18,10 +18,6 @@
   "simulatorPluginLibVersion": {},
   "packOptions": {
     "ignore": [
-      { "type": "file", "value": "static/my/待发货_slices/待发货@2x.jpg" },
-      { "type": "file", "value": "static/my/待付款_slices/待付款@2x.png" },
-      { "type": "file", "value": "static/my/待收货_slices/待收货@2x.jpg" },
-      { "type": "file", "value": "static/my/待自提_slices/待自提@2x.jpg" },
       { "type": "file", "value": "static/my/关于我们_slices/关于我们@2x.png" },
       { "type": "file", "value": "static/my/客服_slices/客服@2x.png" },
       { "type": "file", "value": "static/my/商品素材_slices/商品素材@2x.png" },
