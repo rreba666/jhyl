@@ -40,6 +40,24 @@ export interface MerchantApplyDTO {
   idCardFrontImage?: string
   /** 身份证反面照 URL。 */
   idCardBackImage?: string
+  /**
+   * **商户级（品牌级）让利比例（%）** —— **选填**；**不传 = 用后端（平台）默认**，
+   * 传了则参与结算（按订单快照，只影响之后新下的订单）。
+   *
+   * ⚠️ 与商品级是**不同层级**：`MerchantProductSaveDTO.commissionRate` 是**商品级**（只能更细），
+   *    这一条是**商户/品牌级**（对商户下所有门店生效）—— 两级**不得混用同一份文案/文案常量**
+   *    （商品级有「物流专用 → 品牌级 → 平台默认」链，商户级**没有上级**）。
+   * ⚠️ **入驻是新建申请**（驳回后重提也是**新建一条申请单**）⇒ 这里**没有**「不传 = 不修改」的语义：
+   *    留空 = 整个字段不提交 = 后端按平台默认结算；**绝不**兜底成 `0` / `null`（那是伪造数据）。
+   * ⚠️ 2026-10 核对 `api_doc.json`（**未定论，等后端确认**）：`commissionRate`（选填，3~20，
+   *    "商户级让利比例（%）…参与结算"）定义在 **`MerchantRegisterDTO`**，而它属于**另一个端点**
+   *    `POST /api/public/merchant/register`（"商家注册开店"，公开注册）；本页走的
+   *    `POST /api/merchant/apply` 的 **`MerchantApplyDTO` 在 api_doc 里没有声明该字段**。
+   *    ⇒ 若后端确实不认这个字段：Spring 默认**忽略未知字段**（不报错），该值会被**静默丢弃**
+   *      ⇒ 商家会以为已设置成功。实测结论见 `docs/logs/`（或本文件所在提交的报告）；
+   *      后端确认支持/补齐后，本段注释即可删。
+   */
+  commissionRate?: number
   remark?: string
 }
 

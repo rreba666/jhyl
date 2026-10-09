@@ -15,6 +15,15 @@
  *    ⇒ 此时**不渲染**预览（不展示 ¥0）。预览**必须**带 {@link PRODUCT_COMMISSION_ESTIMATE_NOTE}。
  *
  * ⚠️ 商品级比例**只影响之后新下的订单**（下单快照原则），已下单/已结算的订单不变。
+ *
+ * ## 本模块同时管**商户级（品牌级）**让利比例的口径（2026-10 新增，商家入驻页）
+ * 两级用的是**同一份**区间 / 解析 / 校验 / 越界文案（同一个后端错误码 `13018`）：
+ * - **商品级**（`MerchantProductSaveDTO.commissionRate`）：未设置时按「物流专用 → 品牌级 → 平台默认」链；
+ * - **商户级**（入驻页 `MerchantApplyDTO.commissionRate`）：**没有上级**，留空就是平台默认。
+ * ⇒ 数值实现**只有一份**（下面的 `PRODUCT_COMMISSION_RATE_MIN/MAX` +
+ *   `parseProductCommissionRateInput` / `validateProductCommissionRate`）；
+ *   但**用户可见文案按层级分开**（`PRODUCT_COMMISSION_*` 与文末的 `MERCHANT_COMMISSION_*`），
+ *   因为「有没有上级」这件事两级不同，**两级的文案不得互相粘贴**。
  */
 
 /** 允许区间下限（%）。契约：越界（如 2.99）报 `13018`。 */
@@ -135,4 +144,52 @@ export function productCommissionPreviewText(
   const price = Number(minPrice)
   if (!Number.isFinite(price) || price <= 0) return head
   return `${head}、你可得 ¥${(Math.round(price * 100) / 100 - amount).toFixed(2)}`
+}
+
+// ===========================================================================
+// 商户级（品牌级）让利比例 —— 商家入驻页（`subpkg-merchant/apply/apply.vue`）
+// ===========================================================================
+//
+// ⚠️ 与上面的**商品级**是**不同层级**：商户级对商户下所有门店生效（后台「设置商户让利比例」改的就是这个），
+//    商品级只能在其之下再细化。**区间 / 解析 / 校验 / 越界文案两层共用上面那一份实现，不得各写一份。**
+// ⚠️ 文案必须分开：商品级写「按上级/平台默认 3%」是因为它有「物流专用 → 品牌级 → 平台默认」链；
+//    商户级**没有上级**，只有平台默认 ⇒ 这里只说「平台默认让利比例」；且**不写死 3%**
+//    （平台默认值由后台「系统配置管理」维护，前端不替后端宣布数值）。
+// ⚠️ 入驻是**新建**申请（驳回后重提也是新建一条申请单）⇒ 这里**没有**「不传 = 不修改」的语义：
+//    输入框留空 = 该字段**整个不提交** = 后端按平台默认结算（**不是** 0，也不是「不参与结算」）。
+
+/** 入驻页输入框占位（留空 = 用平台默认，不是让利 0）。 */
+export const MERCHANT_COMMISSION_RATE_INPUT_PLACEHOLDER = '选填，如 5.5；留空按平台默认'
+
+/** 入驻页字段说明：把「留空 = 平台默认」讲明白（商户级没有上级，故不提「上级」）。 */
+export const MERCHANT_COMMISSION_RATE_OPTIONAL_NOTE = '选填：留空 = 按平台默认让利比例结算'
+
+/** 入驻页快照说明（必须展示：商家要知道这个比例只影响之后的订单）。 */
+export const MERCHANT_COMMISSION_RATE_SNAPSHOT_NOTE = '按订单快照，只影响之后新下的订单'
+
+/** 商户级越界文案 —— 与后端 `13018` 的 message 逐字一致（**引用**商品级那一份，不复制字面量）。 */
+export const MERCHANT_COMMISSION_RATE_RANGE_TEXT = PRODUCT_COMMISSION_RATE_RANGE_TEXT
+
+/** 商户级越界错误码 —— 与商品级是同一个后端码 `13018`（**引用**，不复制字面量）。 */
+export const MERCHANT_COMMISSION_RATE_ERROR_CODE = PRODUCT_COMMISSION_RATE_ERROR_CODE
+
+/** 商户级解析结果（与商品级同一形状；换个名字只为调用点不出现「Product」）。 */
+export type MerchantCommissionRateParse = ProductCommissionRateParse
+
+/**
+ * 解析商户级（入驻页）输入框文本 —— 与商品级**同一套解析**（同一区间、同一取整规则、同一越界判定）。
+ *
+ * - 空白（`''` / `null` / `undefined`）⇒ `unset` ⇒ 调用方**省略** `commissionRate` 字段（后端按平台默认）；
+ * - 越界 / 非法 ⇒ `invalid`；
+ * - 否则 ⇒ `value`。
+ */
+export function parseMerchantCommissionRateInput(
+  text: string | number | null | undefined,
+): MerchantCommissionRateParse {
+  return parseProductCommissionRateInput(text)
+}
+
+/** 商户级提交前本地校验（`13018` 同一句话）。返回 `null` = 通过，否则返回可直接展示的文案。 */
+export function validateMerchantCommissionRate(text: string | number | null | undefined): string | null {
+  return validateProductCommissionRate(text)
 }

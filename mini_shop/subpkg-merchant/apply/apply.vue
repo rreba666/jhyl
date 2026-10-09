@@ -10,6 +10,19 @@ import {
   CERTIFICATE_IMAGE_COMPRESS,
   SHOP_IMAGE_COMPRESS,
 } from '@/utils/image-compress'
+// ⚠️ 2026-10 新增：**商户级（品牌级）**让利比例 —— 区间 / 解析 / 校验 / 越界文案**全部**复用
+//    `@/utils/product-commission`（同一个后端错误码 13018，本页**不重写**任何 3/20 字面量或文案）；
+//    ⛔ 用户可见文案**只用商户级那一套** `MERCHANT_COMMISSION_*`（其值就定义在同一个模块里）：
+//    商户级没有可回退的上一级，商品级编辑页那套「未设置」文案搬过来就是错的。
+import {
+  MERCHANT_COMMISSION_RATE_ERROR_CODE,
+  MERCHANT_COMMISSION_RATE_INPUT_PLACEHOLDER,
+  MERCHANT_COMMISSION_RATE_OPTIONAL_NOTE,
+  MERCHANT_COMMISSION_RATE_RANGE_TEXT,
+  MERCHANT_COMMISSION_RATE_SNAPSHOT_NOTE,
+  parseMerchantCommissionRateInput,
+  validateMerchantCommissionRate,
+} from '@/utils/product-commission'
 
 /** 我的申请单（null = 未提交过，展示表单）。 */
 const apply = ref<MerchantApplyVO | null>(null)
@@ -50,6 +63,16 @@ const form = ref({
   idCard: '',
   idCardFrontImage: '',
   idCardBackImage: '',
+  /**
+   * **商户级（品牌级）让利比例（%）**：**选填**，留空 = 该字段**整个不进请求体** ⇒ 后端按平台默认结算。
+   *
+   * ⚠️ 这里存的是**输入框原文**（字符串），提交时才解析成数字 ⇒ 「清空输入框」自然回到「不提交」，
+   *    谁也没机会给它兜一个 `0`（兜 0 = 伪造数据，本仓库硬红线）。
+   * ⚠️ 与商品级比例是**不同层级**（商户级对商户下所有门店生效），文案/常量见 `utils/product-commission.ts`。
+   * ⚠️ 入驻是**新建**申请（驳回后重提也是新建一条申请单，且后端不回显该字段）⇒
+   *    这里**没有**「不传 = 不修改」的语义：留空就是留空（= 用平台默认）。
+   */
+  commissionRate: '',
   remark: '',
 })
 
@@ -221,6 +244,14 @@ async function submit(): Promise<void> {
     uni.showToast({ title: '请上传身份证正反面照片', icon: 'none' })
     return
   }
+  // 商户级让利比例（选填）：越界**在本地就拦**，用后端 13018 同一句话（文案单一出口在 utils）。
+  const commissionError = validateMerchantCommissionRate(form.value.commissionRate)
+  if (commissionError) {
+    uni.showToast({ title: commissionError, icon: 'none' })
+    return
+  }
+  // 只有「解析出有效值」才会把这个键放进请求体（留空 ⇒ unset ⇒ 不加键 ⇒ 后端用平台默认）。
+  const commissionParsed = parseMerchantCommissionRateInput(form.value.commissionRate)
   submitting.value = true
   try {
     apply.value = await submitMerchantApply({
@@ -241,6 +272,9 @@ async function submit(): Promise<void> {
       idCard: idCardResult.value,
       idCardFrontImage: form.value.idCardFrontImage,
       idCardBackImage: form.value.idCardBackImage,
+      // 商户级让利比例：**有条件地**加这个键 —— 留空时展开的是 `{}`，请求体里**没有** commissionRate
+      // （后端按平台默认结算）。⛔ 绝不给它兜底成 `0` / `null` —— 那是伪造数据。
+      ...(commissionParsed.kind === 'value' ? { commissionRate: commissionParsed.value } : {}),
       remark: form.value.remark.trim() || undefined,
     })
     showForm.value = false
@@ -255,6 +289,9 @@ async function submit(): Promise<void> {
       await loadApply()
     } else if (code === 7316) {
       uni.showModal({ title: '无法入驻', content: '该微信已属于其它商家，如需变更请联系客服。', showCancel: false })
+    } else if (code === MERCHANT_COMMISSION_RATE_ERROR_CODE) {
+      // 后端 13018：与本地校验同一句话（文案单一出口在 utils/product-commission.ts，不在这里重写）
+      uni.showToast({ title: MERCHANT_COMMISSION_RATE_RANGE_TEXT, icon: 'none' })
     } else if (code === 7311) {
       brandError.value = message || '品牌名已存在，请更换'
     } else {
@@ -376,6 +413,14 @@ function goBack(): void {
           </view>
           <text class="field-hint">仅用于平台资质核验</text>
         </view>
+
+        <!-- 商户级让利比例（选填）：留空 ⇒ 该字段整个不提交 ⇒ 后端按平台默认结算（不是 0，也不是"不参与结算"） -->
+        <label class="field">
+          <text class="field-label">让利比例（%）</text>
+          <input v-model="form.commissionRate" class="field-input" type="digit" :placeholder="MERCHANT_COMMISSION_RATE_INPUT_PLACEHOLDER" />
+          <text class="field-hint">{{ MERCHANT_COMMISSION_RATE_OPTIONAL_NOTE }}</text>
+          <text class="field-hint">{{ MERCHANT_COMMISSION_RATE_SNAPSHOT_NOTE }}</text>
+        </label>
 
         <label class="field"><text class="field-label">申请备注</text><input v-model="form.remark" class="field-input" placeholder="可选，如：希望尽快审核" /></label>
 
