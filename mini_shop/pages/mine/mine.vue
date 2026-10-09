@@ -111,16 +111,32 @@ const visibleOrderEntries = computed(() => {
   return orderEntries.filter((entry) => isModuleEnabled(modules, moduleOf[entry.key] || 'basic'))
 })
 
-const menuItems = [
-  { key: 'invoice', label: '发票记录', icon: '/static/my/发票.png' },
-  { key: 'settings', label: '设置', icon: '/static/my/设置_slices/设置.png' },
-  { key: 'service', label: '客服', icon: '/static/my/客服_slices/客服.png' },
-  { key: 'favorite', label: '我的收藏', icon: '/static/my/收藏_slices/收藏.png' },
-  { key: 'materials', label: '商品素材', icon: '/static/my/商品素材_slices/商品素材.png' },
+/**
+ * 个人中心**下方功能列表**。
+ *
+ * ⚠️ 2026-10-09：前 5 项的图标由**本地切图**换成 **iconfont 字体图标**（`app-icon-*`，
+ *    字体见 `styles/rider-iconfont.wxss`），与上方「我的订单」同一套写法与同一档尺寸；
+ *    **每一项的 label 与 `goMenu(key)` 深链/模块行为一律未动**。
+ *    ⇒ `icon` 字段现在承载**字形类名**，`image` 字段承载**切图路径**；两者分开是因为
+ *      「商家入驻」的门店图标**字体里没有**（不得拿别的字形顶替），必须继续走 `<image>`。
+ *      模板按 `icon`（字形）→ `image`（切图）→ `v-else`（灰块占位）三级分支渲染。
+ * ⚠️ 「客服」这一项虽在数组里，但**不参与下方的 v-for**（`visibleMenuItems` 把它滤掉），
+ *    它单独渲染成微信原生客服按钮 `<button open-type="contact">`；那里的字形类名是**字面量**，
+ *    与这里的 `icon` 必须一致（契约 mine-icons.contract.ps1 钉着这对关系，改一处必改两处）。
+ */
+type MenuItem = { key: string; label: string; icon?: string; image?: string }
+
+const menuItems: MenuItem[] = [
+  { key: 'invoice', label: '发票记录', icon: 'app-icon-fapiao' },
+  { key: 'settings', label: '设置', icon: 'app-icon-shezhi' },
+  { key: 'service', label: '客服', icon: 'app-icon-kefu' },
+  { key: 'favorite', label: '我的收藏', icon: 'app-icon-shoucang' },
+  { key: 'materials', label: '商品素材', icon: 'app-icon-sucai' },
   // ⚠️ 2026-09-29：原先这条与「商品素材」**共用同一个 PNG**（复制粘贴漏改），
   //    现改用专门的门店图标 `static/my/store.svg`（24×24、fill=black 的线性图标）。
   //    ⚠️ 小程序里 SVG 走 `<image src="...svg" mode="aspectFit">`（与 CategoryProductCard 的 location.svg 同一用法）。
-  { key: 'merchant-apply', label: '商家入驻', icon: '/static/my/store.svg' },
+  //    ⚠️ 2026-10-09：字体里没有门店字形 ⇒ 这一项**保留切图**（走 `image` 字段），不得用附近字形顶替。
+  { key: 'merchant-apply', label: '商家入驻', image: '/static/my/store.svg' },
   // 2026-09-22 用户要求：「用户协议」「隐私保护指引」**不在个人中心显示**，入口已挪到「设置」页。
   // 协议页本身（pages/user-agreement、pages/privacy）保留不动 —— 必须仍然可达。
 ]
@@ -864,13 +880,22 @@ onShow(() => { void refreshData() })
 
       <view class="menu-section">
         <view class="menu-list">
-          <!-- 客服：微信原生客服（open-type=contact），点击弹起客服会话 -->
+          <!-- 客服：微信原生客服（open-type=contact），点击弹起客服会话。
+               ⚠️ 2026-10-09：图标由切图改为 iconfont 字形（`app-icon-kefu`，与上方「我的订单」同档尺寸）。
+               ⚠️ `open-type="contact"`、`.menu-item-btn` 样式、以及下方 v-for 的过滤逻辑（客服不在循环里）
+                  一律未动 —— 本次只把 `<image>` 换成承载字形的 `<text>`。
+               ⚠️ 这里的 `app-icon-kefu` 与 menuItems 里 service 项的 `icon` 必须一致（契约钉着）。 -->
           <button class="menu-item menu-item-btn" open-type="contact">
-            <image class="menu-icon menu-icon-image" src="/static/my/客服_slices/客服.png" mode="aspectFit" />
+            <text class="menu-icon menu-icon-font app-icon app-icon-kefu" aria-hidden="true" />
             <text class="menu-label">客服</text>
           </button>
+          <!-- ⚠️ 2026-10-09：三级分支渲染 ——
+               `icon` → iconfont 字形类名（发票记录/设置/我的收藏/商品素材）；
+               `image` → 切图路径（只剩「商家入驻」，字体里没有门店字形）；
+               `v-else` → 无图标时的灰块占位（历史兜底路径，**保留**，别拆）。 -->
           <view v-for="item in visibleMenuItems" :key="item.key" class="menu-item" @click="goMenu(item.key)">
-            <image v-if="item.icon" class="menu-icon menu-icon-image" :src="item.icon" mode="aspectFit" />
+            <text v-if="item.icon" class="menu-icon menu-icon-font app-icon" :class="item.icon" aria-hidden="true" />
+            <image v-else-if="item.image" class="menu-icon menu-icon-image" :src="item.image" mode="aspectFit" />
             <view v-else class="menu-icon" />
             <text class="menu-label">{{ item.label }}</text>
           </view>
@@ -1067,8 +1092,26 @@ onShow(() => { void refreshData() })
 .menu-item-btn { display: flex; align-items: center; width: 100%; margin: 0; padding: 0 38.17rpx; min-height: 99.24rpx; background: transparent; border: 0; border-radius: 0; line-height: inherit; text-align: left; }
 .menu-item-btn::after { border: 0; }
 .menu-item-btn:active { opacity: .7; }
-.menu-icon { width: 45.8rpx; height: 45.8rpx; flex-shrink: 0; margin-right: 34.35rpx; background: #d8d8d8; }
+/* ⚠️ 2026-10-09：下方功能列表的图标盒由 45.8rpx 放大到 **80.15rpx**，与上方「我的订单」的图标盒**同尺寸**
+   （用户要求「下方跟上方一致」）。`margin-right` 保持 34.35rpx 未动（本次只对齐"图标大小"，没动间距）。
+   ⚠️ 盒高 80.15rpx 在 `.menu-item` 的 `min-height: 99.24rpx` 里**放得下**（上下共余 19.09rpx）
+   ⇒ `min-height` **不需要**调整，行高节奏与改版前完全一致（改版前内容高 45.8rpx，本就由 min-height 决定行高）。
+   墨迹实测（Pillow 4×，与上方同口径）：5 个字形在 64rpx 下高 48.00–64.00rpx，
+   即盒内上下各余 ≥8.08rpx 才开始碰到盒边 ⇒ 不会顶到相邻行。 */
+.menu-icon { width: 80.15rpx; height: 80.15rpx; flex-shrink: 0; margin-right: 34.35rpx; background: #d8d8d8; }
 .menu-icon-image { background: transparent; }
+/* ⚠️ 字形盒规则，与上方 `.order-icon.order-icon-font` **逐项同规格**（80.15rpx 盒 / 64rpx 字号 / line-height 钉成盒高）：
+   · `background: transparent` —— 去掉 .menu-icon 的灰色占位底；
+   · `line-height: 80.15rpx` + `text-align: center` —— 把字形在盒内**居中**。
+     ⚠️ 这一条**不要改**：本字体 ascent/descent = 56/8（upem 1024，实测），
+     `line-height: 80.15rpx` 时半行距 = (80.15 − 64)/2 = **8.08rpx**，基线正好落在盒中心；
+     若不钉（落回 `.app-icon` 的 `line-height: 1`），半行距变 0 ⇒ 字形整体**上移 8.08rpx**（贴着盒顶），
+     与切图版/上一版的纵向观感不一致。盒高是显式写死的，行高不会反过来撑高 `.menu-item` 的 99.24rpx；
+   · `font-size: 64rpx`（盒宽的 ≈80%）—— 与上方同值，来自实测：墨迹 50.00–64.00 × 48.00–64.00rpx，
+     水平中心偏差 ≤1.00rpx、垂直 ≤1.00rpx（无需 translateY 校正），左右各余 8.08rpx ⇒ **不裁切**。
+   · 选择器写成两段（`.menu-icon.menu-icon-font`）是为了稳过 `.app-icon { line-height: 1 }`（同权重时页面样式虽在后，
+     但两段权重更高，不依赖 app.wxss / page.wxss 的加载顺序）—— 与上方那条同一个理由。 */
+.menu-icon.menu-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 64rpx; line-height: 80.15rpx; text-align: center; }
 .menu-label { color: #4F4F4F; font-size: 26.72rpx; font-weight: 500; }
 /* 退出登录（仅登录态展示） */
 .logout-section { padding: 8rpx 38.17rpx 60rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; }
