@@ -4,15 +4,19 @@
  * 契约：POST /api/merchant/products（新增）、PUT /api/merchant/products/{id}（编辑）
  * 请求体 MerchantProductSaveDTO：title* / mainImages*（≤5）/ description / skus*[{specName,skuName,price,stock}] / detailImages / status /
  * pickupEnabled / deliveryEnabled（商品级配送方式，2026-09-22 新增，不传 = 不修改）
+ * commissionRate（**商品级让利比例**，2026-10-08 新增，不传 = 不修改，见下方硬规则第 4 条）
  * 范围结论：规格页是独立整页；商品核心是上下架；编辑因无单商品详情接口，仅能回填列表项已有字段（title/mainImage/skus）。
  * 图片上传走 POST /api/common/upload（utils/request 的 uploadFile）。
  *
- * ⚠️ 编辑态三条硬规则（2026-09-21 实测后定，详见 doSave / buildPayload 注释；2026-09-22 追加第 3 条）：
+ * ⚠️ 编辑态四条硬规则（2026-09-21 实测后定，详见 doSave / buildPayload 注释；2026-09-22 追加第 3 条；
+ *    2026-10-08 追加第 4 条）：
  *   1. **不传 `status`** —— 后端一收到 status 就会连品牌级 `productStatus` 一起改（品牌下所有门店一起下线），
  *      本店上下架另走 `updateProductStatus()`（PUT /api/merchant/products/{id}/status）；
  *   2. **description / detailImages 回填不到就不提交** —— 整页覆盖语义下空值会清空线上内容；
  *   3. **`pickupEnabled` / `deliveryEnabled`（商品级配送方式）回填不到就不提交** ——
- *      语义是「不传 = 不修改」，提交默认值 1 会把商家已关掉的开关重新打开（后端下单拦截 13023/13024）。
+ *      语义是「不传 = 不修改」，提交默认值 1 会把商家已关掉的开关重新打开（后端下单拦截 13023/13024）；
+ *   4. **`commissionRate`（商品级让利比例）留空就不提交** —— 语义同样是「不传 = 不修改」；
+ *      清空输入框**绝不能**翻译成 `0` / `null`（那等于把比例清成 0，且 0 越界会被后端判 13018）。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
@@ -24,10 +28,25 @@ import {
   type MerchantProductVO,
   type MerchantSkuItem,
 } from '@/api/merchant'
-import { uploadFile } from '@/utils/request'
+import { isApiRequestError, uploadFile } from '@/utils/request'
 // ⚠️ 生鲜开关的提示语**取单一来源**（同城 48 小时 / 资金 3 天可提 + 「物流与自提不受影响」），
 //    不要在本页硬编码 —— 口径一改，这里就会漂（契约 `timing-category-window.contract.ps1` 有反向断言）。
 import { TIMING_CATEGORY_FRESH_SWITCH_HINT } from '@/utils/timing-category'
+// ⚠️ 商品级让利比例的口径与文案也**取单一来源**（区间 / 13018 文案 / 「未设置」文案 / 估算声明）——
+//    页面里各写一份必然与后端契约漂移（契约 `product-commission-rate.contract.ps1` 有断言）。
+import {
+  PRODUCT_COMMISSION_ESTIMATE_NOTE,
+  PRODUCT_COMMISSION_INPUT_PLACEHOLDER,
+  PRODUCT_COMMISSION_OMIT_NOTE,
+  PRODUCT_COMMISSION_RATE_ERROR_CODE,
+  PRODUCT_COMMISSION_RATE_RANGE_TEXT,
+  PRODUCT_COMMISSION_SNAPSHOT_NOTE,
+  estimateProductCommissionAmount,
+  formatProductCommissionRate,
+  parseProductCommissionRateInput,
+  productCommissionPreviewText,
+  validateProductCommissionRate,
+} from '@/utils/product-commission'
 
 /** 编辑数据暂存 key（商品列表页写入，本页读取回填）。 */
 const EDIT_STORAGE_KEY = 'merchant_product_edit'
@@ -115,6 +134,28 @@ function toggleTimingCategory(): void {
   timingCategory.value = timingCategory.value === 1 ? 0 : 1
 }
 
+// ===== 商品级「让利比例」（2026-10-08 新增，spec §1）=====
+/**
+ * 输入框原文（**空串 = 本次不修改** —— 提交时整个字段省略，见 `buildPayload`）。
+ *
+ * ⚠️ 三种值语义要分清（spec §1.1 / §1.2）：
+ * - `''`（留空）⇒ **不传该字段** = 不修改（**不是**清成 0）；
+ * - `'3'`~`'20'` ⇒ 设为商品级比例；
+ * - 其它（越界 / 非数字）⇒ 本地拦下，文案 = 后端 `13018` 原文。
+ * ⚠️ **绝不**把留空翻译成 `0`：`0` 既越界（3~20），又会把"不修改"变成"抽 0%"。
+ */
+const commissionRateText = ref('')
+/**
+ * 回显到的商品级比例（`null` = 后端明确说「未设置商品级」）。
+ * ⚠️ 它只用于**展示**（「当前：未设置（按上级/平台默认 3%）」）与"是否改过"的判断，
+ *    **不参与** payload 组装 —— payload 只看输入框（见 `buildPayload`）。
+ */
+const commissionRateEchoed = ref<number | null>(null)
+/** 回显到的后端抽成预览（契约 `commissionPreviewAmount`；比例未设置时为 `null`）。 */
+const commissionPreviewEchoed = ref<number | null>(null)
+/** 回显到的品牌最低价（`MerchantProductVO.minPrice`）：商家改了比例时按它本地重算预览。 */
+const commissionMinPrice = ref<number | null>(null)
+
 const saving = ref(false)
 const uploading = ref(false)
 
@@ -189,6 +230,21 @@ function fillFromEditCache(): void {
   const timing = normalizeSwitch((cached as { timingCategory?: unknown }).timingCategory)
   timingEchoed.value = timing !== null
   if (timing !== null) timingCategory.value = timing
+  // ⚠️ 2026-10-08 spec §1.2 新增：**商品级让利比例**回显。
+  //    `commissionRate == null` = 后端说「未设置商品级」⇒ 输入框留空 + 展示「未设置（按上级/平台默认 3%）」，
+  //    **绝不能**回填成 0（那会让保存把比例写成越界的 0，或让商家误以为平台抽 0%）。
+  const rawRate = cached.commissionRate
+  const rate = Number(rawRate)
+  commissionRateEchoed.value = rawRate != null && Number.isFinite(rate) && rate > 0 ? rate : null
+  commissionRateText.value = commissionRateEchoed.value == null ? '' : String(commissionRateEchoed.value)
+  // 后端抽成预览（比例未设置时为 null ⇒ 整块不渲染，不展示 ¥0）
+  const rawPreview = cached.commissionPreviewAmount
+  const preview = Number(rawPreview)
+  commissionPreviewEchoed.value = rawPreview != null && Number.isFinite(preview) ? preview : null
+  // 预览基准价 = 品牌最低价（后端算法就是这个字段）；拿不到时才回退到已填规格里的最低价
+  const rawMin = cached.minPrice
+  const min = Number(rawMin)
+  commissionMinPrice.value = rawMin != null && Number.isFinite(min) && min > 0 ? min : null
 }
 
 /**
@@ -237,6 +293,51 @@ function toggleSameCity(): void {
 
 /** 规格 chip 展示：前 2 个 + 共 N 个。 */
 const specChips = computed(() => skus.value.slice(0, 2).map((s) => s.specName).filter(Boolean))
+
+// ===== 商品级让利比例：回显文案 / 抽成预览（spec §1.2）=====
+
+/** 输入框解析结果（`unset` 留空 / `invalid` 越界 / `value` 有效值）。 */
+const commissionParsed = computed(() => parseProductCommissionRateInput(commissionRateText.value))
+
+/**
+ * 预览用的「最低价」：优先**后端下发的品牌最低价**（与后端预览算法同源）；
+ * 新增态没有回显时，回退到商家已填规格里的最低价（仍是最低价口径，不编数据）。
+ */
+const commissionMinPriceForPreview = computed<number | null>(() => {
+  if (commissionMinPrice.value != null) return commissionMinPrice.value
+  const prices = skus.value
+    .map((s) => Number(s.price))
+    .filter((p) => Number.isFinite(p) && p > 0)
+  return prices.length ? Math.min(...prices) : null
+})
+
+/**
+ * 抽成预览金额（元）。
+ *
+ * - 输入框留空 / 越界 ⇒ `null`（模板不渲染预览，**不展示 ¥0**）；
+ * - 输入值 == 回显值且后端给了 `commissionPreviewAmount` ⇒ **直接用后端的值**（权威）；
+ * - 商家改了比例 ⇒ 按契约同公式 `round(最低价 × 比例 / 100, 2)` 本地估算（预览只是估算，已带声明）。
+ */
+const commissionPreviewAmount = computed<number | null>(() => {
+  const parsed = commissionParsed.value
+  if (parsed.kind !== 'value') return null
+  if (
+    commissionRateEchoed.value != null &&
+    parsed.value === commissionRateEchoed.value &&
+    commissionPreviewEchoed.value != null
+  ) {
+    return commissionPreviewEchoed.value
+  }
+  return estimateProductCommissionAmount(commissionMinPriceForPreview.value, parsed.value)
+})
+
+/** 编辑态「当前：…」的回显文案（`null` ⇒ 「未设置（按上级/平台默认 3%）」，绝不显示 0%）。 */
+const commissionRateEchoText = computed(() => formatProductCommissionRate(commissionRateEchoed.value))
+
+/** 预览整句（空串 ⇒ 模板整块不渲染）。 */
+const commissionPreviewText = computed(() =>
+  productCommissionPreviewText(commissionPreviewAmount.value, commissionMinPriceForPreview.value),
+)
 
 // ===== 图片上传 =====
 async function chooseMainImages(): Promise<void> {
@@ -295,6 +396,9 @@ function validate(): string | null {
     if (!Number.isFinite(s.price) || s.price <= 0) return `规格「${s.specName || ''}」价格需大于 0`
     if (!Number.isInteger(s.stock) || s.stock < 0) return `规格「${s.specName || ''}」库存需为非负整数`
   }
+  // 商品级让利比例：留空 = 不修改（合法）；填了就必须在 3~20（文案与后端 13018 逐字一致）
+  const commissionError = validateProductCommissionRate(commissionRateText.value)
+  if (commissionError) return commissionError
   return null
 }
 
@@ -339,6 +443,14 @@ function buildPayload(): MerchantProductSaveDTO {
   // ⚠️ 2026-10-08 Step1 新增：时效档位。新增态显式提交（0=普通，与后端默认一致）；
   //    编辑态**只有回显拿到了才提交** —— 否则会把生鲜商品打回普通。
   if (!productId.value || timingEchoed.value) payload.timingCategory = timingCategory.value
+  // ⚠️ 2026-10-08 spec §1.1 新增：商品级让利比例（语义「**不传 = 不修改**」）。
+  //    这里**只**在解析出有效值时才写字段：
+  //      · 留空（`unset`）⇒ 字段**整个不出现** = 后端不修改，**绝不能**补 0 / null 当值
+  //        （传 0 会被 3~20 的校验判越界报 13018，且语义上等于"抽 0%"）；
+  //      · 越界（`invalid`）⇒ validate() 已拦下，这里同样不写（防漏网时把脏值发出去）。
+  //    因此 `payload.commissionRate` 的类型是 `number | undefined`，**永远不是** `0` / `null`。
+  const commissionParsedForSave = parseProductCommissionRateInput(commissionRateText.value)
+  if (commissionParsedForSave.kind === 'value') payload.commissionRate = commissionParsedForSave.value
   return payload
 }
 
@@ -384,6 +496,12 @@ async function doSave(status: 0 | 1): Promise<void> {
     uni.showToast({ title: '保存成功', icon: 'success' })
     setTimeout(() => uni.navigateBack(), 600)
   } catch (error) {
+    // ⚠️ 13018：商品级让利比例越界（前端已本地拦一次，这里是**后端兜底**）。
+    //    统一映射成契约原文，避免后端只回码时前端弹出英文/空白。
+    if (isApiRequestError(error) && Number(error.code) === PRODUCT_COMMISSION_RATE_ERROR_CODE) {
+      uni.showToast({ title: PRODUCT_COMMISSION_RATE_RANGE_TEXT, icon: 'none' })
+      return
+    }
     uni.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' })
   } finally {
     saving.value = false
@@ -500,7 +618,32 @@ function goBack(): void {
         </view>
       </view>
 
-      <!-- 卡 3：商品级「配送方式」开关（2026-09-22 新增，§7b②）
+      <!-- 卡 3：商品级「让利比例」（2026-10-08 spec §1 新增）
+           ⚠️ 三条口径（写进模板注释，防止后人"顺手"改成默认 0 / 0%）：
+             ① 留空 = **本次不修改**（提交时字段整个省略），绝不是清成 0；
+             ② 回显 `null` = 未设置商品级 ⇒ 「未设置（按上级/平台默认 3%）」，**不显示 0%**；
+             ③ 预览按**最低价**估算，必须带「按当前最低价估算，实际以订单结算为准」。 -->
+      <view class="card">
+        <view class="field-label">
+          <text class="label-text">商品让利比例</text>
+          <text class="label-sub">（可选，3%~20%）</text>
+        </view>
+        <input
+          v-model="commissionRateText"
+          class="field-input rate-input"
+          type="digit"
+          :maxlength="5"
+          :placeholder="PRODUCT_COMMISSION_INPUT_PLACEHOLDER"
+          placeholder-class="field-ph"
+        />
+        <text v-if="productId" class="commission-echo">当前：{{ commissionRateEchoText }}</text>
+        <text v-if="commissionPreviewText" class="commission-preview">{{ commissionPreviewText }}</text>
+        <text v-if="commissionPreviewText" class="commission-note">{{ PRODUCT_COMMISSION_ESTIMATE_NOTE }}</text>
+        <text class="commission-note">{{ PRODUCT_COMMISSION_SNAPSHOT_NOTE }}</text>
+        <text class="commission-note">{{ PRODUCT_COMMISSION_OMIT_NOTE }}</text>
+      </view>
+
+      <!-- 卡 4：商品级「配送方式」开关（2026-09-22 新增，§7b②）
            与「模块开关」「门店是否上架」三重叠加：关闭后 C 端下单会报 13023（自提）/ 13024（物流·同城）。 -->
       <view class="card">
         <view class="switch-row">
@@ -782,6 +925,35 @@ function goBack(): void {
   gap: 15rpx;
   margin-top: 15rpx;
   flex-wrap: wrap;
+}
+
+/* 商品级「让利比例」（2026-10-08 新增）：输入框做出可见的框，与纯文本字段区分开 */
+.rate-input {
+  height: 84rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid #e5e6eb;
+  border-radius: 12rpx;
+  background: #fafbfc;
+}
+.commission-echo {
+  display: block;
+  margin-top: 15rpx;
+  color: #1d2129;
+  font-size: 25rpx;
+}
+.commission-preview {
+  display: block;
+  margin-top: 15rpx;
+  color: #ff6a01;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+.commission-note {
+  display: block;
+  margin-top: 8rpx;
+  color: #86909c;
+  font-size: 23rpx;
+  line-height: 34rpx;
 }
 
 /* 商品级「配送方式」开关行（自绘开关，与本页其余表单项风格一致） */

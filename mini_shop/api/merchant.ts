@@ -176,6 +176,26 @@ export interface MerchantProductVO {
   description?: string
   /** 商品详情图数组（✅ 2026-09-27 后端已下发；无为空数组）。 */
   detailImages?: string[]
+  /**
+   * **商品级平台让利比例（%）** —— 契约 `MerchantProductVO.commissionRate`（2026-10-08 新增）。
+   *
+   * ⚠️ 三件事必须分清（spec §1.2，写在这里避免页面各写一份）：
+   * 1. **`null` = 未设置商品级** —— 结算按「物流专用 → 品牌级 → 平台默认 3%」链生效
+   *    ⇒ 展示**必须**是「未设置（按上级/平台默认 3%）」（见 `utils/product-commission.ts`
+   *    的 `PRODUCT_COMMISSION_UNSET_TEXT`），**绝不能显示成 0%**
+   *    （0% 会让商家以为平台不抽成）；
+   * 2. 设置过则展示数值（如 `5.00%`）；
+   * 3. 它是**下单时快照**的来源 ⇒ 改动只影响之后新下的订单。
+   */
+  commissionRate?: number | null
+  /**
+   * **按最低价估算的平台抽成（元）** —— 契约 `MerchantProductVO.commissionPreviewAmount`
+   * ＝ `round(minPrice × 比例 / 100, 2)`。
+   *
+   * ⚠️ 比例**未设置时为 `null`** ⇒ 页面**不渲染**预览（不展示 ¥0）；
+   *    展示时必须带「按当前最低价估算，实际以订单结算为准」。
+   */
+  commissionPreviewAmount?: number | null
 }
 
 /** 商品目录分页结果。 */
@@ -706,6 +726,17 @@ export interface MerchantProductSaveDTO {
    * 法规意义：对不适用 7 日无理由的商品必须**明确标注**（《网络购买商品七日无理由退货暂行办法》第二十条）。
    */
   timingCategory?: 0 | 1
+  /**
+   * **商品级平台让利比例（%，3~20）**（契约 `MerchantProductSaveDTO.commissionRate`，2026-10-08 新增）。
+   *
+   * ⚠️ 语义是「**不传 / null = 不修改**」（**不是**清成 0）——
+   *    这是老调用方（中控只改名称的保存）不会把已设比例清空的保证。
+   *    ⇒ 编辑页**清空输入框必须整个省略该字段**，**绝不能**传 `0` / `null` 当值：
+   *      传 0 会被后端判为越界（3~20）报 `13018`，而"想取消比例"本来就无接口路径。
+   * ⚠️ 越界（如 2.99 / 20.01）报 `13018`「让利比例必须在 3%~20% 之间」（前端也会先本地拦一次）。
+   * ⚠️ **只影响之后新下的订单**（下单快照原则）；已下单/已结算的订单按当时的快照比例。
+   */
+  commissionRate?: number
 }
 
 /** 新增商品。 */

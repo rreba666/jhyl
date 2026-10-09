@@ -3,8 +3,10 @@
  * 商家端 · 结算单（P6，2026-10-02 新增）
  * ------------------------------------------------------------
  * 契约：`docs/26/10.02/前端对接-P6结算单与导出-2026-10-02.md`
+ *      +`docs/26/10.09/前端对接说明-商品级抽成与提现口径-2026-10-08.md` §1.3（行级展开）
  * - `GET /api/merchant/settlement/statements?status=&page=&pageSize=` → 分页结算单
  * - `GET /api/merchant/settlement/statements/export?status=`         → CSV（UTF-8 带 BOM）
+ * - `GET /api/merchant/settlement/statements/{orderNo}/items`        → **行级**抽成明细（懒加载）
  *
  * 口径（P6 §三，**改动前先读**）：
  * 1. **一子单一条**：跨商物流单拆成父单 + 子单，**父单不产生结算** ⇒
@@ -15,17 +17,29 @@
  *    **不能**当全量合计展示；
  * 4. `fulfillShopId` 物流单为 `null` ⇒ **展示门店必须判空**；
  * 5. `commissionRate` 是**下单时快照** ⇒ 后台改比例**不影响历史单据**。
+ *
+ * 行级展开（2026-10-08 spec §1.3）三条硬规则：
+ * a. **懒加载**：只有商家点开某单时才请求 `/items`（**不要**在 `loadStatements` 里逐单预取，
+ *    对账页动辄几十单，预取会把接口打爆）；已加载过的按订单号缓存，重复展开不重复请求；
+ * b. `goodsAmount` 是**该行**分摊后的商品额（**整单优惠已按比例摊入**）、`commissionAmount` 是该行抽成，
+ *    **所有行相加 == 订单级抽成**（后端硬校验）⇒ 页面把这个口径写在明细下面，避免商家自己加着对不上；
+ * c. `reversedAt` 非空 = **该行已作废**（整单退款时整批置作废）⇒ 必须渲染成「作废」（灰 + 删除线）并给出 `reversedReason`。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onReachBottom } from '@dcloudio/uni-app'
 import {
   SETTLEMENT_CODE_NOT_MERCHANT_OWNER,
+  SETTLEMENT_CODE_STATEMENT_ITEMS_NOT_IN_BRAND,
+  SETTLEMENT_STATEMENT_ITEMS_BRAND_TEXT,
   buildSettlementStatementsExportUrl,
   formatSettlementAmount,
   formatSettlementTime,
+  getSettlementStatementItems,
   getSettlementStatements,
+  isReversedStatementItem,
   resolveSettlementErrorMessage,
   type SettlementStatementStatus,
+  type StatementItemVO,
   type StatementVO,
 } from '@/api/settlement'
 import { downloadFile, isApiRequestError } from '@/utils/request'
@@ -61,6 +75,86 @@ const exporting = ref(false)
 const sumMerchantIncome = ref<number>()
 const sumCommissionAmount = ref<number>()
 
+// ===== 行级明细（2026-10-08 spec §1.3）：懒加载 + 按订单号缓存 =====
+
+/** 当前展开行级明细的订单号（空串 = 全部收起；同一时间只展开一单，手机上更好读）。 */
+const expandedOrderNo = ref('')
+/** 已加载的行级明细：`orderNo → rows`（**只有展开过且成功**的订单才有键 ⇒ 天然实现"首次展开才请求"）。 */
+const statementItems = ref<Record<string, StatementItemVO[]>>({})
+/** 行级明细的加载失败文案：`orderNo → 文案`（含 1004 的"不属于当前品牌"）。 */
+const statementItemsError = ref<Record<string, string>>({})
+/** 正在加载行级明细的订单号（空串 = 无）。 */
+const itemsLoadingOrderNo = ref('')
+
+/** 某单的行级明细（没加载过 → 空数组）。 */
+function statementRowsOf(orderNo: string): StatementItemVO[] {
+  return statementItems.value[orderNo] || []
+}
+
+/** 某单的行级明细失败文案（没失败过 → 空串）。 */
+function statementItemsErrorOf(orderNo: string): string {
+  return statementItemsError.value[orderNo] || ''
+}
+
+/** 某单是否已展开。 */
+function isStatementExpanded(orderNo: string): boolean {
+  return expandedOrderNo.value === orderNo
+}
+
+/**
+ * 点击「查看商品明细」：收起已展开的单；首次展开时**才**拉接口（懒加载）。
+ *
+ * ⚠️ 不要把这里的请求挪进 `loadStatements()` —— 那会让每次翻页都对整页订单发一次 `/items`。
+ */
+async function toggleStatementRows(orderNo: string): Promise<void> {
+  if (expandedOrderNo.value === orderNo) {
+    expandedOrderNo.value = ''
+    return
+  }
+  expandedOrderNo.value = orderNo
+  // 已成功加载过 / 正在加载 ⇒ 直接用缓存（不重复请求，失败的不缓存、允许重试）
+  if (statementItems.value[orderNo] || itemsLoadingOrderNo.value === orderNo) return
+  await loadStatementItems(orderNo)
+}
+
+/** 拉取某单的行级抽成明细（仅由 {@link toggleStatementRows} 首次展开时调用）。 */
+async function loadStatementItems(orderNo: string): Promise<void> {
+  itemsLoadingOrderNo.value = orderNo
+  // 重试前先清掉上一次的失败文案
+  statementItemsError.value = { ...statementItemsError.value, [orderNo]: '' }
+  try {
+    const rows = await getSettlementStatementItems(orderNo)
+    statementItems.value = { ...statementItems.value, [orderNo]: Array.isArray(rows) ? rows : [] }
+  } catch (error) {
+    // 1004：订单不属于当前品牌（后端业务码，HTTP 200）⇒ 必须说清是哪一类问题
+    const message =
+      isApiRequestError(error) && Number(error.code) === SETTLEMENT_CODE_STATEMENT_ITEMS_NOT_IN_BRAND
+        ? SETTLEMENT_STATEMENT_ITEMS_BRAND_TEXT
+        : resolveSettlementErrorMessage(error, '行级明细加载失败')
+    statementItemsError.value = { ...statementItemsError.value, [orderNo]: message }
+    uni.showToast({ title: message, icon: 'none' })
+  } finally {
+    itemsLoadingOrderNo.value = ''
+  }
+}
+
+/** 行让利比例文案（与该单「让利比例」行同风格；`null` → 「—」）。 */
+function statementRowRateText(row: StatementItemVO): string {
+  return row?.commissionRate == null ? '—' : `${row.commissionRate}%`
+}
+
+/** 行是否已作废（`reversedAt` 非空 ⇒ 整单退款时整批置作废）。 */
+function isReversedRow(row: StatementItemVO): boolean {
+  return isReversedStatementItem(row)
+}
+
+/** 作废行的一行说明（时间 + 原因；原因可能为空）。 */
+function reversedRowText(row: StatementItemVO): string {
+  const time = formatSettlementTime(row?.reversedAt)
+  const reason = String(row?.reversedReason || '').trim()
+  return reason ? `作废时间：${time}；作废原因：${reason}` : `作废时间：${time}`
+}
+
 onLoad(() => {
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
   uni.setNavigationBarTitle({ title: '结算单' })
@@ -72,6 +166,11 @@ async function loadStatements(reset = false): Promise<void> {
   if (reset) {
     page.value = 1
     items.value = []
+    // ⚠️ 切筛选/重载时**必须**连行级明细缓存一起清：否则同一订单号在换筛选后仍显示旧明细，
+    //    而它可能已经变成"不属于当前品牌"（1004）或已作废。
+    expandedOrderNo.value = ''
+    statementItems.value = {}
+    statementItemsError.value = {}
   }
   if (page.value === 1) loading.value = true
   else loadingMore.value = true
@@ -213,6 +312,37 @@ function goBack(): void {
             <view v-if="item.reversedAt" class="row"><text class="label">作废时间</text><text class="value">{{ formatSettlementTime(item.reversedAt) }}</text></view>
             <!-- ⚠️ 作废单必须能一眼看到作废原因 -->
             <view v-if="item.reversedReason" class="reason">作废原因：{{ item.reversedReason }}</view>
+
+            <!-- 行级明细：懒加载（首次展开才请求 /items，已加载过的按订单号缓存） -->
+            <view class="rows-toggle" @click="toggleStatementRows(item.orderNo)">
+              <text class="rows-toggle-text">{{ isStatementExpanded(item.orderNo) ? '收起商品明细' : '查看商品明细（行级抽成）' }}</text>
+            </view>
+            <view v-if="isStatementExpanded(item.orderNo)" class="rows">
+              <view v-if="itemsLoadingOrderNo === item.orderNo" class="rows-state">明细加载中…</view>
+              <view v-else-if="statementItemsErrorOf(item.orderNo)" class="rows-state rows-error">{{ statementItemsErrorOf(item.orderNo) }}</view>
+              <template v-else-if="statementRowsOf(item.orderNo).length">
+                <view
+                  v-for="row in statementRowsOf(item.orderNo)"
+                  :key="row.orderItemId"
+                  class="item-row"
+                  :class="{ 'is-reversed': isReversedRow(row) }"
+                >
+                  <view class="item-head">
+                    <text class="item-sku">SKU {{ row.skuId == null ? '—' : row.skuId }}</text>
+                    <!-- 作废行必须显式标注（灰 + 删除线），否则商家会把它当有效抽成 -->
+                    <text v-if="isReversedRow(row)" class="item-void">作废</text>
+                  </view>
+                  <view class="row"><text class="label">让利比例</text><text class="value">{{ statementRowRateText(row) }}</text></view>
+                  <view class="row"><text class="label">商品金额（含分摊优惠）</text><text class="value">¥{{ formatSettlementAmount(row.goodsAmount) }}</text></view>
+                  <view class="row"><text class="label">平台抽成</text><text class="value">-¥{{ formatSettlementAmount(row.commissionAmount) }}</text></view>
+                  <view v-if="isReversedRow(row)" class="item-void-reason">{{ reversedRowText(row) }}</view>
+                </view>
+              </template>
+              <view v-else class="rows-state">该订单暂无行级明细</view>
+              <!-- 口径说明：商家一定会自己加，先把"为什么加起来对得上"讲清楚 -->
+              <view class="rows-note">· 行商品金额 = 订单级商品额按行分摊（整单优惠已按比例摊入）</view>
+              <view class="rows-note">· 各行抽成相加 = 订单级平台抽成（后端硬校验）</view>
+            </view>
           </view>
           <view v-show="loadingMore" class="more">加载中…</view>
           <view v-show="!loadingMore && items.length >= total" class="more">没有更多了</view>
@@ -251,5 +381,20 @@ function goBack(): void {
 .value { color: #172033; font-size: 24rpx; }
 .row-strong .label, .row-strong .value { color: #172033; font-size: 26rpx; font-weight: 700; }
 .reason { margin-top: 16rpx; color: #d40000; font-size: 23rpx; line-height: 34rpx; }
+/* 行级明细（2026-10-08 spec §1.3）：展开入口 + 行卡片 + 作废态 */
+.rows-toggle { margin-top: 18rpx; padding-top: 16rpx; border-top: 1rpx solid #f2f3f7; }
+.rows-toggle-text { color: #ff5500; font-size: 24rpx; }
+.rows { margin-top: 12rpx; }
+.rows-state { padding: 16rpx 0; color: #999; font-size: 24rpx; }
+.rows-error { color: #d40000; }
+.item-row { margin-top: 12rpx; padding: 16rpx; border-radius: 12rpx; background: #f7f8fa; }
+/* ⚠️ 作废行：灰 + 删除线（整单退款时整批置作废，商家不能把它当有效抽成） */
+.item-row.is-reversed { opacity: .6; }
+.item-row.is-reversed .value { text-decoration: line-through; }
+.item-head { display: flex; align-items: center; justify-content: space-between; }
+.item-sku { color: #4e5969; font-size: 24rpx; }
+.item-void { padding: 2rpx 12rpx; border-radius: 6rpx; background: #e5e6eb; color: #86909c; font-size: 22rpx; }
+.item-void-reason { margin-top: 12rpx; color: #86909c; font-size: 22rpx; line-height: 32rpx; }
+.rows-note { margin-top: 8rpx; color: #86909c; font-size: 22rpx; line-height: 32rpx; }
 .more { padding: 28rpx 0; color: #999; text-align: center; font-size: 24rpx; }
 </style>

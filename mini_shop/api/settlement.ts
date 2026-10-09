@@ -191,6 +191,65 @@ export function buildSettlementStatementsExportUrl(status?: SettlementStatementS
     : '/api/merchant/settlement/statements/export'
 }
 
+// ===== 结算明细·行级展开（2026-10-08 spec §1.3 新增）=====
+
+/**
+ * 行级抽成明细（对应后端 `StatementItemVO`，契约已核对 `api_doc.json`）。
+ *
+ * 口径（spec §1.3 / 契约描述**逐字**）：
+ * - `goodsAmount` = **该行**商品金额 ＝ 订单级商品额按行分摊（**整单优惠已按比例摊入**）；
+ * - `commissionAmount` = **该行**平台抽成；⚠️ **所有行相加 == 订单级抽成**（后端硬校验）；
+ * - `commissionRate` = 该行**生效**让利比例（商品级优先，否则品牌链），展示/审计用；
+ * - `reversedAt` 非空 = **该行已作废**（整单退款时整批置作废）⇒ 页面按「作废」渲染并展示 `reversedReason`；
+ * - 商品级抽成后才有本端点 ⇒ 老订单的行比例即当时的快照比例。
+ */
+export interface StatementItemVO {
+  /** shop 侧订单行 ID。 */
+  orderItemId?: number
+  /** SKU ID（⚠️ 契约**没有**商品名/规格名 ⇒ 页面只能展示 SKU，不要自己编名称）。 */
+  skuId?: number
+  /** 该行生效让利比例（%，3~20）。 */
+  commissionRate?: number
+  /** 行商品金额（元，整单优惠已摊入）。 */
+  goodsAmount?: number
+  /** 行平台抽成（元）。 */
+  commissionAmount?: number
+  /** 作废时间；`null` = 有效。 */
+  reversedAt?: string | null
+  /** 作废原因。 */
+  reversedReason?: string | null
+}
+
+/**
+ * 订单不在当前品牌时的错误码（`1004`）。
+ *
+ * ⚠️ 它是**业务码**（HTTP 200 + `code=1004`），与「无权限」是同一码族 ⇒ 页面必须
+ *    换成一句能读懂的话（"该订单不属于当前品牌"），不能只弹后端原文或"加载失败"。
+ */
+export const SETTLEMENT_CODE_STATEMENT_ITEMS_NOT_IN_BRAND = 1004
+
+/** `1004` 对应的页面文案（订单不属于当前品牌）。 */
+export const SETTLEMENT_STATEMENT_ITEMS_BRAND_TEXT = '该订单不属于当前品牌，无法查看行级明细'
+
+/**
+ * 行级抽成明细：`GET /api/merchant/settlement/statements/{orderNo}/items`。
+ *
+ * ⚠️ **懒加载**：只在商家展开某条结算单时才调用（对账页行数多，**不要**在列表加载时逐单预取）。
+ * ⚠️ 返回的是**数组**（不是分页对象）—— 契约 `ResultListStatementItemVO`。
+ * ⚠️ 订单不属于当前品牌 ⇒ `1004`（见 {@link SETTLEMENT_CODE_STATEMENT_ITEMS_NOT_IN_BRAND}）。
+ */
+export function getSettlementStatementItems(orderNo: string): Promise<StatementItemVO[]> {
+  return request<StatementItemVO[]>({
+    url: `/api/merchant/settlement/statements/${encodeURIComponent(String(orderNo || ''))}/items`,
+    method: 'GET',
+  })
+}
+
+/** 行是否已作废（`reversedAt` 非空；整单退款时整批置作废）。 */
+export function isReversedStatementItem(item: StatementItemVO | null | undefined): boolean {
+  return item?.reversedAt != null && String(item.reversedAt).trim() !== ''
+}
+
 // ===== 账户流水 =====
 
 /**

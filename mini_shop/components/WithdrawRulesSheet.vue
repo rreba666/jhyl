@@ -112,7 +112,7 @@ function close(): void {
           </view>
           <view class="wrs-summary-row">
             <text class="wrs-summary-key">到账时间</text>
-            <text class="wrs-summary-val">审核通过后 1~7 个工作日到账（人工转账，非自动到账）</text>
+            <text class="wrs-summary-val">人工审核 + 人工打款，无系统固定时限（非自动到账）</text>
           </view>
         </view>
 
@@ -138,18 +138,18 @@ function close(): void {
           <text class="wrs-section-title">三、提现时间</text>
           <text class="wrs-line">· 申请提交时间：随时可提交（7×24），无固定开放时段</text>
           <text class="wrs-line">· 平台处理时间：财务在工作时间审核并安排打款，非工作时间的申请顺延到下一个工作时间处理</text>
-          <text class="wrs-line">· 申请时间不影响时效：无论何时提交，均在审核通过后 1~7 个工作日内完成打款</text>
+          <text class="wrs-line">· 申请时间不影响时效：无论何时提交，都排队进入人工审核与人工打款，没有系统固定时限</text>
         </view>
 
         <!-- 四、到账时间 -->
         <view class="wrs-section">
           <text class="wrs-section-title">四、到账时间</text>
-          <text class="wrs-line">· 到账时效：平台财务审核通过后，1~7 个工作日内完成打款（遇法定节假日顺延）</text>
+          <text class="wrs-line">· 到账时效：无系统固定时限（人工审核 + 人工打款）—— 一般 1~7 个工作日，遇法定节假日顺延</text>
           <text class="wrs-line">· 打款方式：平台财务审核通过后由平台人工转账打款（不是自动到账）</text>
           <text class="wrs-line">· 申请流程：提交申请 → 待财务审核 → 审核通过（待打款） → 打款完成</text>
           <text class="wrs-line">· 进度查询：在「提现记录」中查看每一笔提现的当前状态</text>
           <text class="wrs-line">· ⚠️ 被驳回或打款失败：冻结金额立即解冻，回到可提现余额，可重新申请</text>
-          <text class="wrs-line">· 如超过 7 个工作日仍未到账，可联系平台核实</text>
+          <text class="wrs-line">· 如长时间未到账，可在「提现记录」查看进度或联系平台核实</text>
         </view>
 
         <!-- 五、提现要求 -->
@@ -166,6 +166,9 @@ function close(): void {
           <text class="wrs-section-title">六、收款方式</text>
           <text class="wrs-line">· 支持「微信」与「银行卡」两种收款方式</text>
           <text class="wrs-line">· 两种方式均为平台人工打款，请确保收款信息（姓名 / 账号）填写准确</text>
+          <!-- ⚠️ 2026-10-08（spec §3）：商家提现无手续费（用户提现才收 5%，且费率可配、归平台）
+               —— 商家拿用户端规则来问"我是不是也被扣 5%"，所以这里必须显式写明。 -->
+          <text class="wrs-line">· 商家提现不收取手续费，提现金额即实际打款金额</text>
           <text class="wrs-line">· ⚠️ 收款信息有误会导致打款失败，此时金额会解冻回可提现余额</text>
         </view>
 
