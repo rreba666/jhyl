@@ -895,9 +895,12 @@ export function getMerchantOverview(shopId?: number): Promise<MerchantOverviewVO
  * ⚠️ 后端该接口复用的是 **`StaffAccountVO`**：一行 = 一个**门店** + 该店的店长/骑手/绑定微信人数。
  * 商家账号看全部门店，店长只看本店。
  *
- * ⚠️⚠️ **它不含门店地址 / 图片 / 营业时间**，而 `/api/merchant/shop/{id}` **只有 PUT、没有 GET**
- * ⇒ 小程序侧**做不了"编辑门店"的回填**（拿不到单店现值）。
- * 已在 CLAUDE.md 记为待后端补「单店详情接口」。
+ * ⚠️⚠️ **它不含门店地址 / 图片 / 营业时间**（只有账号口径字段）⇒ **不能拿它回填门店资料**；
+ * 要读单店的现存字段请用 {@link getMerchantShopList}（`GET /api/merchant/shop/list` → `ShopVO`）。
+ * ⚠️ 2026-10-09 更正：原注释据此推出「小程序侧做不了"编辑门店"的回填（拿不到单店现值）」
+ * —— **该结论已作废**，上面那个读接口已能拿到 `shopImage`/地址/营业时间。
+ * 小程序端至今没有全量「编辑门店」，是**范围决策**（门店管理在 PC 后台、小程序端保持精简），
+ * 唯一例外是工作台顶部「上传门店头像」（只写 `shopImage`），**不是"拿不到值"**。
  */
 export interface MerchantShopVO {
   /** 门店 ID。 */
