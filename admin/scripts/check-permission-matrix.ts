@@ -22,6 +22,8 @@ const MENU_PATHS = [
   '/categories', '/brands', '/delivery', '/shop-console', '/shop-delivery', '/shops', '/staff',
   '/orders', '/orders/pickup', '/orders/address-audit', '/after-sale', '/invoices', '/profit',
   '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/settings',
+  // 2026-10-08：系统配置管理（读对所有角色开放，写仅超管/财务 —— 写权限由页面与后端把关）
+  '/settings/sys-config',
 ]
 
 let failed = 0

@@ -43,6 +43,11 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
     // 短信模板管理 / 语音配置管理：后端 `/api/admin/sms/**`、`/api/admin/voice/**` 都是超管专属（非超管 403）
     '/settings/sms-templates', '/settings/voice',
+    // 系统配置管理（2026-10-08 新增，接口 `/api/admin/sys-config/**`）：
+    // ⚠️ **写**仅超管 / 财务（其余角色越权 1004），但**读**对所有已登录后台角色开放
+    //    ⇒ 矩阵里四个角色都给（页面把非写入者的输入控件**禁用并说明原因**，
+    //    而不是把页面藏起来 —— 隐藏会让人以为"平台没有这项配置"）。
+    '/settings/sys-config',
     // 功能模块开关（2026-10-03 新增）：**仅超管** —— 模块启停是平台级功能开关（影响 C 端所有用户），
     // 且停用带 `pathPatterns` 的模块会**拦截后端接口**（实测 `delivery` 含 `/api/merchant/**`）。
     // ⇒ 商户管理员（ADMIN）不给：菜单与路由同源，他既看不到菜单、也进不来。
@@ -71,12 +76,17 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     //    ⚠️ 待确认：体检接口本身对 ADMIN 的数据范围（全量 or 本门店）需后端明确。
     '/dashboard', '/merchant', '/products', '/shops', '/staff', '/orders', '/orders/pickup', '/delivery/ghost',
     '/orders/address-audit', '/after-sale', '/logs/verify', '/logs/audit', '/shop-console', '/shop-delivery',
+    // ⚠️ 系统配置管理：**只读**可见（后端只允许超管/财务写入；本页对其它角色禁用输入并说明原因）。
+    //    这里给 ADMIN 的是"看得到当前平台默认比例"，不是处置权。
+    '/settings/sys-config',
   ],
   CUSTOMER_SERVICE: [
     '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
     // 微信通知（订阅消息诊断）：后端只给**超管 + 运营客服**，客服是这条链路的日常使用方（答疑"店长收不到"）
     '/notify',
+    // ⚠️ 系统配置管理：客服**只读**（后端仅超管/财务可写；页面禁用输入并说明原因）。
+    '/settings/sys-config',
     // ⚠️⚠️ 2026-10-02（后端《给前端的反馈-契约缺口补充》§五 Q-1）：
     //    `/api/admin/ledger/**` 在 `RoleGuardInterceptor` 里属于 `SUPER_OR_FINANCE_PREFIXES`
     //    ⇒ 放行条件为 **`SUPER_ADMIN || FINANCE`**，**客服访问会 403**。
@@ -88,6 +98,9 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     // 2026-10-02（P7/P8）：渠道对账与资金报表是财务日常对账入口 ⇒ 必须给财务。
     // ⚠️ **不含** `/logistics/sign-pending`（P5 明确仅超管）。
     '/logs/channel-reconcile', '/logs/fund-report',
+    // ⚠️ 系统配置管理：**财务是写入方之一**（后端 `PUT /api/admin/sys-config/{key}` 明写"仅 SUPER_ADMIN / FINANCE 可写"）
+    //    ⇒ 提现手续费率、提现门槛这类财务口径参数必须让财务改得了，否则每次都要转超管。
+    '/settings/sys-config',
   ],
 }
 
@@ -140,6 +153,8 @@ const ROUTE_LABELS: Record<string, string> = {
   '/logs/fund-report': '资金报表',
   '/settings': '业务设置',
   '/settings/modules': '功能模块开关',
+  // 2026-10-08 新增：平台级可调参数（平台默认让利比例 / 用户提现手续费率与门槛）。
+  '/settings/sys-config': '系统配置管理',
   '/settings/sms-templates': '短信模板管理',
   '/settings/voice': '语音配置管理',
   '/notify': '微信通知',

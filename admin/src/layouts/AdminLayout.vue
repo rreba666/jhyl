@@ -33,6 +33,8 @@ import {
   Money,
   // ⚠️ 2026-10-03：功能模块开关菜单图标
   Switch,
+  // ⚠️ 2026-10-08：系统配置管理菜单图标
+  Tools,
 } from '@element-plus/icons-vue'
 
 import { useAuthStore } from '@/stores/auth'
@@ -341,6 +343,13 @@ onUnmounted(() => {
         <el-menu-item v-if="canVisit('/settings')" index="/settings">
           <el-icon><Setting /></el-icon>
           <template #title>业务设置</template>
+        </el-menu-item>
+        <!-- 系统配置管理（2026-10-08 新增）：平台级可调参数（平台默认让利比例 / 用户提现手续费率与门槛 …）。
+             四个角色都能进（后端只限制**写**：仅超管 / 财务）；非写入者进去看到的是
+             **禁用输入 + 说明原因**，而不是被挡在门外（挡在门外会让人以为"平台没有这些配置"）。 -->
+        <el-menu-item v-if="canVisit('/settings/sys-config')" index="/settings/sys-config">
+          <el-icon><Tools /></el-icon>
+          <template #title>系统配置管理</template>
         </el-menu-item>
         <!-- 功能模块开关：仅超管（模块启停是平台级开关；且停用带 pathPatterns 的模块会**拦截后端接口**） -->
         <el-menu-item v-if="canVisit('/settings/modules')" index="/settings/modules">

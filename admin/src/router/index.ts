@@ -259,6 +259,16 @@ const router = createRouter({
           meta: { title: '业务设置', roles: rolesForPath('/settings'), requiresAuth: true },
         },
         {
+          // 系统配置管理（2026-10-08 新增）：平台级可调参数（平台默认让利比例 / 用户提现手续费率与门槛 …）。
+          // ⚠️ 白名单与取值范围**全由后端 `GET /api/admin/sys-config/list` 决定**，前端不写死那 5 个键；
+          // ⚠️ 写仅超管 / 财务（其余角色越权 1004）⇒ 页面把非写入者的输入控件**禁用并说明原因**
+          //    （矩阵里四个角色都能进 = 看得见当前值，而不是"页面不存在"）。
+          path: 'settings/sys-config',
+          name: 'SettingsSysConfig',
+          component: () => import('@/views/settings/sys-config/index.vue'),
+          meta: { title: '系统配置管理', roles: rolesForPath('/settings/sys-config'), requiresAuth: true },
+        },
+        {
           // 功能模块开关（2026-10-03 新增）：运营在此**启停 V2 模块**，从而控制小程序入口显隐
           // （本次需求：关掉 `merchant` 即隐藏小程序「我的 → 商家入驻」）。
           // ⚠️ **仅超管**：模块启停是**平台级**功能开关（影响 C 端所有用户），商户管理员不应能改。

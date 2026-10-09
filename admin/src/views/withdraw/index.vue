@@ -89,12 +89,34 @@ function manualFail(row: Withdrawal): void { openReason('手动确认失败', (r
 async function load(): Promise<void> { try { await store.fetchAll() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '提现数据加载失败') } }
 function pageChange(value: number): void { store.page = value; void load() }
 function sizeChange(value: number): void { store.size = value; store.page = 1; void load() }
-/** 按 URL query 打开对应页签（待办铃铛跳 `/withdraw?status=0`，后端口径 PENDING_REVIEW）。 */
+/**
+ * 按 URL query 打开对应页签 / 筛选。
+ *
+ * 已支持的深链（后端的待办 `route` 字段）：
+ * - `?status=0`（或 `PENDING_REVIEW`）→ 「待审核提现」页签（`WITHDRAW_AUDIT` / `WITHDRAW_APPROVE_TIMEOUT`）；
+ * - `?status=APPROVED` → 「提现交易记录」页签 + 状态筛选「打款中」（2026-10-08 新增：
+ *   `WITHDRAW_PAYOUT_TIMEOUT`「提现已通过待打款超时」指向这里）。
+ *   ⚠️ 本页的「待审核提现 / 异常提现」两个页签的数据源里**没有 APPROVED 单**
+ *   （前者只查 `PENDING_REVIEW`、后者只查 `STUCK`）⇒ 若不切到交易记录页签并按状态过滤，
+ *   「已通过超 24h」点进来会看到一份与待办数字对不上的列表（甚至是空的）。
+ * - 其余状态值（`SUCCESS` / `FAILED` / `REJECTED` / `STUCK`）若将来被后端用于深链，
+ *   同样按"交易记录页签 + 该状态过滤"处理（通用分支，不写死单个状态）。
+ */
 function applyQuery(): void {
-  const status = route.query.status
+  const status = typeof route.query.status === 'string' ? route.query.status : ''
   if (status === '0' || status === 'PENDING_REVIEW') {
     activeTab.value = 'pending'
     store.page = 1
+    return
+  }
+  // ⚠️ RECORD_STATUS_OPTIONS 在下方声明；本函数只在 onMounted / watch 回调里执行（setup 之后），
+  //    不存在 TDZ 问题。用同一份字典判断，避免这里维护第二份状态清单（口径漂移）。
+  const recordStatus = RECORD_STATUS_OPTIONS.find((option) => option.value === status)
+  if (recordStatus) {
+    activeTab.value = 'records'
+    recordsFilters.value.status = [recordStatus.value]
+    recordsPage.value = 1
+    void loadRecords()
   }
 }
 
@@ -185,6 +207,9 @@ function recordStatusType(status: string): 'success' | 'warning' | 'danger' | 'i
 
 /** 查询全量提现交易记录（分页 + 组合筛选）。 */
 async function loadRecords(): Promise<void> {
+  // ⚠️ 在途去重：待办深链（applyQuery）会先调一次，而 `activeTab` 变成 records 后
+  //    下面的 `watch(activeTab)` 还会再调一次 ⇒ 不去重就是每次点待办都打两遍同一个请求。
+  if (recordsLoading.value) return
   recordsLoading.value = true
   try {
     const filters = recordsFilters.value

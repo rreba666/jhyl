@@ -24,6 +24,60 @@ export interface TodoSummary {
   items: TodoItem[]
 }
 
+/**
+ * 两个「提现超时」待办的**前端兜底文案与深链**（2026-10-08 新增，依据 spec §4）。
+ *
+ * | key | 中文 | 判据（后端） | 可见角色 | 深链 |
+ * |---|---|---|---|---|
+ * | `WITHDRAW_APPROVE_TIMEOUT` | 提现审核超时 | 待审核 > **4 小时**（可配 `fengling.withdraw.approve-timeout-minutes`） | 超管 + 财务 | `/withdraw?status=0`（待审核页签） |
+ * | `WITHDRAW_PAYOUT_TIMEOUT` | 提现已通过待打款超时 | 已通过 > **24 小时**（可配 `fengling.withdraw.payout-timeout-minutes`） | 超管 + 财务 | `/withdraw?status=APPROVED`（交易记录页签按「打款中」过滤） |
+ *
+ * ## ⚠️⚠️ 三条边界（别越界）
+ * 1. **数量只认后端**：这里**没有 `count`** —— 后端没返回该待办项时，前端**不显示、也不补 0**，
+ *    更不会自己按"4 小时"去数一遍（那需要全量提现单，前端没有这个数据源，
+ *    硬算出来的数字必然与后端不一致 ⇒ 违反"徽标数字 == 点进去的条数"）。
+ * 2. **后端下发优先**：`label` / `route` / `level` 只要后端给了就用后端的，
+ *    这里只在**后端没给**时兜底（后端改口径前端不用发版）。
+ * 3. **只提醒、不改状态**：这两项是**建议级**待办，页面不提供"超时自动通过 / 自动打款"之类的动作。
+ *
+ * ⚠️ 现状（2026-10-08 核对 `api_doc.json`）：后端**尚未**把这两个 key 加进
+ * `TodoItemVO.key` 的枚举与计数逻辑（快照里搜不到 `WITHDRAW_APPROVE_TIMEOUT` /
+ * `WITHDRAW_PAYOUT_TIMEOUT`，可见角色清单里也只有 `WITHDRAW_AUDIT`）。
+ * ⇒ 在它们上线之前，铃铛里**不会**出现这两项；本兜底**不会**凭空造出条目，只是让它们上线当天
+ * 就能显示中文并跳到正确的列表（否则后端若只下发 key，铃铛里会显示英文 key 或点了没反应）。
+ */
+export const TODO_ITEM_FALLBACKS: Record<string, { label: string; route: string; level: TodoLevel }> = {
+  WITHDRAW_APPROVE_TIMEOUT: {
+    label: '提现审核超时',
+    route: '/withdraw?status=0',
+    level: 'WARN',
+  },
+  WITHDRAW_PAYOUT_TIMEOUT: {
+    label: '提现已通过待打款超时',
+    route: '/withdraw?status=APPROVED',
+    level: 'DANGER',
+  },
+}
+
+/**
+ * 单条待办归一化：**后端字段优先**，缺 `label` / `route` / `level` 时用
+ * {@link TODO_ITEM_FALLBACKS} 兜底（只对已知的两个提现超时项有兜底，其余键保持原样）。
+ */
+function normalizeTodoItem(value: unknown): TodoItem {
+  const row = (value || {}) as Partial<TodoItem>
+  const key = String(row.key ?? '')
+  const fallback = TODO_ITEM_FALLBACKS[key]
+  const count = Number(row.count)
+  return {
+    key,
+    label: String(row.label ?? '') || fallback?.label || key,
+    // ⚠️ 只认后端数字；非法值按 0（0 的项页面本来就不渲染）—— 绝不编一个非 0 的数量
+    count: Number.isFinite(count) ? count : 0,
+    route: String(row.route ?? '') || fallback?.route || '',
+    level: (row.level as TodoLevel | undefined) ?? fallback?.level,
+  }
+}
+
 interface TodoResponse {
   code: number
   message: string
@@ -44,6 +98,7 @@ export async function getTodoSummary(): Promise<TodoSummary> {
   const data = result.data
   return {
     total: Number(data?.total || 0),
-    items: Array.isArray(data?.items) ? data.items : [],
+    // ⚠️ 逐条归一化：后端给了 label/route/level 就用后端的；只有「提现超时」两项在后端漏字段时兜底
+    items: Array.isArray(data?.items) ? data.items.map(normalizeTodoItem) : [],
   }
 }
