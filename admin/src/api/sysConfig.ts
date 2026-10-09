@@ -20,6 +20,30 @@ import type { SysConfigItem, SysConfigRawList, SysConfigResponse, SysConfigUpdat
  *
  * ⚠️ 字段名风险：`list` 的出参是 `Map<String,Object>`，**schema 为空、字段名无契约**。
  * 故 {@link pickText} 等一律走**多别名 + 大小写/下划线不敏感**的读取，并把原始对象整份带回页面。
+ *
+ * ## ✅ 真实字段名已实测确认（2026-10-09，dev 后端 `http://192.168.1.4:8080`）
+ *
+ * 用超管账号（凭据取自仓库文档，**不在此留痕**）登 `POST /api/admin/auth/login` 后实测
+ * `GET /api/admin/sys-config/list` → `code=0`，**每一行的字段名与类型如下**（5 项全部一致）：
+ *
+ * ```json
+ * { "key": "<key>", "type": "DECIMAL", "min": 0, "max": 1,
+ *   "defaultValue": 0.05, "currentValue": "0.05", "description": "...", "editable": true }
+ * ```
+ *
+ * ⚠️ 这里**刻意不写具体键名**（键名属于后端白名单，本文件不得出现白名单副本，见下方第 1 条口径）。
+ * | 语义 | **真实字段名** | 类型 | 本文件的首选别名 |
+ * |---|---|---|---|
+ * | 配置键 | `key` | string | `key` |
+ * | 值类型 | `type` | string | `type` |
+ * | 下限 / 上限 | `min` / `max` | number | `min` / `max` |
+ * | 默认值 | `defaultValue` | **number**（如 `3.00`） | `defaultValue` |
+ * | 当前值 | `currentValue` | **string**（如 `"3"`） | `currentValue` |
+ * | 说明 | `description` | string | `description` |
+ * | 是否可写 | `editable` | boolean | `editable` |
+ *
+ * ⇒ 首选别名按上表**逐个钉住实测名**（其余别名只是后端改名的兜底），
+ *   且 {@link pickRaw} **按别名顺序**取值（不随后端 JSON 字段顺序漂移）。
  */
 
 /** 后端响应校验（与其它模块同形；错误文案统一做旧词兜底）。 */
@@ -33,11 +57,24 @@ function normalizeFieldName(name: string): string {
   return name.replace(/[_-]/g, '').toLowerCase()
 }
 
-/** 在一行原始对象里按**别名集合**取值（命中即返回；都取不到返回 `undefined`）。 */
+/**
+ * 在一行原始对象里按**别名集合**取值（按别名顺序命中即返回；都取不到返回 `undefined`）。
+ *
+ * ⚠️ **按别名顺序取，不按后端 JSON 的字段顺序取** —— 这样"首选名"是确定的：
+ *    同一行里既出现 `value` 又出现 `currentValue` 时，取哪个由本文件的别名数组决定，
+ *    不会随后端序列化顺序（或 Go/Java Map 的遍历顺序）漂移。
+ */
 function pickRaw(row: Record<string, unknown>, aliases: string[]): unknown {
-  const wanted = aliases.map(normalizeFieldName)
+  // 该行字段名归一化后建索引（`default_value` / `defaultValue` 视为同一个名字）；
+  // 同名冲突时**以先出现的为准**（后端不会下发同名异形字段，这里只是不静默丢值）。
+  const byName = new Map<string, unknown>()
   for (const [name, value] of Object.entries(row)) {
-    if (wanted.includes(normalizeFieldName(name))) return value
+    const normalized = normalizeFieldName(name)
+    if (!byName.has(normalized)) byName.set(normalized, value)
+  }
+  for (const alias of aliases) {
+    const normalized = normalizeFieldName(alias)
+    if (byName.has(normalized)) return byName.get(normalized)
   }
   return undefined
 }
@@ -64,12 +101,13 @@ function pickNumber(row: Record<string, unknown>, aliases: string[]): number | n
 
 /**
  * 取可写标记。
- * ⚠️ 兼容两种相反写法：`writable=true` 与 `readonly=true`（后者取反）。
+ * ⚠️ 首选别名为**实测确认**的 `editable`（2026-10-09 dev 实测），其余为改名兜底。
+ * ⚠️ 兼容两种相反写法：`editable/writable=true` 与 `readonly=true`（后者取反）。
  * 都没给时**按不可写**处理（fail-closed：宁可让运营看到"不可写"去找后端确认，
  * 也不要给一个假的可写按钮、点下去必然 `1004`）。
  */
 function pickWritable(row: Record<string, unknown>): boolean {
-  const writable = pickRaw(row, ['writable', 'canWrite', 'isWritable', 'editable', 'isEditable', 'writeable'])
+  const writable = pickRaw(row, ['editable', 'writable', 'canWrite', 'isWritable', 'isEditable', 'writeable'])
   if (writable !== undefined) return writable === true || writable === 'true' || writable === 1 || writable === '1'
   const readonly = pickRaw(row, ['readonly', 'readOnly', 'isReadonly', 'readOnlyFlag', 'readonlyFlag'])
   if (readonly !== undefined) {
@@ -82,8 +120,9 @@ function pickWritable(row: Record<string, unknown>): boolean {
 /**
  * 单行归一化。
  *
- * ⚠️ `key` 是**唯一有文档依据**的字段名（spec §2 明写 `key` / PUT 路径参数），所以它排第一顺位；
- * 其余别名只是兜底。识别不出 key 的行**照样渲染**（可以在"原始数据"里看到），但**禁止编辑**。
+ * ⚠️ 别名数组的**第一个名字都是 2026-10-09 dev 实测确认的真实字段名**
+ *    （`key` / `type` / `min` / `max` / `defaultValue` / `currentValue` / `description` / `editable`）；
+ *    其余别名只是后端改名的兜底。识别不出 key 的行**照样渲染**（可以在"原始数据"里看到），但**禁止编辑**。
  */
 export function normalizeSysConfigItem(value: unknown): SysConfigItem {
   const row = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
@@ -95,7 +134,7 @@ export function normalizeSysConfigItem(value: unknown): SysConfigItem {
     min: pickNumber(row, ['min', 'minValue', 'minimum', 'lowerLimit', 'minVal']),
     max: pickNumber(row, ['max', 'maxValue', 'maximum', 'upperLimit', 'maxVal']),
     defaultValue: pickText(row, ['defaultValue', 'default', 'defaultVal', 'defaultValueText']),
-    value: pickText(row, ['value', 'currentValue', 'current', 'configValue', 'currentVal']),
+    value: pickText(row, ['currentValue', 'value', 'current', 'configValue', 'currentVal']),
     description: pickText(row, ['description', 'desc', 'remark', 'label', 'comment', 'note', 'name']) ?? '',
     writable: pickWritable(row),
     raw: row,

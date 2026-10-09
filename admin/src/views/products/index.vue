@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { getStockDimensions } from '@/api/ledger'
 import { getMerchants } from '@/api/merchant'
 import type { StockDimension } from '@/types/ledger'
-import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductStatus, ProductSwitchStatusValue } from '@/types/product'
+import type { AdminProductSaveDTO, AdminProductSavePayload, CategoryNode, ProductDetail, ProductFundStatusValue, ProductListItem, ProductSku, ProductStatus, ProductSwitchStatusValue } from '@/types/product'
 import { getDefaultDividendFund, getDefaultPromotionFund, isDefaultFundAmount } from '@/utils/productPricing'
 import { DETAIL_IMAGE_MAX_COUNT, planDetailSliceForFile, sliceDetailImageToFiles } from '@/utils/detailImageSlice'
 import { getAdminGoodsBrands } from '@/api/brand'
@@ -59,6 +59,23 @@ const sameCitySwitchEchoed = ref(true)
  * ⇒ 与 `sameCitySwitchEchoed` **同样独立判断**（老后端详情里同样不会有本字段）。
  */
 const timingSwitchEchoed = ref(true)
+/**
+ * 编辑回显是否拿到了 SKU 的**规格图**字段（`SkuVO.skuImage`，2026-10-09 T2 新增）。
+ *
+ * 与上面几个开关同思路（都是"回显拿不到就别拿默认值去覆盖线上数据"），但作用面是**行级**的：
+ * - `true`（新增态 / 详情里 SKU 行带 `skuImage`）：逐行原样回传 `skuImage`，
+ *   **空串 = 清空该行规格图**（运营点了「清除」就该清掉）；
+ * - `false`（老后端详情里没有该字段）：**只回传运营本次真正设了图的那些行** ——
+ *   否则会把"我们不知道有没有图"当成"没有图"提交，把线上已有的规格图抹掉。
+ *
+ * ⛔ 任何一种情况下都**不填占位图 URL**：没图就是空串，不去拿商品主图/默认图顶上（不伪造数据）。
+ */
+const skuImageEchoed = ref(true)
+/**
+ * 正在上传规格图的 SKU 行下标（`null` = 没有上传中的行）。
+ * ⚠️ 只用于按钮 loading；真正的写入目标是**该行的 `skuImage`**，所以要用行对象而不是下标去写回。
+ */
+const skuImageUploadIndex = ref<number | null>(null)
 const detailUploadCount = ref(0)
 /**
  * 打开表单那一刻的详情图快照（保存后回读比对用）。
@@ -254,6 +271,9 @@ function fillForm(detail?: ProductDetail): void {
   deliverySwitchEchoed.value = pickupEcho !== null && deliveryEcho !== null
   sameCitySwitchEchoed.value = sameCityEcho !== null
   timingSwitchEchoed.value = timingEcho !== null
+  // ⚠️ 规格图（2026-10-09 T2）：判定"详情**有没有**下发这个字段"要看**键是否存在**，
+  //    不能看值 —— 值本身可以是空的（该规格确实没配图，是合法状态）。
+  skuImageEchoed.value = detail ? (detail.skuList || []).some((sku) => 'skuImage' in sku) : true
   // ⚠️ 2026-09-30 诊断（多分类回显）：后端若**没有**返回 `categoryIds`，下面会**静默回退**到单个
   //    `categoryId`，表现就是用户反馈的「保存后再次打开，新加的分类没了」。
   //    这里在"有 categoryId 但没有 categoryIds"时打印一次 —— 用来区分两种根因：
@@ -470,12 +490,17 @@ async function submitForm(): Promise<void> {
         // id=6 累积 **18** 条「一盒」（用户截图里看到的 4 行重复就是这个现象）。
         // 新增商品时 `sku.id` 本就是 undefined → 不传该字段，后端据此插入新 SKU。
         const id = sku.id === null || sku.id === undefined || String(sku.id).trim() === '' ? undefined : Number(sku.id)
+        // 规格图（2026-10-09 T2）：空串/null 一律归一成**空串**（= 没有规格图），⛔ 不填占位 URL。
+        const skuImage = String(sku.skuImage ?? '').trim()
         return {
           ...(id === undefined ? {} : { id }),
           skuName,
           specName: skuName,
           price: Number(sku.price),
           stock: Number(sku.stock),
+          // 回显到了该字段 ⇒ 逐行原样回传（空串就是"清空这行的图"）；
+          // 回显没拿到该字段 ⇒ 只回传运营本次真正设了图的那些行（见 `skuImageEchoed` 的说明）。
+          ...(skuImageEchoed.value || skuImage ? { skuImage } : {}),
         }
       }),
     }
@@ -620,6 +645,46 @@ function addSku(): void { form.skuList.push({ skuName: '', specs: '', skuImage: 
 
 /** 删除 SKU 编辑行。 */
 function removeSku(index: number): void { form.skuList.splice(index, 1) }
+
+/**
+ * 上传**单个 SKU 的规格图**（2026-10-09 T2 新增）。
+ *
+ * - 走页面既有的上传链路 `store.uploadFile()`（= `POST /api/admin/homepage/upload`，B 端通道）；
+ *   ⚠️ 不要改用 `/api/common/upload`：那是 C 端接口，admin token 会吃 401 ⇒ 被拦截器当登录失效踢出。
+ * - 上传成功只**写回该行**（用行对象引用，不用下标：并发上传时下标可能已经变了）。
+ * - 失败**不改动**原值（宁可没有图，也不留一个来路不明的 URL）。
+ */
+async function onSkuImageUpload(options: UploadRequestOptions, row: ProductSku): Promise<void> {
+  const file = options.file as File
+  if (!file.type.startsWith('image/')) { ElMessage.error('规格图请上传图片文件'); return }
+  skuImageUploadIndex.value = form.skuList.indexOf(row)
+  try {
+    const url = await store.uploadFile(file)
+    row.skuImage = url
+    ElMessage.success('规格图上传成功，保存商品后生效')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '规格图上传失败')
+  } finally {
+    skuImageUploadIndex.value = null
+  }
+}
+
+/**
+ * 清除某行的规格图。
+ * ⚠️ 置为**空串**（= 没有规格图），⛔ **不是**填一张占位图 / 默认图 —— 后端与 C 端都把空串当"无图"。
+ * ⚠️ 真正落库发生在点「保存」时；保存按钮上有这条语义的提示文案。
+ */
+function clearSkuImage(row: ProductSku): void { row.skuImage = '' }
+
+/**
+ * 把「该行的上传入口」包成 `el-upload` 的 `http-request` 处理器。
+ *
+ * ⚠️ 为什么要这一层：模板里写 `(options) => ...` 时 `options` 推不出类型（`vue-tsc` 报 TS7006），
+ *    而模板表达式里**不能写类型标注**；在脚本里返回闭包即可拿到 `UploadRequestOptions` 的正确类型。
+ */
+function skuImageRequest(row: ProductSku): (options: UploadRequestOptions) => void {
+  return (options: UploadRequestOptions) => { void onSkuImageUpload(options, row) }
+}
 
 /** 上传媒体文件并追加到指定数组或写入视频字段（详情图先做「超长切片」，见 uploadDetailImages）。 */
 async function uploadFile(options: UploadRequestOptions, field: 'mainImage' | 'images' | 'videoUrl' | 'detailImages'): Promise<void> {
@@ -798,7 +863,26 @@ onMounted(() => {
         <el-form-item label="首页推荐"><el-switch v-model="form.isRecommended" :disabled="normalizeBinary(form.status) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
         <el-form-item label="推荐文本"><el-switch v-model="form.recommendTextEnabled" :disabled="normalizeBinary(form.status) === 0 || normalizeBinary(form.isRecommended) === 0" :active-value="1" :inactive-value="0" /></el-form-item>
         <el-form-item label="详情描述" class="form-item-full"><el-input v-model="form.description" type="textarea" :rows="5" placeholder="请输入 HTML 商品描述" /></el-form-item>
-        <el-form-item label="SKU" class="form-item-full"><div class="sku-editor"><el-button size="small" @click="addSku">新增 SKU</el-button><el-table :data="form.skuList" border><el-table-column label="规格名称"><template #default="{ row }"><el-input v-model="row.skuName" /></template></el-table-column><el-table-column label="价格"><template #default="{ row }"><el-input-number v-model="row.price" :min="0.01" :precision="2" /></template></el-table-column><el-table-column label="划线价"><template #default="{ row }"><el-input-number v-model="row.originalPrice" :min="0" :precision="2" /></template></el-table-column><el-table-column label="库存"><template #default="{ row }"><el-input-number v-model="row.stock" :min="0" /></template></el-table-column><el-table-column label="启用"><template #default="{ row }"><el-switch v-model="row.enabled" :active-value="1" :inactive-value="0" /></template></el-table-column><el-table-column label="操作" width="90"><template #default="{ $index }"><el-button size="small" type="danger" @click="removeSku($index)"><el-icon><Delete /></el-icon>删除</el-button></template></el-table-column></el-table></div></el-form-item>
+        <el-form-item label="SKU" class="form-item-full"><div class="sku-editor"><el-button size="small" @click="addSku">新增 SKU</el-button><el-table :data="form.skuList" border>
+          <!-- 规格图（2026-10-09 T2）：`SkuItem.skuImage` 后端早已可读写，此前**只缺这一列 UI**。
+               ⚠️ 空串 = 没有规格图 ⇒ 只显示「未上传」，**不填占位图 URL**（不伪造数据）。 -->
+          <el-table-column label="规格图" width="170">
+            <template #default="{ row, $index }">
+              <div class="sku-image-cell">
+                <el-image v-if="row.skuImage" :src="row.skuImage" class="sku-image-thumb" fit="cover" :preview-src-list="[row.skuImage]" preview-teleported />
+                <span v-else class="sku-image-empty">未上传</span>
+                <div class="sku-image-actions">
+                  <el-upload :show-file-list="false" accept="image/png,image/jpeg,image/webp,image/gif" :http-request="skuImageRequest(row)">
+                    <el-button size="small" :loading="skuImageUploadIndex === $index">{{ row.skuImage ? '更换' : '上传' }}</el-button>
+                  </el-upload>
+                  <el-button v-if="row.skuImage" size="small" link type="danger" @click="clearSkuImage(row)">清除</el-button>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="规格名称"><template #default="{ row }"><el-input v-model="row.skuName" /></template></el-table-column><el-table-column label="价格"><template #default="{ row }"><el-input-number v-model="row.price" :min="0.01" :precision="2" /></template></el-table-column><el-table-column label="划线价"><template #default="{ row }"><el-input-number v-model="row.originalPrice" :min="0" :precision="2" /></template></el-table-column><el-table-column label="库存"><template #default="{ row }"><el-input-number v-model="row.stock" :min="0" /></template></el-table-column><el-table-column label="启用"><template #default="{ row }"><el-switch v-model="row.enabled" :active-value="1" :inactive-value="0" /></template></el-table-column><el-table-column label="操作" width="90"><template #default="{ $index }"><el-button size="small" type="danger" @click="removeSku($index)"><el-icon><Delete /></el-icon>删除</el-button></template></el-table-column></el-table>
+          <p class="upload-hint">规格图为选填：每个规格可单独配图（C 端选规格时展示，未配则回退商品主图）。空 = 没有规格图，不会填默认图；保存后生效。</p>
+        </div></el-form-item>
       </el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saveLoading" @click="submitForm">保存</el-button></template>
     </el-dialog>
@@ -843,6 +927,12 @@ onMounted(() => {
 .detail-image { display: block; width: 100%; height: auto; max-height: none; }
 .detail-image :deep(.el-image__inner) { display: block; width: 100%; height: auto; max-height: none; object-fit: contain; }
 .media-edit-list, .sku-editor { width: 100%; min-width: 0; }
+/* 规格图列（2026-10-09 T2）：缩略图 + 上传/清除；无图时只显示「未上传」文字，⛔ 不用占位图 */
+.sku-image-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.sku-image-thumb { width: 56px; height: 56px; border-radius: 4px; border: 1px solid var(--el-border-color-lighter); }
+.sku-image-empty { color: var(--el-text-color-secondary); font-size: 12px; line-height: 56px; height: 56px; }
+.sku-image-actions { display: flex; align-items: center; gap: 4px; }
+.sku-image-actions :deep(.el-upload) { display: inline-flex; }
 .media-edit { display: flex; gap: 8px; width: 100%; margin-bottom: 8px; }
 .media-edit .el-input { min-width: 0; flex: 1; }
 .product-form :deep(.image-grid-upload) { width: 100%; min-width: 0; }

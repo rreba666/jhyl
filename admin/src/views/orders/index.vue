@@ -6,6 +6,7 @@ import { useOrderStore } from '@/stores/order'
 import { useAuthStore } from '@/stores/auth'
 import { useTodoStore } from '@/stores/todo'
 import DataTable from '@/components/DataTable.vue'
+import SettlementStatementItems from '@/components/SettlementStatementItems.vue'
 import type { Order, OrderAddressUpdateDTO, OrderPickupType, OrderRefundDTO, OrderRefundOptions, OrderStatus } from '@/types/order'
 import { isVerifiedStatus } from '@/utils/orderRules'
 import { retryWxShipping } from '@/api/order'
@@ -612,6 +613,14 @@ onMounted(() => {
            </div>
          </div>
          <DataTable :data="store.list" :loading="store.loading" :total="store.total" :page="store.page" :page-size="store.pageSize" @selection-change="selected = $event" @page-change="store.page = $event; void loadList()" @size-change="store.pageSize = $event; store.page = 1; void loadList()">
+          <!-- 结算行级明细（2026-10-09 中控 T1，**只读**）：端点见 `api/settlement.ts`
+               （中控侧**只此一个**、且没有列表端点；URL 只在 api 层拼，页面不得内嵌）。
+               ⚠️ 子组件挂在 `type="expand"` 的展开槽里 ⇒ **只有用户展开某一行时才挂载并请求**（懒加载）；
+                  收起后卸载、缓存留在组件模块级（按订单号）⇒ 重复展开不重复请求。
+               ⛔ 不要改成"进页面就为整页订单预取"（那正是本契约要拦住的退化）。 -->
+          <el-table-column type="expand" width="46">
+            <template #default="{ row }"><SettlementStatementItems :order-no="row.orderNo" /></template>
+          </el-table-column>
           <el-table-column prop="orderNo" label="订单号" min-width="200" />
           <el-table-column label="商品" min-width="220"><template #default="{ row }"><div class="order-product"><el-image v-if="row.firstProductImage" :src="row.firstProductImage" class="order-image" fit="cover" /><span>{{ row.totalQuantity }} 件商品</span></div></template></el-table-column>
           <el-table-column label="订单金额" width="120"><template #default="{ row }">¥ {{ Number(row.payAmount || 0).toFixed(2) }}</template></el-table-column>
@@ -646,6 +655,10 @@ onMounted(() => {
         @size-change="store.pageSize = $event; store.page = 1; void loadList()"
       >
         <el-table-column prop="orderNo" label="订单号" min-width="190" />
+        <!-- 结算行级明细（2026-10-09 中控 T1，**只读**）：与自提订单表同源，见上方的懒加载说明 -->
+        <el-table-column type="expand" width="46">
+          <template #default="{ row }"><SettlementStatementItems :order-no="row.orderNo" /></template>
+        </el-table-column>
         <el-table-column label="配送方式" width="110"><template #default="{ row }">{{ pickupTypeText(row.pickupType) }}</template></el-table-column>
         <el-table-column label="商品" min-width="220">
           <template #default="{ row }">

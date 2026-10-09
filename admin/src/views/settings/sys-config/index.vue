@@ -22,6 +22,12 @@
  * ## 角色
  * 后端：**仅 `SUPER_ADMIN` / `FINANCE` 可写**，其余角色只读（越权 `1004`）。
  * 前端：**不隐藏页面**，而是把输入控件禁用 + 说清原因（"禁用 + 说明"比"页面看着坏了/点不动"诚实）。
+ *
+ * ## ✅ 真实字段名（2026-10-09 用 dev 超管账号实测确认，详见 `api/sysConfig.ts` 顶部）
+ * `key` / `type` / `min` / `max` / `defaultValue`（**number**，如 `3.00`）/
+ * `currentValue`（**string**，如 `"3"`）/ `description` / `editable`（boolean）。
+ * ⚠️ 一个 number、一个 string ⇒ 本页只经 `api` 层的归一化结果取值（`value` / `defaultValue` 都是
+ *    `string | null`），**不在模板里直接对原始对象做算术**，避免 `NaN` / `undefined` 落进输入框。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -90,11 +96,24 @@ function isNumericItem(item: SysConfigItem): boolean {
   return /int|decimal|number|float|double|long|short|integer/i.test(item.type)
 }
 
-/** 小数位数（从后端给的值里推导：`3.00` → 2；推不出来按 0）。 */
+/**
+ * 小数位数（从后端给的值里推导：`3.00` → 2；推不出来时退回后端下发的类型）。
+ * ⚠️ 实测：`defaultValue` 是 **number**（`3.00`）、`currentValue` 是 **string**（`"3"`）——
+ *    JSON 把 `3.00` 解析成 `3`（尾随零丢失）⇒ **光看值**会把 DECIMAL 项推成 0 位小数，
+ *    而 `:precision="0"` 会把运营填的 `3.5` 直接四舍五入掉。
+ *    类型（`DECIMAL` / `INT`）是后端**下发的事实**，故 DECIMAL 类至少给 2 位小数
+ *    （只决定输入框允许几位，**不猜也不改**提交的值）。
+ */
 function decimalsOf(item: SysConfigItem): number {
-  const probe = String(item.value ?? item.defaultValue ?? '')
-  const dot = probe.indexOf('.')
-  return dot < 0 ? 0 : Math.min(6, probe.length - dot - 1)
+  const probes = [item.value, item.defaultValue]
+  let decimals = 0
+  for (const probe of probes) {
+    const text = String(probe ?? '')
+    const dot = text.indexOf('.')
+    if (dot >= 0) decimals = Math.max(decimals, Math.min(6, text.length - dot - 1))
+  }
+  if (decimals === 0 && /decimal|double|float/i.test(item.type)) return 2
+  return decimals
 }
 
 /** 步进值：按小数位推导（2 位小数 ⇒ 0.01），纯交互便利，**不改变提交的值**。 */
@@ -114,6 +133,17 @@ function rangeText(item: SysConfigItem): string {
 /** 值展示（`null` ⇒ 「—」，并标注后端未下发）。 */
 function valueText(value: string | null): string {
   return value === null ? '—' : value
+}
+
+/**
+ * 当前值 → 修改弹窗里的**输入框文本**（number / string 混用下的唯一入口）。
+ *
+ * ⚠️ 后端 `defaultValue` 是 number、`currentValue` 是 string（2026-10-09 实测）；
+ *    两者在 `api` 层已被统一成 `string | null`，这里再兜一层：拿不到就留**空串**（显示为空），
+ *    **绝不**回退成 `"0"` / `"NaN"` —— 输入框里的每个字符都会被当作运营的输入提交给后端。
+ */
+function inputTextOf(item: SysConfigItem): string {
+  return item.value === null ? '' : String(item.value)
 }
 
 /** 当前值是否与默认值不同（提醒"这项被改过"；后端没给默认值时不下结论）。 */
@@ -144,7 +174,8 @@ function openEdit(item: SysConfigItem): void {
   // ⚠️ 草稿只回填**当前值**，拿不到就留空（**不回填默认值**）——
   //    把默认值预填进输入框等于替后端"猜"一个当前值：运营一路点保存就会把它写进去，
   //    而后端留痕里会记成"运营主动改成了该值"（本项目硬原则：不伪造数据）。
-  const base = item.value ?? ''
+  // ⚠️ 文本与数字两个控件都从**同一个** `inputTextOf` 结果派生 ⇒ 不会出现"文本框有值、数字框 NaN"。
+  const base = inputTextOf(item)
   form.valueText = base
   form.valueNumber = base !== '' && Number.isFinite(Number(base)) ? Number(base) : null
   form.remark = ''

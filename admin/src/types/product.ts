@@ -55,7 +55,14 @@ export interface ProductSku {
    */
   specName?: string
   specs: string
-  skuImage: string
+  /**
+   * **规格图 URL**（`SkuVO.skuImage`，2026-10-09 实测 dev `/v3/api-docs` 确认字段存在）。
+   *
+   * ⚠️ 后端可能下发 `null`（该规格没配图）⇒ 类型放宽为**可空**：
+   *    空串 / null 都表示「没有规格图」，页面渲染「未上传」并只提供上传入口，
+   *    ⛔ **不要**用商品主图或任何占位 URL 顶上（不伪造数据）。
+   */
+  skuImage?: string | null
   price: number
   /** 划线价/原价（元），纯展示不参与扣款，为空=无划线价。 */
   originalPrice?: number
@@ -189,6 +196,17 @@ export interface AdminSkuSaveItem {
   specName: string
   price: number
   stock: number
+  /**
+   * **规格图 URL**（`SkuItem.skuImage`，2026-10-09 实测 dev `/v3/api-docs` 确认字段存在）。
+   *
+   * - 语义：该规格自己的图片；**空串 = 没有规格图**（C 端回退商品主图）。
+   * - ⛔ **不许填占位图 URL** —— 没上传就是空串/不传，别拿商品主图或 CDN 默认图顶上
+   *   （本项目硬原则：不伪造数据；否则运营会以为"这规格本来就有图"）。
+   * - 与商家端 `MerchantProductSaveDTO.skus[].skuImage` 是**同一列**（中控/商家端共用一张规格图）。
+   * - 编辑保存时：详情回显到了 `skuImage` ⇒ 原样回传（空串即清空）；详情**没有**该字段
+   *   （老后端）时只回传运营本次真正设了图的那些行（见 `products/index.vue` 的 `skuImageEchoed`）。
+   */
+  skuImage?: string
 }
 
 /**
