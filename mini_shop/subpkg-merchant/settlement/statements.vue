@@ -221,13 +221,20 @@ onReachBottom(() => loadMore())
  *  2. URL 由 `api` 层拼（鉴权头与 base URL 在 request 模块私有）⇒ 走 `downloadFile()`；
  *  3. 返回的是 **CSV**（不是 xlsx）⇒ 用 `openDocument` 打开；⚠️ 部分环境对 csv 支持有限，
  *     失败时**降级提示**（不谎报成功）。
+ *
+ * ⚠️ `withItems`（2026-10-09 spec §5.3）：**默认 `false`** —— 此时请求**与旧版一字不差**
+ * （不出现 `detail` 参数，导出内容与列序保持旧版），老脚本因此不受影响；
+ * 只有商家**显式**点「导出含行级明细」才传 `true`，让后端在订单级明细后追加行级明细段。
+ * ⚠️ 模板必须显式写 `exportCsv(false)` / `exportCsv(true)`：若只写**裸函数名**（不带括号传参），
+ * Vue 会把事件对象作为第一个参数传进来（"truthy"）⇒ 默认导出会**被静默升级成带明细**。
+ * 契约里有反向断言钉住这一点（本文件因此**不得**出现那种裸写法，注释里也不写）。
  */
-async function exportCsv(): Promise<void> {
+async function exportCsv(withItems = false): Promise<void> {
   if (exporting.value) return
   exporting.value = true
   uni.showLoading({ title: '导出中…' })
   try {
-    const { tempFilePath } = await downloadFile(buildSettlementStatementsExportUrl(activeStatus.value))
+    const { tempFilePath } = await downloadFile(buildSettlementStatementsExportUrl(activeStatus.value, withItems))
     uni.hideLoading()
     // ⚠️ 打开文档让用户能"转发/用其他应用打开"；失败则退回提示，不假装成功
     uni.openDocument({
@@ -279,9 +286,17 @@ function goBack(): void {
               @click="selectStatus(option.value)"
             >{{ option.label }}</text>
           </view>
-          <text class="export-btn" :class="{ disabled: exporting }" @click="exportCsv">
+          <!-- ⚠️ 默认导出：`false` 必须**显式**写（裸 `exportCsv` 会把事件对象当参数传进来） -->
+          <text class="export-btn" :class="{ disabled: exporting }" @click="exportCsv(false)">
             {{ exporting ? '导出中…' : '导出 CSV' }}
           </text>
+        </view>
+
+        <!-- 可选：带行级明细的导出（2026-10-09 spec §5.3）。
+             ⚠️ 这是**opt-in**：不点它时上面那个按钮发出的请求与旧版完全一致（不带 detail 参数）。 -->
+        <view class="export-extra">
+          <text class="export-detail-btn" :class="{ disabled: exporting }" @click="exportCsv(true)">导出 CSV（含行级明细）</text>
+          <text class="export-detail-note">行级明细段（追加在订单级明细之后）含：订单号 / 行ID / SKU / 让利比例 / 行商品金额 / 行抽成 / 作废时间 / 作废原因。默认导出（上方按钮）不含该段，列序与旧版完全一致。</text>
         </view>
 
         <!-- ⚠️ 本页合计：明示"本页"，避免被当成全量 -->
@@ -364,6 +379,11 @@ function goBack(): void {
 .chip.active { background: #ff5500; color: #fff; }
 .export-btn { padding: 8rpx 22rpx; border-radius: 999rpx; border: 1rpx solid #ff5500; color: #ff5500; font-size: 24rpx; }
 .export-btn.disabled { opacity: 0.5; }
+/* 可选导出（含行级明细）：工具栏下方的次级入口 + 内容说明（opt-in，不影响默认导出） */
+.export-extra { margin-top: 12rpx; }
+.export-detail-btn { display: inline-block; padding: 6rpx 20rpx; border-radius: 999rpx; border: 1rpx solid #ffb27a; color: #d2691e; font-size: 22rpx; }
+.export-detail-btn.disabled { opacity: 0.5; }
+.export-detail-note { display: block; margin-top: 10rpx; color: #86909c; font-size: 22rpx; line-height: 32rpx; }
 .summary { margin-top: 18rpx; padding: 16rpx 20rpx; border-radius: 12rpx; background: #fff7f2; }
 .summary-text { color: #916448; font-size: 23rpx; line-height: 34rpx; }
 .state { padding: 120rpx 40rpx; color: #999; text-align: center; font-size: 26rpx; }

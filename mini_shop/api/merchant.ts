@@ -885,6 +885,56 @@ export function getMerchantShops(): Promise<MerchantShopVO[]> {
   return request<MerchantShopVO[]>({ url: '/api/merchant/shops', method: 'GET' })
 }
 
+/**
+ * 门店项（`GET /api/merchant/shop/list` → 后端 `ResultListShopVO`，即 `List<ShopVO>`）。
+ *
+ * ⚠️⚠️ **与 {@link MerchantShopVO} 不是同一个接口**（2026-10-09 核实 `api_doc.json`）：
+ * - `/api/merchant/shops` → `StaffAccountVO`（**账号口径，没有 `shopImage`**）；
+ * - `/api/merchant/shop/list` → `ShopVO`（**含 `shopImage`**，另有地址/电话/营业时间/经纬度）。
+ * ⇒ **门店头像（工作台顶部）只能取后者** —— 前者没有图片字段，若硬用就只能凭空造 URL（伪造数据）。
+ */
+export interface MerchantShopDetail {
+  /** 门店 ID（`ShopVO.id`，⚠️ 不是 `MerchantShopVO.shopId`）。 */
+  id: number
+  /** 门店名称（`PUT` 时**原样回传**，见 {@link MerchantShopImageUpdateDTO}）。 */
+  name: string
+  /** 门店图片 URL（= 小程序商家端工作台顶部「门店头像」的来源）。 */
+  shopImage?: string
+  /** 门店状态：1 启用 / 0 停用。 */
+  status?: number
+  /** 删除标记：1 = 已删除（列表含已删除门店，展示时须排除）。 */
+  delFlag?: number
+}
+
+/** 门店列表（本品牌；⚠️ 这是**带 `shopImage` 的那个**端点，见 {@link MerchantShopDetail}）。 */
+export function getMerchantShopList(): Promise<MerchantShopDetail[]> {
+  return request<MerchantShopDetail[]>({ url: '/api/merchant/shop/list', method: 'GET' })
+}
+
+/**
+ * 「改门店头像」的请求体（`PUT /api/merchant/shop/{id}`，后端 `ShopUpdateDTO`）。
+ *
+ * ⚠️⚠️ **为什么不止 `shopImage` 一个字段**：契约 `ShopUpdateDTO` 的 `required = ["name"]`
+ * 且 `name.minLength = 1`（`api_doc.json` 逐字核对）—— 只发 `shopImage` 会被**参数校验**打回。
+ * `name` 因此**原样回传**门店列表里读到的**当前门店名**：它**不是**要改的字段，
+ * **不篡改、不缩写、不臆造**；读不到当前名时调用方**不发请求**（宁可如实报错，也不编一个名字凑合法）。
+ * 其余字段（地址 / 经纬度 / 营业时间 / 店铺介绍 / 归属品牌…）**一律不发**。
+ */
+export interface MerchantShopImageUpdateDTO {
+  /** ⚠️ 当前门店名（列表**原样回传**，只为满足必填校验；语义上不修改）。 */
+  name: string
+  /** 本次**唯一**要修改的字段：门店图片 URL。 */
+  shopImage: string
+}
+
+/**
+ * 修改门店图片（`PUT /api/merchant/shop/{id}`，说明原文「门店图片 `shopImage` 可在编辑时更新门店图片」）。
+ * ⚠️ 商家只能编辑自己品牌下的门店（越权由后端拦）。
+ */
+export function updateMerchantShopImage(id: number | string, payload: MerchantShopImageUpdateDTO): Promise<void> {
+  return request<void>({ url: `/api/merchant/shop/${id}`, method: 'PUT', data: payload })
+}
+
 /** 新建门店的请求体（后端 `ShopCreateDTO`；门店自动归属当前品牌）。 */
 export interface MerchantShopCreateDTO {
   /** 门店名称（必填）。 */

@@ -14,18 +14,24 @@ import { computed, ref } from 'vue'
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   countMerchantProducts,
-  getMerchantOverview, getMerchantUnread,
-  type MerchantOverviewVO,
+  getMerchantOverview, getMerchantShopList, getMerchantUnread,
+  updateMerchantShopImage,
+  type MerchantOverviewVO, type MerchantShopDetail,
 } from '@/api/merchant'
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
-import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
 import { uploadFile } from '@/utils/request'
 import { preloadMerchantSubscribeConfig, requestMerchantSubscribe } from '@/utils/subscribe'
 
 const statusBarHeight = ref(0)
 const shopName = ref('')
-/** 当前用户资料：顶部头像来源（用户可上传微信头像）。 */
-const user = ref<UserProfile | null>(null)
+/**
+ * ⚠️ 顶部头像 = **门店头像**（门店自己的 `shopImage`），**不是**登录用户的人像头像。
+ * 2026-10-09 修：此前这里用的是 `user.avatarUrl` ⇒ 顶部显示的是"人"的头像（没设微信头像时
+ * 就是默认切图），对不上"门店"这个语义（用户反馈：「门店头像现在是默认 logo，需要商家能自己上传」）。
+ * 现在唯一来源是 `GET /api/merchant/shop/list`（`ShopVO`，**含 `shopImage`**）。
+ */
+const shopList = ref<MerchantShopDetail[]>([])
+/** 头像上传中（禁用按钮，防连点）。 */
 const avatarUploading = ref(false)
 /** 身份列表：顶部箭头的身份切换弹层用（一个账号多角色）。 */
 const identity = ref<IdentityVO | null>(null)
@@ -66,9 +72,9 @@ function stopUnreadTimer(): void {
 onShow(() => {
   // ⚠️ 预取订阅配置（缓存）：点击那一刻只能同步读缓存，来不及请求接口
   void preloadMerchantSubscribeConfig()
-  // 店铺名与可选身份从后端拉取（身份卡列表同源）；用户头像单独取资料
+  // 店铺名与可选身份从后端拉取（身份卡列表同源）；**门店头像单独取门店列表**（含 shopImage）
   void loadIdentity()
-  void loadUser()
+  void loadShopProfile()
   void loadOverview()
   void loadProductCounts()
   // 未读通知：进入即拉一次（后续 30s 轮询；每次拉取后端都会清零）
@@ -205,8 +211,84 @@ const isMerchantOwner = computed(() => {
 function goSettlement(): void {
   uni.navigateTo({ url: '/subpkg-merchant/settlement/index' })
 }
-/** 顶部头像：优先用户微信头像，没有则用店铺默认头像（设计切图，放分包不占主包）。 */
-const shopAvatar = computed(() => user.value?.avatarUrl || '/subpkg-merchant/static/shop-avatar-default.png')
+
+// ===== 门店头像（2026-10-09）：来源 `GET /api/merchant/shop/list`（`ShopVO`，含 `shopImage`）=====
+//
+// ⚠️ 为什么不用 `GET /api/merchant/shops`：那个端点复用 `StaffAccountVO`（账号口径，
+//    只有店长/骑手/绑定微信人数），**没有 `shopImage`** ⇒ 拿不到门店图片。
+//    `/api/merchant/shop/list` 返回 `ShopVO`，**含 `shopImage` 与门店名**（`api_doc.json` 逐字核对）。
+
+/**
+ * 当前门店：优先身份里带的门店 ID，其次按门头名匹配，最后取第一家**未删除**门店。
+ * ⚠️ 全部取自后端真实下发值；**不造默认值、不猜坐标**（拿不到就 `null`，前端如实降级）。
+ */
+const currentShop = computed<MerchantShopDetail | null>(() => {
+  const alive = shopList.value.filter((item) => Number(item.delFlag ?? 0) !== 1)
+  const pool = alive.length ? alive : shopList.value
+  if (!pool.length) return null
+  const identityShopId = identity.value?.shopId ?? identity.value?.identities?.[0]?.shopId
+  if (identityShopId != null) {
+    const byIdentity = pool.find((item) => Number(item.id) === Number(identityShopId))
+    if (byIdentity) return byIdentity
+  }
+  const byName = pool.find((item) => item.name && item.name === shopName.value)
+  return byName || pool[0]
+})
+
+/** 顶部头像：**门店自己的 `shopImage`**，未设置时回退默认切图（放分包不占主包）。 */
+const shopAvatar = computed(() => currentShop.value?.shopImage || '/subpkg-merchant/static/shop-avatar-default.png')
+
+/**
+ * 是否可上传门店头像。
+ * ⚠️ 口径与「门店管理」入口一致：**只有品牌主体（`MERCHANT_OWNER`）**能写 `/api/merchant/shop*`
+ * （店长/店员调它会 1004）⇒ 不做"点了必然失败"的按钮：无编辑权时头像**只读展示**。
+ */
+const canEditShop = computed(() => isMerchantOwner.value && currentShop.value != null)
+
+/** 拉门店列表（门店头像的唯一来源；失败置空 ⇒ 退回默认切图，不伪造 URL）。 */
+async function loadShopProfile(): Promise<void> {
+  try {
+    const list = await getMerchantShopList()
+    shopList.value = Array.isArray(list) ? list : []
+  } catch { shopList.value = [] }
+}
+
+/**
+ * 选择/上传**门店头像**（最小实现：选图 → 上传 → 只改 `shopImage` → 刷新）。
+ *
+ * ⚠️ 走的是既有 `open-type="chooseAvatar"` 按钮（微信头像/相册/拍照任选一张）——
+ * 该按钮与 `@chooseavatar` 已被 `tests/merchant-home-role.contract.ps1` 钉住，故**保留**；
+ * 但**写回的目标从"用户资料"改成"门店"**（这正是本次修复的语义）。
+ *
+ * ⚠️ `PUT /api/merchant/shop/{id}` 的 `ShopUpdateDTO.name` 是**必填**（契约 `required = ["name"]`）
+ * ⇒ `name` **原样回传**门店列表里的当前值。**读不到当前门店名就整个不发请求**（如实提示），
+ * 绝不臆造一个名字去把请求凑成合法。地址/经纬度/营业时间等字段一律不发。
+ */
+async function onChooseAvatar(event: { detail: { avatarUrl?: string } }): Promise<void> {
+  const tempPath = event.detail?.avatarUrl
+  if (!tempPath || avatarUploading.value) return
+  const shop = currentShop.value
+  if (!shop) {
+    uni.showToast({ title: '未取到门店信息，无法上传门店头像', icon: 'none' })
+    return
+  }
+  const name = String(shop.name || '').trim()
+  if (!name) {
+    uni.showToast({ title: '门店名称缺失，请到门店管理查看', icon: 'none' })
+    return
+  }
+  avatarUploading.value = true
+  try {
+    const shopImage = await uploadFile(tempPath)
+    await updateMerchantShopImage(shop.id, { name, shopImage })
+    await loadShopProfile()
+    uni.showToast({ title: '门店头像已更新', icon: 'none' })
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '门店头像上传失败', icon: 'none' })
+  } finally {
+    avatarUploading.value = false
+  }
+}
 
 /** 角色展示元信息（名称/说明/图标），文案与图标取自设计稿「选择你要进入的角色」弹层。 */
 function roleMeta(entry: 'CUSTOMER' | 'MANAGER' | 'RIDER'): { name: string; desc: string; icon: string } {
@@ -261,11 +343,6 @@ const roleOptions = computed(() => {
   return list
 })
 
-/** 拉取用户资料（顶部头像展示）。 */
-async function loadUser(): Promise<void> {
-  try { user.value = await getUserProfile() } catch { user.value = null }
-}
-
 /** 拉取身份列表：用于弹层可选角色，同时同步店名。 */
 async function loadIdentity(): Promise<void> {
   try {
@@ -273,22 +350,6 @@ async function loadIdentity(): Promise<void> {
     const first = identity.value?.identities?.[0]
     shopName.value = first?.shopName || first?.merchantName || ''
   } catch { identity.value = null }
-}
-
-/** 选择头像（微信头像或相册）：上传后写回用户资料，顶部立即刷新。 */
-async function onChooseAvatar(event: { detail: { avatarUrl?: string } }): Promise<void> {
-  const tempPath = event.detail?.avatarUrl
-  if (!tempPath || avatarUploading.value) return
-  avatarUploading.value = true
-  try {
-    const avatarUrl = await uploadFile(tempPath)
-    user.value = await updateUserProfile({ avatarUrl })
-    uni.showToast({ title: '头像已更新', icon: 'none' })
-  } catch (error) {
-    uni.showToast({ title: error instanceof Error ? error.message : '头像上传失败', icon: 'none' })
-  } finally {
-    avatarUploading.value = false
-  }
 }
 
 /** 打开身份切换弹层，默认选中当前身份（取切换缓存里的 entry）。 */
@@ -363,10 +424,15 @@ function goBack(): void {
     <!-- 导航栏 -->
     <view class="nav" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="shop">
-        <!-- 头像：点击可选微信头像/相册（open-type=chooseAvatar 必须挂在 button 上） -->
-        <button class="shop-avatar-btn" open-type="chooseAvatar" :disabled="avatarUploading" @chooseavatar="onChooseAvatar">
+        <!-- 头像 = **门店头像**（门店自己的 shopImage；没配则默认切图）。
+             ⚠️ 有编辑权（品牌主体）时是「选择/上传门店头像」按钮；无编辑权时**只读展示**，
+             不做点了必然失败的入口（`/api/merchant/shop*` 写接口只对品牌主体放行）。
+             ⚠️ `open-type="chooseAvatar"` 与 `@chooseavatar="onChooseAvatar"` 保持不变
+             （契约钉住），但上传目标已从"用户资料"改为"门店"（见 onChooseAvatar）。 -->
+        <button v-if="canEditShop" class="shop-avatar-btn" open-type="chooseAvatar" :disabled="avatarUploading" @chooseavatar="onChooseAvatar">
           <image class="shop-avatar" :src="shopAvatar" mode="aspectFill" />
         </button>
+        <image v-else class="shop-avatar" :src="shopAvatar" mode="aspectFill" />
         <text class="shop-name">{{ shopName || '我的店铺' }}</text>
         <!-- 箭头：放大的身份切换入口（一个账号多角色，店长也能去配送） -->
         <view class="shop-switch" @click="openRoleSheet"><text class="shop-arrow">▾</text></view>
@@ -633,6 +699,7 @@ function goBack(): void {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: 62rpx;
   height: 62rpx;
   padding: 0;
@@ -643,7 +710,9 @@ function goBack(): void {
   line-height: 1;
 }
 .shop-avatar-btn::after { border: none; }
+/* 头像（两种形态共用：可上传的 button 内 / 无编辑权的只读 image） */
 .shop-avatar {
+  flex: none;
   width: 62rpx;
   height: 62rpx;
   border: 1rpx solid rgba(0, 0, 0, 0.06);

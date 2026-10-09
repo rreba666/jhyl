@@ -48,7 +48,14 @@ export interface ProductDetail {
   minOriginalPrice?: number
   totalStock: number
   soldCount: number
-  skuList: Array<{ id: string; skuName: string; specs: string; price: number; originalPrice?: number; stock: number; enabled: number }>
+  /**
+   * SKU 列表（C 端详情返回后端 `SkuVO`，B 端同 schema 含禁用 SKU）。
+   *
+   * ⚠️ `skuImage` 是后端 `SkuVO` **早已下发**的字段（契约 `api_doc.json` 逐字核对：
+   * 「SKU 规格图片 URL（不同规格不同图）」），此前**类型里漏声明** ⇒ 规格弹层只能显示商品主图。
+   * 未配置规格图时后端下发空串/null ⇒ 消费方一律**回退商品主图**（见 `components/goods/SkuSheet.vue`）。
+   */
+  skuList: Array<{ id: string; skuName: string; specs: string; skuImage?: string; price: number; originalPrice?: number; stock: number; enabled: number }>
 }
 
 export interface ProductCard {

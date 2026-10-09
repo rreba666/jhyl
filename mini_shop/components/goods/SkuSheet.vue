@@ -23,6 +23,11 @@ export interface SkuOption {
   id: string
   skuName: string
   specs: string
+  /**
+   * 该规格自己的图片 URL（后端 `SkuVO.skuImage`）。
+   * ⚠️ **空串/null = 未配置** ⇒ 展示时必须回退商品主图（见 `headImage`），不得开天窗。
+   */
+  skuImage?: string
   price: number
   originalPrice?: number
   stock: number
@@ -51,15 +56,43 @@ const emit = defineEmits<{
 const selectedSkuId = ref('')
 const quantity = ref(1)
 
-/** 可展示的规格：`enabled !== 0`（禁用的不展示，避免用户选中后被后端拒绝）。 */
+/**
+ * 可展示的规格：`enabled !== 0`（禁用的不展示，避免用户选中后被后端拒绝）。
+ *
+ * ⚠️ 这里**逐个字段显式映射**（不再用 `as SkuOption[]` 断言）：`skuImage` 必须被带出来，
+ * 否则头部图永远只能显示商品主图 —— 那正是用户反馈的「不同规格应有不同图片、弹层却不变」。
+ */
 const skus = computed<SkuOption[]>(() => {
   const list = props.product?.skuList
   if (!Array.isArray(list)) return []
-  return list.filter((item) => Number(item.enabled) !== 0) as SkuOption[]
+  return list
+    .filter((item) => Number(item.enabled) !== 0)
+    .map((item) => ({
+      id: item.id,
+      skuName: item.skuName,
+      specs: item.specs,
+      skuImage: item.skuImage,
+      price: item.price,
+      originalPrice: item.originalPrice,
+      stock: item.stock,
+      enabled: item.enabled,
+    }))
 })
 
 /** 当前选中规格（未选中时为 `undefined`）。 */
 const selectedSku = computed<SkuOption | undefined>(() => skus.value.find((item) => String(item.id) === selectedSkuId.value))
+
+/**
+ * 弹层头部图：**优先选中规格自己的 `skuImage`**，该规格未配图时**回退商品主图**（`product.mainImage`）。
+ *
+ * ⚠️ 依赖 `selectedSku` ⇒ 用户切换规格时**自动跟着换图**（computed 响应式，无需额外 watch）。
+ * ⚠️ 空串/空白一律视为"未配置"（后端未配规格图时会下发空串），否则弹层会开天窗。
+ */
+const headImage = computed(() => {
+  const skuImage = String(selectedSku.value?.skuImage || '').trim()
+  if (skuImage) return skuImage
+  return String(props.product?.mainImage || '').trim()
+})
 
 /** 是否缺货（选中规格库存 ≤ 0）。 */
 const soldOut = computed(() => {
@@ -170,7 +203,8 @@ watch(() => props.visible, (visible) => {
     <view class="sheet" @click.stop>
       <!-- 头部：商品图 + 价格 + 库存 -->
       <view class="head">
-        <image class="head-image" :src="product?.mainImage || ''" mode="aspectFill" />
+        <!-- ⚠️ 头部图 = **选中规格的图**（`skuImage`），未配规格图时回退商品主图（见 headImage） -->
+        <image class="head-image" :src="headImage" mode="aspectFill" />
         <view class="head-info">
           <view class="price-row">
             <text class="price-yen">¥</text>

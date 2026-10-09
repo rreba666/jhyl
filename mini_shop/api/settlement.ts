@@ -184,10 +184,21 @@ export function getSettlementStatements(params: {
  * ⚠️ **只返回 URL**，实际下载请走 `downloadFile()`（`utils/request.ts`）——
  * 该接口**需要鉴权头**，而 `API_BASE_URL` / `APP_KEY` 是 request 模块私有的。
  * @param status ⚠️ 必须传**当前列表筛选的状态**（"与列表所见一致"）；空串 = 全部。
+ * @param withItems **可选**（2026-10-09 spec §5.3 新增）：`true` 时带上 `detail` 查询参数，
+ *   后端在**订单级明细之后**追加一段「行级明细（商品级抽成）」——
+ *   订单号 / 行ID / SKU / 让利比例 / 行商品金额 / 行抽成 / 作废时间 / 作废原因。
+ *   ⚠️ **默认 `false`**：不传该参数时后端导出的**内容与列序与旧版完全一致**（老脚本依赖它）
+ *   ⇒ **默认路径（不带 detail）一个字符都不能改**。
  */
-export function buildSettlementStatementsExportUrl(status?: SettlementStatementStatus | ''): string {
-  return status
-    ? `/api/merchant/settlement/statements/export?status=${encodeURIComponent(status)}`
+export function buildSettlementStatementsExportUrl(status?: SettlementStatementStatus | '', withItems = false): string {
+  // ⚠️⚠️ 默认（`withItems = false`）时拼出的 URL 必须**与旧实现逐字符一致**：
+  //    有 status ⇒ `...?status=XXX`；无 status ⇒ 裸路径（**不出现 `?` / `&` / 空参数**）。
+  const parts: string[] = []
+  if (status) parts.push('status=' + encodeURIComponent(status))
+  // ⚠️ 只有**显式**选择「含行级明细」时才追加；这是本文件里唯一出现该参数的地方。
+  if (withItems) parts.push('detail=items')
+  return parts.length
+    ? '/api/merchant/settlement/statements/export?' + parts.join('&')
     : '/api/merchant/settlement/statements/export'
 }
 
