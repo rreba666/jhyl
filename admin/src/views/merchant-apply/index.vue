@@ -62,6 +62,26 @@ function fullAddress(row: AdminMerchantApplyVO): string {
   return [region, row.shopAddress].filter(Boolean).join(' ') || '—'
 }
 
+/**
+ * 商家**是否申报了**商户级让利比例。
+ *
+ * ⚠️⚠️ 严格判 `null` / `undefined` / 非有限数 —— 三者都算「未申报」：
+ * 后端语义是 **`null` = 未申报**（提交时没填 ⇒ 后端一行都不写，保持平台默认比例，**不会写成 0**），
+ * 所以这里**绝不能**用"兜底成 0"的写法（例如给它加一个 `?? 0`）—— 那会把"没填"渲染成 `0%`，
+ * 让运营误以为商家申报了 0% 的让利（等于平台不抽成），是**伪造数据**。
+ * ⚠️ 只有拿到**有限数值**才算申报（`0` 若真被后端下发，那也是一个"值"，这里不做二次解释）。
+ */
+function hasCommissionRate(row: AdminMerchantApplyVO): boolean {
+  const rate = row.commissionRate
+  if (rate === null || rate === undefined) return false
+  return Number.isFinite(Number(rate))
+}
+
+/** 申报值的展示文案（`%` 后缀）。仅用于确认「已申报」的行。 */
+function commissionRateText(row: AdminMerchantApplyVO): string {
+  return hasCommissionRate(row) ? `${Number(row.commissionRate)}%` : '未申报'
+}
+
 /** 加载列表。 */
 async function load(): Promise<void> {
   loading.value = true
@@ -263,6 +283,18 @@ onMounted(() => {
           <el-descriptions-item label="状态">
             <el-tag :type="statusTagType(detail)">{{ statusLabel(detail) }}</el-tag>
           </el-descriptions-item>
+          <!-- 让利比例申报值（2026-10-09 后端新增下发）：⚠️ null = 未申报 ⇒ 显示「未申报」，
+               绝不渲染 0 / 0%。span=2 是为了保持下面几处 span=2 条目的左右列对齐。 -->
+          <el-descriptions-item label="申报让利比例" :span="2">
+            <template v-if="hasCommissionRate(detail)">
+              <strong>{{ commissionRateText(detail) }}</strong>
+              <span class="sub-inline">商家申报的商户级让利比例；未单独设置时按平台默认比例结算</span>
+            </template>
+            <template v-else>
+              <span class="unset">未申报</span>
+              <span class="sub-inline">提交时未填 ⇒ 审核通过后按平台默认比例结算（不是 0%）</span>
+            </template>
+          </el-descriptions-item>
           <el-descriptions-item label="联系人">{{ detail.contactName || '—' }}</el-descriptions-item>
           <el-descriptions-item label="联系电话">{{ detail.contactPhone || '—' }}</el-descriptions-item>
           <el-descriptions-item label="首店名称">{{ detail.shopName || '—' }}</el-descriptions-item>
@@ -357,6 +389,8 @@ onMounted(() => {
 <style scoped>
 .filter-card { margin-bottom: 16px; }
 .sub { display: block; color: var(--el-text-color-secondary); font-size: 12px; }
+.sub-inline { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; }
+.unset { color: var(--el-text-color-secondary); }
 .hint { margin: 0; line-height: 1.7; }
 .mb { margin-bottom: 16px; }
 .reject-text { color: var(--el-color-danger); }

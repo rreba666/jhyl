@@ -1,4 +1,5 @@
 import { request } from './request'
+import { sanitizeBonusText } from '@/utils/textSafe'
 
 /** 待办等级（决定下拉项颜色）。 */
 export type TodoLevel = 'INFO' | 'WARN' | 'DANGER'
@@ -25,26 +26,29 @@ export interface TodoSummary {
 }
 
 /**
- * 两个「提现超时」待办的**前端兜底文案与深链**（2026-10-08 新增，依据 spec §4）。
+ * 中控待办的**前端兜底文案与深链**（后端只下 `key` 时用；后端给了 label/route 就用后端的）。
  *
  * | key | 中文 | 判据（后端） | 可见角色 | 深链 |
  * |---|---|---|---|---|
  * | `WITHDRAW_APPROVE_TIMEOUT` | 提现审核超时 | 待审核 > **4 小时**（可配 `fengling.withdraw.approve-timeout-minutes`） | 超管 + 财务 | `/withdraw?status=0`（待审核页签） |
  * | `WITHDRAW_PAYOUT_TIMEOUT` | 提现已通过待打款超时 | 已通过 > **24 小时**（可配 `fengling.withdraw.payout-timeout-minutes`） | 超管 + 财务 | `/withdraw?status=APPROVED`（交易记录页签按「打款中」过滤） |
+ * | `DIVIDEND_CLAWBACK_MISSING` | 退款未追回红包 | `dividend_clawback_failure` 表**未处理条数**（`status=0`） | 超管 + 财务 | `/dividend-clawback?status=0`（未处理） |
  *
- * ## ⚠️⚠️ 三条边界（别越界）
+ * ## ⚠️⚠️ 边界（别越界）
  * 1. **数量只认后端**：这里**没有 `count`** —— 后端没返回该待办项时，前端**不显示、也不补 0**，
- *    更不会自己按"4 小时"去数一遍（那需要全量提现单，前端没有这个数据源，
+ *    更不会自己去数一遍（那需要全量业务数据，前端没有这个数据源，
  *    硬算出来的数字必然与后端不一致 ⇒ 违反"徽标数字 == 点进去的条数"）。
  * 2. **后端下发优先**：`label` / `route` / `level` 只要后端给了就用后端的，
  *    这里只在**后端没给**时兜底（后端改口径前端不用发版）。
- * 3. **只提醒、不改状态**：这两项是**建议级**待办，页面不提供"超时自动通过 / 自动打款"之类的动作。
+ * 3. **只提醒、不改状态**：这几项是**建议级**待办，页面不提供"超时自动通过 / 自动打款 / 自动追回"之类的动作。
  *
- * ⚠️ 现状（2026-10-08 核对 `api_doc.json`）：后端**尚未**把这两个 key 加进
- * `TodoItemVO.key` 的枚举与计数逻辑（快照里搜不到 `WITHDRAW_APPROVE_TIMEOUT` /
- * `WITHDRAW_PAYOUT_TIMEOUT`，可见角色清单里也只有 `WITHDRAW_AUDIT`）。
- * ⇒ 在它们上线之前，铃铛里**不会**出现这两项；本兜底**不会**凭空造出条目，只是让它们上线当天
- * 就能显示中文并跳到正确的列表（否则后端若只下发 key，铃铛里会显示英文 key 或点了没反应）。
+ * ## ⚠️ 2026-10-09 实测（dev 后端，超管账号）：`DIVIDEND_CLAWBACK_MISSING` **已经上线**
+ * `GET /api/admin/todo/summary` 真实返回了该项（`count=0`，`level=DANGER`；
+ * ⚠️ 它下发的 `label` 用的是**旧业务词**形态 ⇒ 由下面的 `normalizeTodoItem` 在展示层归一化）。
+ * ⚠️ 但后端当前下发的 `route` 是 **`/orders?status=7`**（一个**占位深链**：点进去是订单列表，
+ *    **看不到**追回失败记录 —— 那些行在 `dividend_clawback_failure` 表里，只有本页能展示）。
+ *    ⚠️ 因为"后端下发优先"，这条 `route` 会**盖住**下面的兜底深链 ⇒ **需后端把该 key 的 route 改成
+ *    `/dividend-clawback?status=0`**（前端不越权改写后端数据；本次只在兜底里把正确深链备好，并在此留痕）。
  */
 export const TODO_ITEM_FALLBACKS: Record<string, { label: string; route: string; level: TodoLevel }> = {
   WITHDRAW_APPROVE_TIMEOUT: {
@@ -57,11 +61,22 @@ export const TODO_ITEM_FALLBACKS: Record<string, { label: string; route: string;
     route: '/withdraw?status=APPROVED',
     level: 'DANGER',
   },
+  // 退款未追回红包（2026-10-09）：③ 号待办，与上面两项同为"超管 + 财务"可见。
+  // label 按本项目术语口径写「红包」（界面不出现旧业务词）；深链落到本批新增的工作台，并带上"未处理"筛选。
+  DIVIDEND_CLAWBACK_MISSING: {
+    label: '退款未追回红包',
+    route: '/dividend-clawback?status=0',
+    level: 'DANGER',
+  },
 }
 
 /**
  * 单条待办归一化：**后端字段优先**，缺 `label` / `route` / `level` 时用
- * {@link TODO_ITEM_FALLBACKS} 兜底（只对已知的两个提现超时项有兜底，其余键保持原样）。
+ * {@link TODO_ITEM_FALLBACKS} 兜底（只对已知的三个键有兜底，其余键保持原样）。
+ *
+ * ⚠️ `label` 统一过一遍 {@link sanitizeBonusText}（本项目口径：后端文案在**展示层**归一化为「红包」，
+ * 见 `CLAUDE.md` §七）—— 2026-10-09 实测 dev 的 `DIVIDEND_CLAWBACK_MISSING` 下发的 label 仍是旧业务词，
+ * 铃铛会把它原样显示出来。这是**归一化后端文案**，不是改写文案语义（无旧词时是恒等变换）。
  */
 function normalizeTodoItem(value: unknown): TodoItem {
   const row = (value || {}) as Partial<TodoItem>
@@ -70,7 +85,7 @@ function normalizeTodoItem(value: unknown): TodoItem {
   const count = Number(row.count)
   return {
     key,
-    label: String(row.label ?? '') || fallback?.label || key,
+    label: sanitizeBonusText(String(row.label ?? '')) || fallback?.label || key,
     // ⚠️ 只认后端数字；非法值按 0（0 的项页面本来就不渲染）—— 绝不编一个非 0 的数量
     count: Number.isFinite(count) ? count : 0,
     route: String(row.route ?? '') || fallback?.route || '',

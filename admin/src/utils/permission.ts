@@ -64,6 +64,10 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     //   ⚠️ 2026-10-02 按后端反馈 §五 修正：后端 `SUPER_OR_FINANCE_PREFIXES` ⇒ **超管 + 财务**，
     //   **客服 403**（原先误给客服，见下方 CUSTOMER_SERVICE 处的说明）。
     '/logistics/sign-pending', '/logs/channel-reconcile', '/logs/fund-report',
+    // 红包追回失败（2026-10-09 新增，`/api/admin/dividend-clawback/**`）：
+    // ⚠️ 后端登记为**仅超管 + 财务**（客服 / 商户管理员 `1004`）⇒ 矩阵里只给这两个角色。
+    //    商家自助改让利比例会写**商家身份**的审计，中控财务向的追回处理同样只对这两个角色开放。
+    '/dividend-clawback',
   ],
   ADMIN: [
     // ⚠️ 不含 '/logs/ledger'：留痕台账是**跨商户全量视图**（含金额/库存），仅平台角色可见
@@ -98,6 +102,8 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     // 2026-10-02（P7/P8）：渠道对账与资金报表是财务日常对账入口 ⇒ 必须给财务。
     // ⚠️ **不含** `/logistics/sign-pending`（P5 明确仅超管）。
     '/logs/channel-reconcile', '/logs/fund-report',
+    // ⚠️ 红包追回失败：财务是这条链路的处置方之一（后端 `/api/admin/dividend-clawback/**` = 超管 + 财务）
+    '/dividend-clawback',
     // ⚠️ 系统配置管理：**财务是写入方之一**（后端 `PUT /api/admin/sys-config/{key}` 明写"仅 SUPER_ADMIN / FINANCE 可写"）
     //    ⇒ 提现手续费率、提现门槛这类财务口径参数必须让财务改得了，否则每次都要转超管。
     '/settings/sys-config',
@@ -151,6 +157,8 @@ const ROUTE_LABELS: Record<string, string> = {
   '/logistics/sign-pending': '物流签收兜底',
   '/logs/channel-reconcile': '渠道账单对账',
   '/logs/fund-report': '资金报表',
+  // 2026-10-09 新增：退款链路追回红包失败的留痕工作台（仅超管 / 财务）。
+  '/dividend-clawback': '红包追回失败',
   '/settings': '业务设置',
   '/settings/modules': '功能模块开关',
   // 2026-10-08 新增：平台级可调参数（平台默认让利比例 / 用户提现手续费率与门槛）。

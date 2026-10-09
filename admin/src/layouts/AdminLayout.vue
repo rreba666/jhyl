@@ -323,6 +323,15 @@ onUnmounted(() => {
           <el-icon><WalletFilled /></el-icon>
           <template #title>商户提现审核</template>
         </el-menu-item>
+        <!-- 红包追回失败（2026-10-09 新增）：退款链路追回红包失败的留痕工作台。
+             ⚠️ 仅超管 + 财务（后端 `/api/admin/dividend-clawback/**` 对其它角色 1004）
+             ⇒ 矩阵里只给这两个角色，菜单与路由同源（其它角色看不到、也进不来）。
+             右侧铃铛里「退款未追回红包」那条待办计的正是本页「未处理」条数；
+             ⚠️ 铃铛对**所有**待办只有一条渲染/跳转代码路径，这里不给任何待办 key 开特例。 -->
+        <el-menu-item v-if="canVisit('/dividend-clawback')" index="/dividend-clawback">
+          <el-icon><Money /></el-icon>
+          <template #title>红包追回失败</template>
+        </el-menu-item>
         <!-- 日志管理：核销(全部) + 操作追溯(超管/商户管理员) + 留痕台账(仅平台角色：超管/客服/财务) + 接口调用计数(仅超管) -->
         <el-sub-menu v-if="showLogsMenu" index="/logs">
           <template #title><el-icon><Document /></el-icon><span>日志管理</span></template>

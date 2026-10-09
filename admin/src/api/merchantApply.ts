@@ -67,6 +67,16 @@ export interface AdminMerchantApplyVO {
   auditTime?: string
   auditorId?: number
   auditorName?: string
+  /**
+   * 商家**申报的商户级让利比例**（%）。
+   *
+   * ⚠️⚠️ **`null` / `undefined` = 未申报**（提交时没填 ⇒ 后端一行都不写，保持平台默认比例，
+   * **不会写成 0**）⇒ 页面必须显示「**未申报**」，**绝不能**渲染成 `0` / `0%`
+   * （依据 `docs/26/10.09/前端对接说明-入驻申请让利比例与商家自改-2026-10-09.md` §一-2、
+   * `api_doc.json` 的 `AdminMerchantApplyVO.commissionRate`：
+   * 「商家申报的商户级让利比例（%）；null=未申报（将用平台默认）」）。
+   */
+  commissionRate?: number | null
 }
 
 /** 列表查询参数。 */

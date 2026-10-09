@@ -24,6 +24,8 @@ const MENU_PATHS = [
   '/wallets', '/transfers', '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/settings',
   // 2026-10-08：系统配置管理（读对所有角色开放，写仅超管/财务 —— 写权限由页面与后端把关）
   '/settings/sys-config',
+  // 2026-10-09：红包追回失败（仅超管 + 财务 —— 后端 `/api/admin/dividend-clawback/**` 对其它角色 1004）
+  '/dividend-clawback',
 ]
 
 let failed = 0
@@ -57,6 +59,13 @@ for (const role of ['ADMIN', 'CUSTOMER_SERVICE'] as const) {
 assert('SUPER_ADMIN 可访问 /logs/apicount', canAccess('SUPER_ADMIN', '/logs/apicount'), true)
 for (const role of ['ADMIN', 'CUSTOMER_SERVICE', 'FINANCE'] as const) {
   assert(`${role} 不可访问 /logs/apicount`, canAccess(role, '/logs/apicount'), false)
+}
+// ②⁗ 红包追回失败（2026-10-09）：后端 `/api/admin/dividend-clawback/**` 为**仅超管 + 财务**
+//      （其它角色 1004）⇒ 矩阵必须同源收紧（客服 / 商户管理员既看不到菜单，也进不去路由）。
+assert('SUPER_ADMIN 可访问 /dividend-clawback', canAccess('SUPER_ADMIN', '/dividend-clawback'), true)
+assert('FINANCE 可访问 /dividend-clawback', canAccess('FINANCE', '/dividend-clawback'), true)
+for (const role of ['ADMIN', 'CUSTOMER_SERVICE'] as const) {
+  assert(`${role} 不可访问 /dividend-clawback`, canAccess(role, '/dividend-clawback'), false)
 }
 // ③ 客服回归
 for (const path of ['/users', '/products', '/categories', '/brands', '/delivery', '/orders', '/orders/pickup', '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify']) {

@@ -201,6 +201,17 @@ const router = createRouter({
           meta: { title: '商户提现审核', permission: ['withdraw:read'], roles: rolesForPath('/merchant-withdraw'), requiresAuth: true },
         },
         {
+          // 红包追回失败（2026-10-09 新增）：退款链路追回红包失败时的留痕工作台。
+          // ⚠️ 后端 `/api/admin/dividend-clawback/**` 为**仅超管 + 财务**（其它角色 `1004`）
+          //    ⇒ 矩阵里只给这两个角色（菜单与路由同源：其它角色既看不到菜单，也进不来）。
+          // ⚠️ 列表出参是 `ResultListMapStringObject`（**字段名无契约**，且 dev 实测为空数组）
+          //    ⇒ 页面按"多别名 + 原始行可查 + 识别不出 `id` 就禁止处理"降级，不猜字段名。
+          path: 'dividend-clawback',
+          name: 'DividendClawback',
+          component: () => import('@/views/dividend-clawback/index.vue'),
+          meta: { title: '红包追回失败', roles: rolesForPath('/dividend-clawback'), requiresAuth: true },
+        },
+        {
           path: 'logs/verify',
           name: 'VerifyLogs',
           component: () => import('@/views/logs/verify.vue'),
