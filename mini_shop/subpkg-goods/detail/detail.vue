@@ -110,6 +110,22 @@ function onGalleryImageSettled(image: string): void {
 }
 
 /**
+ * 轮播当前下标（2026-10-08 新增，点主图看大图要用）。
+ *
+ * ⚠️ `swiper` 带 `circular` ⇒ **不能**用渲染位置/滚动位置推断当前是第几张
+ *    （下标会回绕），必须以 `@change` 事件里的 `detail.current` 为准 —— 它给的是
+ *    `galleryImages` 里的**真实下标**（`0 … length - 1`）。
+ */
+const galleryIndex = ref(0)
+
+/** 轮播切换 → 记录真实下标（`circular` 下唯一可靠来源，见上）。 */
+function onGalleryChange(event: { detail?: { current?: number } }): void {
+  const current = Number(event?.detail?.current)
+  // 拿不到合法下标就保持原值：宁可沿用上一次，也不要跳回第一张。
+  if (Number.isFinite(current) && current >= 0) galleryIndex.value = current
+}
+
+/**
  * 已「加载结束」的详情图 URL 集合（同上）。
  * ⚠️ 详情图是 `mode="widthFix"`，**加载前高度未知**，所以骨架只能给一个 `min-height` 占位，
  * 加载完图片把容器撑开 —— 这会有一次高度变化，但比"一片空白看不出在加载"要好。
@@ -130,6 +146,33 @@ function previewDetailImage(index: number): void {
   const urls = detailImageList.value
   if (!urls.length) return
   uni.previewImage({ urls, current: urls[index] })
+}
+
+/**
+ * 点主图 → 微信原生预览大图（2026-10-08 新增，与上面的详情图预览同一条路径）。
+ *
+ * ⚠️ 当前图**不能**用位置推断：轮播带 `circular`，渲染位置会回绕 ⇒ 下标一律取
+ *    `@change` 维护的 `galleryIndex`；万一越界（列表变化）退回第一张 ——
+ *    宁可给一张，也不要「点了没反应」。
+ */
+function previewGalleryImage(): void {
+  const urls = galleryImages.value
+  if (!urls.length) return
+  const current = urls[galleryIndex.value] || urls[0]
+  uni.previewImage({ urls, current })
+}
+
+/**
+ * 点单图兜底封面 → 预览（`galleryImages` 为空时才走这一支）。
+ *
+ * ⚠️ 这里**只能**传 `coverImage` 这一张：此分支下 `galleryImages` 必为空，
+ *    拿它去预览等于点了没反应。（模板里也不写数组字面量 —— 小程序事件表达式的
+ *    取值机制对字面量支持最差，宁可多一个零参函数。）
+ */
+function previewCoverImage(): void {
+  const url = coverImage.value
+  if (!url) return
+  uni.previewImage({ urls: [url], current: url })
 }
 
 /**
@@ -404,10 +447,11 @@ onShow(() => {
       <view v-show="!loading && errorMessage" class="state error">{{ errorMessage }}</view>
 
       <view v-show="!loading && !errorMessage && product" class="product-body">
-        <swiper v-if="galleryImages.length" class="gallery" circular indicator-dots>
+        <swiper v-if="galleryImages.length" class="gallery" circular indicator-dots @change="onGalleryChange">
           <swiper-item v-for="image in galleryImages" :key="image">
             <!-- ⚠️ 每张轮播图各自持有一层骨架：`.gallery` 高度固定（100vw）⇒ 骨架不引起任何布局跳动。
-                 加载结束（成功或失败）才收起骨架并让实图淡入（见 onGalleryImageSettled）。 -->
+                 加载结束（成功或失败）才收起骨架并让实图淡入（见 onGalleryImageSettled）。
+                 ⚠️ 点图看大图：`circular` 下当前下标只能来自 `@change`，预览打开的是 `galleryIndex` 记下的那一张。 -->
             <view class="gallery-slide">
               <view v-if="!gallerySettled.has(image)" class="gallery-skeleton skeleton-shimmer" />
               <image
@@ -415,6 +459,7 @@ onShow(() => {
                 :class="{ 'motion-image-loaded': gallerySettled.has(image) }"
                 :src="image"
                 mode="aspectFill"
+                @click="previewGalleryImage()"
                 @load="onGalleryImageSettled(image)"
                 @error="onGalleryImageSettled(image)"
               />
@@ -423,11 +468,13 @@ onShow(() => {
         </swiper>
         <view v-else class="gallery gallery-single">
           <view v-if="!gallerySettled.has(coverImage)" class="gallery-skeleton skeleton-shimmer" />
+          <!-- ⚠️ 单图兜底只传 `coverImage` 这一张：此处 `galleryImages` 必为空，传它等于点了没反应。 -->
           <image
             class="gallery-image motion-image-in"
             :class="{ 'motion-image-loaded': gallerySettled.has(coverImage) }"
             :src="coverImage"
             mode="aspectFill"
+            @click="previewCoverImage()"
             @load="onGalleryImageSettled(coverImage)"
             @error="onGalleryImageSettled(coverImage)"
           />
@@ -576,7 +623,11 @@ onShow(() => {
 .name { flex: 1; min-width: 0; color: #222; font-size: 32rpx; font-weight: 600; line-height: 1.35; }
 .title-icons { display: flex; flex-shrink: 0; align-items: center; gap: 36rpx; padding-top: 4rpx; }
 .title-icon { width: 40rpx; height: 40rpx; flex-shrink: 0; }
-.description { display: block; margin-top: 16rpx; color: #999; font-size: 24rpx; line-height: 1.45; }
+/* 商品描述文案（2026-10-08 用户要求「改为橘黄色淡一点」）：`#999` → `#C8843A`（浅橘黄）。
+   ⚠️ 用户在需求里给的 `#E0A45E` 在白底（`.product-body`/`.summary` 均为 `#fff`）上对比度只有 2.18:1，
+   比它替换掉的 `#999`（2.85:1）**还低**，24rpx 正文会明显发飘 ⇒ 取同色相（~31°）**略深一档**的
+   `#C8843A`（3.08:1），既是浅橘黄、又不比原灰更难读。不要再往亮里调。 */
+.description { display: block; margin-top: 16rpx; color: #C8843A; font-size: 24rpx; line-height: 1.45; }
 .promotion-row { display: flex; align-items: center; min-height: 74rpx; margin-top: 24rpx; padding: 0 18rpx; background: #fff0e6; box-sizing: border-box; }
 .promotion-label { color: #444; font-size: 23rpx; white-space: nowrap; }
 .promotion-value { margin: 0 10rpx; color: #df1919; font-size: 34rpx; font-weight: 700; line-height: 1; }
