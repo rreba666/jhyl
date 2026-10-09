@@ -840,30 +840,23 @@ onShow(() => { void refreshData() })
           <text class="order-title">我的订单</text>
           <view class="order-all" @click="goAllOrders"><text>全部</text><image class="all-arrow" src="/static/my/右_slices/右.png" mode="aspectFit" /></view>
         </view>
-        <!-- ⚠️ 2026-09-29 改为横向滚动（用户反馈「退款/售后」这项会折成两排）：
-             原来是 `justify-content: space-between` 等分 + 固定 80.15rpx 宽的 item，
-             3 个字的「待付款」「待发货」放得下，但 5 个字的「退款/售后」宽度不够 ⇒ label 折行。
-             ⇒ 改成 scroll-view：item 宽度**自适应内容**，装得下就均分、装不下就能左右滑。
-             ⚠️ `enhanced` + `bounces` 打开惯性回弹，滑动手感更好（配合问题三的滚动优化）。 -->
-        <scroll-view
-          class="order-grid"
-          scroll-x
-          :enhanced="true"
-          :bounces="true"
-          :show-scrollbar="false"
-          :enable-flex="true"
-        >
-          <view class="order-grid-inner">
-            <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
-              <!-- ⚠️ 2026-10-09：图标由本地切图改为 **iconfont 字体图标**（`app-icon-*`，字体在 styles/rider-iconfont.wxss）。
-                   仍是 80.15rpx 见方的占位盒，只是把「图」换成「字形」—— 盒尺寸/间距/纵向节奏不变；
-                   盒内字形字号为 64rpx（真机反馈 80.15rpx 偏大后下调，见下方 .order-icon-font）。
-                   缺字形（app-icon-* 未定义）时盒子里是空白，不再有旧的灰色占位块兜底。 -->
-              <text class="order-icon order-icon-font app-icon" :class="entry.icon" aria-hidden="true" />
-              <text class="order-label">{{ entry.label }}</text>
-            </view>
+        <!-- ⚠️⚠️ 2026-10-10 第三版（用户真机反馈「上下并没有对齐」）：
+             这里原来是**横向 scroll-view + item 宽度自适应内容**（2026-09-29 为防「退款/售后」5 个字折行加的），
+             而下方功能宫格是 `flex: 1 1 0` 等分 ⇒ 两排的列宽/列中心天然对不上（内容定宽 vs 等分）。
+             现在入口文案最长 3 个字（售后/全部），"折行"的前提已不存在
+             ⇒ **去掉 scroll-view，改成与下方宫格逐项同构的等分 5 列**（两排共用同一套盒子规则，
+             列宽/列中心由同一套数值算出，严格对齐；契约里用数字钉住了这件事）。
+             ⚠️ 若将来又出现更长文案：改字号或加 `overflow: hidden`，**不要**退回"宽度自适应内容"
+             （那样上下又会对不齐）；下方宫格同理，两排必须一直是同一种等分规则。 -->
+        <view class="order-grid">
+          <view v-for="entry in visibleOrderEntries" :key="entry.key" class="order-item" @click="goOrder(entry.key)">
+            <!-- ⚠️ 2026-10-09：图标由本地切图改为 **iconfont 字体图标**（`app-icon-*`，字体在 styles/rider-iconfont.wxss）。
+                 2026-10-10：图标盒/字号按参考图实测下调（52rpx 盒 + 46rpx 字形，见下方 .order-icon 的实测记录）。
+                 缺字形（app-icon-* 未定义）时盒子里是空白，不再有旧的灰色占位块兜底。 -->
+            <text class="order-icon order-icon-font app-icon" :class="entry.icon" aria-hidden="true" />
+            <text class="order-label">{{ entry.label }}</text>
           </view>
-        </scroll-view>
+        </view>
       </view>
 
       <!-- 公告栏：订单模块下方、功能选项上方，横向滚动展示 -->
@@ -949,7 +942,17 @@ onShow(() => { void refreshData() })
 </template>
 
 <style>
-.pg { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #fff; color: #242526; }
+/**
+ * ⚠️⚠️ 2026-10-10 卡片化改版（用户按参考图要求「上下两块都做成白底圆角卡片，页面底色改灰」）：
+ *    · 页面底色 **白 → `#f5f6f8`**。取值依据（**不新造色系**）：同为 tabBar 页的
+ *      `pages/index/index.vue`（`.home-page`）与 `pages/category/category.vue`（`.pg`）都是这个值，
+ *      `wallet-transfer-header.contract.ps1` 也把它钉成了"页面灰底"。
+ *      （本文件原来的 `#f5f5f5` 是**分隔条**色、`pages.json` 的 `#f5f5f5` 是 tabBar 底色，两者都不是页面底。）
+ *    · 中间 5 个区块（身份区 / 我的订单 / 公告栏 / 功能宫格 / 退出登录）改成**浮在灰底上的白底圆角卡**，
+ *      公共规格写在下面 `.identity-section` 前的那段注释里。
+ *    · `.hero` 自带 `#F1471B` 底、`.bd` 未设底色 ⇒ 头部不受影响，卡片之间的缝隙显出的就是这里的灰。
+ */
+.pg { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #f5f6f8; color: #242526; }
 .bd { flex: 1; width: 100%; min-height: 0; margin-bottom: -50rpx; box-sizing: border-box; }
 
 /**
@@ -960,8 +963,11 @@ onShow(() => { void refreshData() })
  *    因为背景图改为按自身比例显示后，**内容更高时图片可能不够高**（750rpx 宽时图片自然高仅 631rpx），
  *    露出的底色必须是图片的自然延续色；用深黑会像"下面断了一截"。
  * ⚠️ `overflow: hidden` 是本次修复的关键：它负责把背景图**下方多余的部分裁掉**。
+ * ⚠️ 2026-10-10 卡片化：头部下面不再是"紧贴的白区块"，而是灰底 + 卡片
+ *    ⇒ 这里补一条 `margin-bottom: 16rpx`（与卡片间距同值，均为参考图实测），让"头部 → 第一张卡"的缝隙也一致。
+ *    `overflow: hidden` 已让 `.hero` 成为 BFC，这条外边距不会和内部元素塌陷。
  */
-.hero { position: relative; overflow: hidden; padding-right: 38.17rpx; padding-left: 38.17rpx; background: #F1471B; color: #fff; }
+.hero { position: relative; overflow: hidden; margin-bottom: 16rpx; padding-right: 38.17rpx; padding-left: 38.17rpx; background: #F1471B; color: #fff; }
 /**
  * 背景图（`个人bg.jpg`，780×656）。
  *
@@ -1015,7 +1021,24 @@ onShow(() => { void refreshData() })
 .income-dot { position: absolute; top: 56rpx; left: 160rpx; width: 20rpx; height: 20rpx; border-radius: 50%; background: #f34848; }
 
 /* 身份区：可切换身份 + 待开通占位 */
-.identity-section { padding: 24rpx 24rpx 28rpx; background: #fff; border-bottom: 22.9rpx solid #f5f5f5; }
+/**
+ * ⚠️⚠️ 2026-10-10 第三版：卡片与尺寸**全部按参考图实测**重做
+ *    （参考图 `docs/_ref/mine-reference/jd-profile-ref.jpg`，1080×615px 的整屏截图；整屏 1080px ↔ 750rpx
+ *      ⇒ `rpx = px / 1080 * 750`。**校准依据**：卡片白底横向 x=23..1056px ⇒ 左右各留 23px = **16.0rpx**，两侧对称
+ *      ⇒ 截图没有左右裁边，可以按"整屏 1080px"换算；另一条独立校验：5 个图标中心实测落在"卡宽等分 5 份"的位置上）。
+ *
+ *    · 卡片左右外边距 **16rpx**（实测 23px = 16.0rpx）；卡片之间、以及头部与首卡之间 **16rpx**
+ *      （实测卡间灰缝 y=342..363px = 15.3rpx；`.hero` 也带同值下边距）。
+ *      ⚠️ **只给下边距、不给上边距**：相邻两张卡若各带上/下边距会叠成 32rpx（不依赖 margin 合并，两平台一致）。
+ *    · 圆角 **20rpx**：实测约 26px = 18.1rpx（左下/左上角轨迹拟合），沿用本页既有的 `.identity-card` 半径 20rpx（差 0.9 个 CSS px）。
+ *    · 卡内左右内边距 **16rpx**（实测：卡内那条灰底订单条 x=46..1033px ⇒ 距卡片左右边各 16.0rpx）。
+ *      ⚠️ 两排**宫格的格子是铺满整卡宽度**的（不是 16rpx 内缩）—— 参考图 5 个图标中心正好落在整卡宽度等分 5 份处，
+ *         见 `(5)` 的对齐断言与实测列中心。
+ *    · 尺寸（图标盒 52rpx / 字形 46rpx / 标签 24rpx / 行高 32rpx）的实测推导见下方 `.order-icon` 前的注释块。
+ *    ⚠️ 卡面子元素**不得再用不透明白底铺满**：`.menu-list` 原来的 `background: #fff` 已删 ——
+ *       方角白底会盖住卡片的圆角（父级只有 `border-radius`、没有 `overflow: hidden`）。
+ */
+.identity-section { margin: 0 16rpx 16rpx; padding: 24rpx 16rpx 28rpx; border-radius: 20rpx; background: #fff; }
 .identity-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
 .identity-title { color: #1E1E1E; font-size: 30rpx; font-weight: 600; }
 .identity-list { display: flex; flex-direction: column; gap: 16rpx; }
@@ -1025,50 +1048,68 @@ onShow(() => { void refreshData() })
 .identity-label { color: #1E1E1E; font-size: 30rpx; font-weight: 600; }
 .identity-sub { overflow: hidden; color: #86909c; font-size: 24rpx; white-space: nowrap; text-overflow: ellipsis; }
 .identity-action { flex-shrink: 0; margin-left: 16rpx; color: #ff5500; font-size: 26rpx; font-weight: 600; }
-.order-section { padding: 34rpx 0 38rpx; background: #fff; border-bottom: 22.9rpx solid #f5f5f5; color: #1E1E1E; font-family: 'PingFang SC', '苹方-简', sans-serif; font-weight: 500; }
-.order-head { display: flex; align-items: center; justify-content: space-between; padding: 0 38.17rpx; }
+/* ⚠️ 2026-10-10：卡片公共规格见上方注释。卡内纵向：上 16rpx（标题行）＋ 标题行向下 20rpx ＋ 宫格自身节奏 ＋ 下 16rpx。 */
+.order-section { margin: 0 16rpx 16rpx; padding: 24rpx 0 16rpx; border-radius: 20rpx; background: #fff; color: #1E1E1E; font-family: 'PingFang SC', '苹方-简', sans-serif; font-weight: 500; }
+/* ⚠️ 2026-10-10：卡内左右内边距 **16rpx**（实测参考图卡内内容距卡片边 16.0rpx）；宫格行本身不内缩（格子铺满卡宽）。 */
+.order-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; padding: 0 16rpx; }
 .order-title { color: #1E1E1E; font-size: 26.72rpx; font-weight: 500; }
 .order-all { display: flex; align-items: center; gap: 15.27rpx; color: #1E1E1E; font-size: 26.72rpx; }
 .all-arrow { width: 14rpx; height: 16rpx; }
-/* ⚠️ 2026-09-29 订单入口改为横向滚动容器（原来这里是 flex + space-between 的等分栅格）。
-   原因：「退款/售后」有 5 个字、宽度超过固定 80.15rpx ⇒ label 折行，看起来像"两排"。
-   现在 item 宽度自适应内容：内容总宽 < 屏宽时仍靠 space-between 均分铺满，超出时即可左右滑动。
-   ⚠️ 2026-10-09：入口改成 5 项（待付款/待收货/待自提/售后/全部）后，最长的 label 是 3 个字，
-   按 26.72rpx 字号算「装得下」，但**容器与自适应规则一律保留** —— 它是"多一项/文案变长就自动兜底"
-   的安全网（5 项在窄屏 + 大字号系统设置下仍可能超宽），拆掉等于把这层兜底丢了。
-   ⚠️ scroll-view 必须有确定高度否则会塌陷，这里按「图标盒 80.15 + 间距 16 + 文字行高」留足。 */
-.order-grid { width: 100%; height: 152rpx; box-sizing: border-box; padding: 24rpx 38.17rpx 0; white-space: nowrap; }
-.order-grid-inner { display: inline-flex; min-width: 100%; box-sizing: border-box; justify-content: space-between; gap: 20rpx; }
-.order-item { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; }
+/**
+ * ⚠️⚠️ 2026-10-10 第三版：**尺寸按参考图实测下调**（用户真机反馈「大小太大了，我需要像京东个人页那样的」）。
+ *    参考图 `docs/_ref/mine-reference/jd-profile-ref.jpg`（1080×615px 整屏，`rpx = px/1080*750`），
+ *    Pillow 逐像素 ink 量测（两排各 5 个图标 + 4 字标签）：
+ *      · 图标墨迹：宽 **36.8–40.3rpx**、高 **36.8–40.3rpx**（两排均值 ≈ 38.9 × 38.5rpx）；
+ *      · 标签（4 字，如「商品收藏」）墨迹：宽 **89.6rpx**、高 **20.1rpx**；
+ *        图标中心实测 87.5 / 230.9 / 374.7 / 519.1 / 663.2rpx ⇒ 与"卡宽等分 5 份"的理论值（见下）逐项 ≤1.0rpx。
+ *
+ *    我们这套字形（`app-icon-*`，10 个字形）**按同一套 4× 渲染逐像素量测**（不是字体 API 的 bbox —— 那个给的是
+ *    排版框而非墨迹，会高估：它报"满 em 宽"，实渲染墨迹只有 0.78–1.00em）：
+ *      先量"墨迹/字号"比值（基准 40rpx 盒 48rpx，实测）：墨迹 31.2–40.0rpx 宽 × 29.0–40.0rpx 高
+ *      （均值 **34.2 × 32.4**）⇒ 墨迹/字号 = **0.855 宽、0.810 高**。
+ *      ⇒ 让"平均墨迹"对上参考图（38.9 × 38.5rpx）：`font-size = 38.9 / 0.855 ≈ 45.5`、`38.5 / 0.810 ≈ 47.5`
+ *        ⇒ 取 **46rpx**（实测墨迹均值 **39.5 × 37.3rpx**，与参考图差 +1.5% / −3.2%）。
+ *      ⇒ 盒（`line-height`）= **52rpx**：46/52 = 0.885，字形四周留 3rpx（最大的那个字形 fapiao 墨迹正好 1.00em，
+ *        在 52rpx 盒里四周各余 3rpx，**不裁切**）。
+ *      ⚠️ 这套字形**偏扁**（横向 0.78–1.00em、纵向 0.72–1.00em）⇒ 扁字形（信用卡/货车）在 46rpx 下高约 33rpx，
+ *         比参考图的方图标（≈38rpx 高）矮一档 —— 这是**字形形状**差异，不是尺寸没对上。
+ *    标签字号 **24rpx**（= 12 CSS px，这类个人页的标准小字）：
+ *      参考图 4 字墨迹 89.6 × 20.1rpx。CJK 字宽恒为 1em ⇒ 24rpx 时 4 字排版宽 96rpx、墨迹 ≈ 90–94rpx
+ *      （与参考图的 89.6 差 ≤5%）；若沿用 26.72rpx，排版宽 106.9rpx、墨迹 ≈ 100–104rpx ⇒ 比参考图宽 13–16%。
+ *      （Windows 无 PingFang，用 msyh 实渲染复核：24rpx 下 4 字墨迹 ≈ 92rpx 宽，与上式吻合。）
+ *    行高 **32rpx**（显式写死，不用 `normal`）：`normal` 在 iOS/Android 上取值不同，会让两排纵向节奏漂移。
+ *    纵向节奏验算（相对卡片上沿，单位 rpx）：卡内上内边距 24 ＋ 盒 52 ＋ 标签上边距 12 = 88（标签行盒顶）；
+ *      标签墨迹顶 ≈ 88 + (32 − 20.1)/2 ≈ **94.0**（参考图实测 93.7 ✓）；标签盒底 88 + 32 = 120，
+ *      ＋ 卡内下内边距 16 ⇒ 卡片高 **136.0**（参考图实测 135.4 ✓）。
+ */
+/* ⚠️ 2026-10-10 第三版：上排与下排宫格**逐项同构**（等分 5 列、铺满卡宽）。横向 scroll-view 已拆（原因见模板注释）：
+   `padding: 0` ⇒ 行内容宽 = 卡片宽 750 − 2×16 = **718rpx** ⇒ 每格 718/5 = **143.6rpx**，
+   列中心 = 16 + 143.6×(i+0.5) = **87.8 / 231.4 / 375.0 / 518.6 / 662.2rpx**（下排同一套数值 ⇒ 严格对齐）。
+   参考图实测列中心 87.5 / 230.9 / 374.7 / 519.1 / 663.2rpx ⇒ 逐项偏差 ≤1.0rpx。 */
+.order-grid { display: flex; align-items: flex-start; padding: 0; }
+/* ⚠️ 与 `.menu-item`（含客服那个原生 button 之外的所有格）**逐字相同的声明** —— 两排列宽/列中心因此由同一套规则决定，
+   契约 `mine-order-icons.contract.ps1` 直接比较这两条声明是否逐字相同（防"只改一边"）。 */
+.order-item { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; }
 /* 点击反馈：轻微缩放 + 变淡，让"点到了"更可感知（配合问题三的交互动效） */
 .order-item:active { opacity: .6; transform: scale(.94); }
-.order-icon { width: 80.15rpx; height: 80.15rpx; background: #d8d8d8; }
-/* ⚠️ 2026-10-09 由切图（<image>）改为 iconfont 字形（<text>），这条规则替掉原 `.order-icon-image`：
+.order-icon { width: 52rpx; height: 52rpx; background: #d8d8d8; }
+/* ⚠️ 2026-10-09 由切图（<image>）改为 iconfont 字形（<text>），这条规则替掉原 `.order-icon-image`；
+   2026-10-10 第三版：盒 80.15→**52rpx**、字形 64→**46rpx**（推导见上方注释块）。
    · `background: transparent` —— 去掉 .order-icon 的灰色占位底；
-   · `line-height: 80.15rpx` + `text-align: center` —— 把字形**在 80.15rpx 的盒子里居中**。
-     字形本身没有 <image> 的固有尺寸问题，但字体默认行高（约 1.2em）会把这一行悄悄撑高
-     24rpx 左右 ⇒ 整行下移、与下方「公告 / 功能菜单」的间距跟着变。这里显式钉成盒高，纵向节奏与切图版一致。
-   · `font-size: 64rpx`（**小于**盒宽 80.15rpx，≈ 盒宽的 80%）—— 依据**实测**取值；
-     2026-10-09 首版取的是盒宽 80.15rpx（"绝不横向溢出"前提下的极大值），真机反馈
-     「大小有点太大了，需要小一点」⇒ 下调到 64rpx。
-     量测方法（两轮相同）：把新 ttf 的 5 个字形按本规则（`line-height: 80.15rpx` + `text-align: center`）
-     渲染后**逐像素量测**（Pillow，4× 放大再折回 rpx）：
-       · **64rpx（当前值）**：墨迹 50.8–57.8rpx 宽 × 46.0–54.8rpx 高，只占盒宽 63–72%（四周留白明显）；
-         水平中心偏差 ≤0.25rpx、垂直 ≤0.12rpx（无需 translateY 校正）。
-       · **80.15rpx（首版，已弃用；以下数字标注为「80.15rpx 时的量测」）**：
-         墨迹 64.0–72.2rpx 宽 × 57.5–68.2rpx 高（2026-10-09 首版记录值；本次复测 57.8–68.5，差 ≤0.3rpx），
-         横向最大 72.2 < 80.15 ⇒ **当时也没有溢出**、两侧各留 ≈4rpx 内边距。
-         被替换掉的 5 张切图墨迹为 56.3–76.3 × 66.8–78.2rpx ⇒ 首版字形已略小于切图，
-         但真机观感仍偏大，故再降到 64rpx。
-     ⚠️ 这 5 个字形在字体里都是**满 em 宽**（advance = 1em）、墨迹只占 em 的 0.79–0.90，
-     所以字号取到盒宽也不会横向溢出（按实测比例推算要约 89rpx 起才溢出）——
-     但**别据此调大**：64rpx 才是真机反馈认可的值。
+   · `line-height: 52rpx` + `text-align: center` —— 把字形**在 52rpx 的盒子里居中**。
+     若不钉行高（落回 `.app-icon { line-height: 1 }`），半行距变 0 ⇒ 字形整体上移，与盒子的中轴错开。
    · 选择器写成两段是为了稳过 `.app-icon { line-height: 1 }`（同权重时页面样式虽在后，
-     但两段权重更高，不依赖 app.wxss / page.wxss 的加载顺序）。 */
-.order-icon.order-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 64rpx; line-height: 80.15rpx; text-align: center; }
-.order-label { margin-top: 16rpx; color: #1E1E1E; font-size: 26.72rpx; font-weight: 500; white-space: nowrap; }
+     但两段权重更高，不依赖 app.wxss / page.wxss 的加载顺序）。
+   ⚠️ 墨迹复核（Pillow，4× 渲染后逐像素量测再折回 rpx，本字体 ascent/descent = 0.875/0.125em）：
+      `font-size: 46rpx` / 盒 `52rpx` 时，10 个字形墨迹 **36.0–46.0rpx 宽 × 33.0–46.2rpx 高**
+      （均值 39.5 × 37.3rpx；参考图实测 36.8–40.3rpx 见方 / 均值 38.9 × 38.5 ⇒ 差 +1.5% / −3.2%）；
+      盒内**四周各余 ≥3.0rpx、不裁切**；水平/垂直中心偏差 **≤0.8rpx**（无需 translateY 校正）。 */
+.order-icon.order-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 46rpx; line-height: 52rpx; text-align: center; }
+/* ⚠️ 标签：与下方 `.menu-label` 逐项同值（只有那边的 `display: block` 是给原生 button 用的）。 */
+.order-label { margin-top: 12rpx; color: #1E1E1E; font-size: 24rpx; font-weight: 500; line-height: 32rpx; white-space: nowrap; }
 
-.announcement-bar { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 38.17rpx; background: #fff; border-bottom: 22.9rpx solid #f5f5f5; }
+/* ⚠️ 2026-10-10：卡片公共规格见上方注释（外边距/圆角/卡内 16rpx 内边距均为参考图实测值）。 */
+.announcement-bar { display: flex; align-items: center; gap: 16rpx; margin: 0 16rpx 16rpx; padding: 16rpx; border-radius: 20rpx; background: #fff; }
 .announcement-label { flex-shrink: 0; padding: 4rpx 14rpx; border-radius: 8rpx; color: #fff; background: #916448; font-size: 22rpx; font-weight: 600; }
 .announcement-scroll { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
 .announcement-marquee { display: inline-flex; width: max-content; min-width: 200vw; animation: announcement-marquee 18s linear infinite; will-change: transform; }
@@ -1084,37 +1125,77 @@ onShow(() => { void refreshData() })
 .announcement-detail-scroll { height: 520rpx; padding: 30rpx 32rpx; box-sizing: border-box; }
 .announcement-detail-content { color: #4F4F4F; font-size: 26rpx; font-weight: 400; line-height: 42rpx; white-space: pre-wrap; word-break: break-all; }
 
-.menu-section { padding: 0 0 120rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; font-weight: 500; }
-.menu-list { background: #fff; }
-.menu-item { display: flex; align-items: center; min-height: 99.24rpx; padding: 0 38.17rpx; box-sizing: border-box; border-bottom: 0; }
-.menu-item:last-child { border-bottom: 0; }
-/* 客服项用 <button open-type="contact">：重置微信 button 默认边框/背景，与菜单项视觉一致 */
-.menu-item-btn { display: flex; align-items: center; width: 100%; margin: 0; padding: 0 38.17rpx; min-height: 99.24rpx; background: transparent; border: 0; border-radius: 0; line-height: inherit; text-align: left; }
+/* ⚠️⚠️ 2026-10-10 宫格化（第三版：尺寸与卡片按参考图实测重做）：下方功能列表由**纵向列表**改成
+   **一行等分宫格**（图标在上、文字在下），与上方「我的订单」**逐项同构**。模板结构**一个字没动**：
+   `.menu-list` 里仍是「客服原生 button + `visibleMenuItems` 的 v-for」，只是布局从"每一行一项"变成"一排格子"。
+
+   ▸ 一行几格：`flex: 1 1 0` ⇒ **所有格子永远等宽**，格子数 = 可见项数（1~6 个都自适应铺满整卡宽）：
+       · 5 格（发票记录 / 设置 / 客服 / 我的收藏 / 商品素材）= 参考图那一排的形态；行内容宽 718rpx ⇒ 每格 **143.6rpx**；
+       · 6 格（再多一个「商家入驻」，普通用户的默认情形）= 每格 **119.7rpx**，最长 4 字 label 在 24rpx 字号下宽 **96rpx**
+         ⇒ 左右各余 ≈11.8rpx，**仍放得下** ⇒ 不做折行（`flex-wrap` 保持默认 nowrap，"一行"是硬要求）。
+         ⚠️ 若以后再加 5 字以上 label（96 → 120rpx），6 格就会挤 ⇒ 那时改回"每行 5 格 + 折行"。
+       · 少于 5 格（模块开关关掉「发票记录」等）= 每格变宽，整排仍铺满卡片宽度，不做居中/左对齐特判（`flex: 1` 天然均分）。
+   ▸ 不折行靠**两条**保证：格子等分（宽度够）+ `.menu-label` 的 `white-space: nowrap`（与 `.order-label` 同一条机制）。
+   ▸ 与上排的对齐：两边**同一套格子规则**（`.menu-item` 与 `.order-item` 声明逐字相同）+ 同样铺满卡宽
+     ⇒ 列宽都是 143.6rpx、列中心都是 87.8 / 231.4 / 375.0 / 518.6 / 662.2rpx（详见上方 `.order-grid` 注释与契约断言）。 */
+.menu-section { margin: 0 16rpx 16rpx; padding: 0; border-radius: 20rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; font-weight: 500; }
+/* ⚠️ 2026-10-10：`background: #fff` **必须没有** —— 卡面已经是白的，这里再铺一层方角白底会盖掉卡片圆角
+   （父级只有 `border-radius`、没有 `overflow: hidden`）。
+   纵向 24/16 是参考图实测的卡内节奏（见 `.order-icon` 前的验算：24 + 52 + 12 + 32 + 16 = 136rpx = 实测卡片高 135.4rpx）。 */
+.menu-list { display: flex; align-items: flex-start; padding: 24rpx 0 16rpx; }
+/* 宫格单元（客服之外的每一项，以及 `v-else` 灰块占位）：等宽 + 纵向"图标在上、文字在下"。
+   ⚠️ 与上方 `.order-item` **逐字相同的声明** —— 两排列宽/列中心因此由同一套规则决定。 */
+.menu-item { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; }
+/* 点击反馈：与上方 `.order-item` 逐项同值（"同一套组件"的观感一致性） */
+.menu-item:active { opacity: .6; transform: scale(.94); }
+/**
+ * 客服项：微信原生客服按钮 `<button open-type="contact">`（**不能**改成 `<view>`/`<text>`，否则弹不出客服会话，
+ * 契约 `mine-icons.contract.ps1` 也钉着它）。
+ *
+ * ⚠️⚠️ 这里**刻意不用 flex 布局**：微信 `<button>` 的 `display` 由基础库 UA 样式决定，历史上这一项能"图标在左、
+ *    文字在右"其实靠的是 inline 流（`<text>` 图标 + `<text>` 文字）——**不能证明 button 吃 `display: flex`**。
+ *    所以宫格化改用「block 流 + 居中」这条不依赖 flex 的路径，与其它格视觉等价：
+ *      · `display: block` + `text-align: center`：图标是 inline-block（`.menu-icon.menu-icon-font`），第一行居中；
+ *      · `.menu-label` 是 `display: block` ⇒ 自动落到第二行；
+ *      · 行高对齐：图标盒 `line-height: 52rpx` ⇒ 该行行盒正好 52rpx（字体 descent 8.75rpx 大于 strut 的下沉量，
+ *        不会多出 inline-block 常见的基线缝），再 + `.menu-label` 的 `margin-top: 12rpx` + 文字行高 32rpx
+ *        ⇒ 与 flex 版逐项等高（96rpx），横向也一样是 52rpx 盒居中。
+ *      · `flex: 1 1 0` 让它与其它格**等宽**（它是 `.menu-list` 的 flex item，`display` 被块化，不影响格宽）。
+ */
+.menu-item-btn { display: block; flex: 1 1 0; min-width: 0; width: 100%; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; line-height: inherit; text-align: center; }
 .menu-item-btn::after { border: 0; }
-.menu-item-btn:active { opacity: .7; }
-/* ⚠️ 2026-10-09：下方功能列表的图标盒由 45.8rpx 放大到 **80.15rpx**，与上方「我的订单」的图标盒**同尺寸**
-   （用户要求「下方跟上方一致」）。`margin-right` 保持 34.35rpx 未动（本次只对齐"图标大小"，没动间距）。
-   ⚠️ 盒高 80.15rpx 在 `.menu-item` 的 `min-height: 99.24rpx` 里**放得下**（上下共余 19.09rpx）
-   ⇒ `min-height` **不需要**调整，行高节奏与改版前完全一致（改版前内容高 45.8rpx，本就由 min-height 决定行高）。
-   墨迹实测（Pillow 4×，与上方同口径）：5 个字形在 64rpx 下高 48.00–64.00rpx，
-   即盒内上下各余 ≥8.08rpx 才开始碰到盒边 ⇒ 不会顶到相邻行。 */
-.menu-icon { width: 80.15rpx; height: 80.15rpx; flex-shrink: 0; margin-right: 34.35rpx; background: #d8d8d8; }
+.menu-item-btn:active { opacity: .6; transform: scale(.94); }
+/* ⚠️ 2026-10-10 第三版：图标盒 **52rpx**、字形 **46rpx**（与上方 `.order-icon` 同值，推导/实测见 `.order-icon` 前的注释块）。
+   ⚠️ 宫格化：`margin-right: 34.35rpx` 已删 —— 图标不再"靠左、文字在右"，
+      而是**落在格子的中轴**上（`margin: auto` + 格的 `align-items: center` 双保险；button 里则靠 `text-align: center`，
+      inline 级元素的 auto 外边距按规范算作 0，两者结果一致）。
+   ⚠️ 格子高由内容撑开（52 + 12 + 32 = 96rpx），不用 `min-height`（改版前那个 99.24rpx 是"列表行"的高，宫格化后无意义）。
+   墨迹实测（Pillow 4×，与上方同口径）：10 个字形在 46rpx 下墨迹 36.0–46.0rpx 宽 × 33.0–46.2rpx 高，
+   盒 52rpx ⇒ 四周各余 ≥3.0rpx、不裁切；中心偏差 ≤0.8rpx。 */
+.menu-icon { width: 52rpx; height: 52rpx; flex-shrink: 0; margin-right: auto; margin-left: auto; background: #d8d8d8; }
 .menu-icon-image { background: transparent; }
-/* ⚠️ 字形盒规则，与上方 `.order-icon.order-icon-font` **逐项同规格**（80.15rpx 盒 / 64rpx 字号 / line-height 钉成盒高）：
+/* ⚠️ 字形盒规则，与上方 `.order-icon.order-icon-font` **逐项同规格**（52rpx 盒 / 46rpx 字号 / line-height 钉成盒高）：
    · `background: transparent` —— 去掉 .menu-icon 的灰色占位底；
-   · `line-height: 80.15rpx` + `text-align: center` —— 把字形在盒内**居中**。
-     ⚠️ 这一条**不要改**：本字体 ascent/descent = 56/8（upem 1024，实测），
-     `line-height: 80.15rpx` 时半行距 = (80.15 − 64)/2 = **8.08rpx**，基线正好落在盒中心；
-     若不钉（落回 `.app-icon` 的 `line-height: 1`），半行距变 0 ⇒ 字形整体**上移 8.08rpx**（贴着盒顶），
-     与切图版/上一版的纵向观感不一致。盒高是显式写死的，行高不会反过来撑高 `.menu-item` 的 99.24rpx；
-   · `font-size: 64rpx`（盒宽的 ≈80%）—— 与上方同值，来自实测：墨迹 50.00–64.00 × 48.00–64.00rpx，
-     水平中心偏差 ≤1.00rpx、垂直 ≤1.00rpx（无需 translateY 校正），左右各余 8.08rpx ⇒ **不裁切**。
+   · `line-height: 52rpx` + `text-align: center` —— 把字形在盒内**居中**。
+     ⚠️ 这一条**不要改**：本字体 ascent/descent = 0.875/0.125em（实测），
+     `line-height: 52rpx` 时半行距 = (52 − 46)/2 = **3.0rpx**，基线落在盒中心；
+     若不钉（落回 `.app-icon` 的 `line-height: 1`），半行距变 0 ⇒ 字形整体**上移 3.0rpx**（贴着盒顶），
+     与上排/上一版的纵向观感不一致。盒高是显式写死的，行高不会反过来撑高所在的那一格；
+   · `font-size: 46rpx`（盒宽的 88.5%）—— 与上方同值，来自参考图实测（见 `.order-icon` 前注释）。
    · 选择器写成两段（`.menu-icon.menu-icon-font`）是为了稳过 `.app-icon { line-height: 1 }`（同权重时页面样式虽在后，
      但两段权重更高，不依赖 app.wxss / page.wxss 的加载顺序）—— 与上方那条同一个理由。 */
-.menu-icon.menu-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 64rpx; line-height: 80.15rpx; text-align: center; }
-.menu-label { color: #4F4F4F; font-size: 26.72rpx; font-weight: 500; }
-/* 退出登录（仅登录态展示） */
-.logout-section { padding: 8rpx 38.17rpx 60rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; }
+.menu-icon.menu-icon-font { display: inline-block; background: transparent; color: #1E1E1E; font-size: 46rpx; line-height: 52rpx; text-align: center; }
+/**
+ * ⚠️ 2026-10-10 文字规格与上方 `.order-label` **逐项同值**（字号 24rpx / 行高 32rpx / 字重 500 / 颜色 #1E1E1E /
+ *    上边距 12rpx / `white-space: nowrap`），只有 `display: block` 是宫格新增的：
+ *      · `display: block` 是给**客服那个原生 `<button>`** 用的：它走 block 流（见 `.menu-item-btn`），
+ *        需要 `block` 才能把文字落到图标下面一行；在 `.menu-item` 的 flex 列里它就是普通 flex item，等价。
+ *      · `white-space: nowrap` = **不折行**机制，与上方 `.order-label` 同一条（格子等分保证宽度也够）。
+ */
+.menu-label { display: block; margin-top: 12rpx; color: #1E1E1E; font-size: 24rpx; font-weight: 500; line-height: 32rpx; white-space: nowrap; }
+/* 退出登录（仅登录态展示）：同样是白底圆角卡（按钮自身的 #f5f5f5 底在白卡上仍清晰可辨，
+   不会出现"白卡上的白按钮"）；40rpx 的下边距 = 页面**最底部**留白。 */
+.logout-section { margin: 0 16rpx 40rpx; padding: 8rpx 16rpx; border-radius: 20rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; }
 .logout-btn { margin: 0; border-radius: 44rpx; background: #f5f5f5; color: #ff5500; font-size: 28rpx; font-weight: 500; line-height: 88rpx; }
 .logout-btn::after { border: 0; }
 .mask { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .62); }
