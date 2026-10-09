@@ -118,8 +118,14 @@ const visibleOrderEntries = computed(() => {
  *    字体见 `styles/rider-iconfont.wxss`），与上方「我的订单」同一套写法与同一档尺寸；
  *    **每一项的 label 与 `goMenu(key)` 深链/模块行为一律未动**。
  *    ⇒ `icon` 字段现在承载**字形类名**，`image` 字段承载**切图路径**；两者分开是因为
- *      「商家入驻」的门店图标**字体里没有**（不得拿别的字形顶替），必须继续走 `<image>`。
+ *      2026-10-09 时「商家入驻」的门店图标**字体里没有**（不得拿别的字形顶替），必须继续走 `<image>`。
  *      模板按 `icon`（字形）→ `image`（切图）→ `v-else`（灰块占位）三级分支渲染。
+ *      ⚠️ 2026-10-10：第三次发布的字体**补上了门店字形**（`app-icon-dianpu` = `\e60a`）
+ *      ⇒ 本数组**已无任何一行走切图**；但 `image` 字段与那级分支**都保留**（回切图时不必改模板）。
+ * ⚠️ 2026-10-10：下方宫格改为**每排 5 格、多出来的折到下一排**（用户：「一排五个，剩下的就下一行」）。
+ *    每格 = 卡宽的 **20%**，与上方「我的订单」**同一套格子规则**（`flex: 0 0 20%`，两排列宽/列中心严格对齐）；
+ *    折行后剩余那排**左对齐**，不拉伸（理由与数值见 `.menu-list` 的样式注释）。
+ *    ⚠️ 项数随模块开关变化（1~6+ 都要正常）：见 `.menu-list` 样式注释里的逐项推演。
  * ⚠️ 「客服」这一项虽在数组里，但**不参与下方的 v-for**（`visibleMenuItems` 把它滤掉），
  *    它单独渲染成微信原生客服按钮 `<button open-type="contact">`；那里的字形类名是**字面量**，
  *    与这里的 `icon` 必须一致（契约 mine-icons.contract.ps1 钉着这对关系，改一处必改两处）。
@@ -132,11 +138,16 @@ const menuItems: MenuItem[] = [
   { key: 'service', label: '客服', icon: 'app-icon-kefu' },
   { key: 'favorite', label: '我的收藏', icon: 'app-icon-shoucang' },
   { key: 'materials', label: '商品素材', icon: 'app-icon-sucai' },
-  // ⚠️ 2026-09-29：原先这条与「商品素材」**共用同一个 PNG**（复制粘贴漏改），
-  //    现改用专门的门店图标 `static/my/store.svg`（24×24、fill=black 的线性图标）。
-  //    ⚠️ 小程序里 SVG 走 `<image src="...svg" mode="aspectFit">`（与 CategoryProductCard 的 location.svg 同一用法）。
-  //    ⚠️ 2026-10-09：字体里没有门店字形 ⇒ 这一项**保留切图**（走 `image` 字段），不得用附近字形顶替。
-  { key: 'merchant-apply', label: '商家入驻', image: '/static/my/store.svg' },
+  // ⚠️ 2026-09-29：原先这条与「商品素材」**共用同一个 PNG**（复制粘贴漏改），改用专门的门店图标 `static/my/store.svg`。
+  // ⚠️ 2026-10-09：当时字体里没有门店字形 ⇒ 这一项**保留切图**（走 `image` 字段），不得用附近字形顶替。
+  // ⚠️ 2026-10-10（本次）：字体**第三次发布**（`//at.alicdn.com/t/c/font_5230143_ftggz0orvoo.css`）新增
+  //    `icon-_dianpu` = **`\e60a`**（店铺）⇒ 门店字形终于有了，本项改用字形 `app-icon-dianpu`。
+  //    · 码位从 CDN 的 font class CSS 逐字核对后才写进 `styles/rider-iconfont.wxss`（不许凭记忆猜）；
+  //    · 新 ttf 已按**二进制**核对为旧 ttf 的严格超集（38→42 码位，旧码位轮廓/advance 0 差异）；
+  //    · `image:` 字段**随之再无数据源**（`/static/my/store.svg` 已无任何引用，文件**保留未删**）。
+  //    ⚠️ 模板的三级分支（字形 → 切图 → 灰块）**保留**：`MenuItem.image` 仍是合法字段，
+  //      将来若要加回切图图标不必再改模板。
+  { key: 'merchant-apply', label: '商家入驻', icon: 'app-icon-dianpu' },
   // 2026-09-22 用户要求：「用户协议」「隐私保护指引」**不在个人中心显示**，入口已挪到「设置」页。
   // 协议页本身（pages/user-agreement、pages/privacy）保留不动 —— 必须仍然可达。
 ]
@@ -842,10 +853,13 @@ onShow(() => { void refreshData() })
         </view>
         <!-- ⚠️⚠️ 2026-10-10 第三版（用户真机反馈「上下并没有对齐」）：
              这里原来是**横向 scroll-view + item 宽度自适应内容**（2026-09-29 为防「退款/售后」5 个字折行加的），
-             而下方功能宫格是 `flex: 1 1 0` 等分 ⇒ 两排的列宽/列中心天然对不上（内容定宽 vs 等分）。
+             而下方功能宫格当时是 `flex: 1 1 0` 等分 ⇒ 两排的列宽/列中心天然对不上（内容定宽 vs 等分）。
              现在入口文案最长 3 个字（售后/全部），"折行"的前提已不存在
-             ⇒ **去掉 scroll-view，改成与下方宫格逐项同构的等分 5 列**（两排共用同一套盒子规则，
-             列宽/列中心由同一套数值算出，严格对齐；契约里用数字钉住了这件事）。
+             ⇒ **去掉 scroll-view，改成与下方宫格逐项同构的等分 5 列**（两排共用同一套盒子规则：
+              列宽/列中心由同一套数值算出，严格对齐；契约里用数字钉住了这件事）。
+              ⚠️ 2026-10-10 第四版：这条共用规则由 `flex: 1 1 0` 改成 **`flex: 0 0 20%`** ——
+              下方宫格要「一排 5 格 + 折行」，两排必须继续共用同一条规则；本行 5 格 × 20% 正好满行，
+              且 `.order-grid` 没有 `flex-wrap` ⇒ **本行永远是一行 5 格，不折行**。
              ⚠️ 若将来又出现更长文案：改字号或加 `overflow: hidden`，**不要**退回"宽度自适应内容"
              （那样上下又会对不齐）；下方宫格同理，两排必须一直是同一种等分规则。 -->
         <view class="order-grid">
@@ -883,8 +897,9 @@ onShow(() => { void refreshData() })
             <text class="menu-label">客服</text>
           </button>
           <!-- ⚠️ 2026-10-09：三级分支渲染 ——
-               `icon` → iconfont 字形类名（发票记录/设置/我的收藏/商品素材）；
-               `image` → 切图路径（只剩「商家入驻」，字体里没有门店字形）；
+               `icon` → iconfont 字形类名（**现在 6 项全走这一级**：发票记录 / 设置 / 我的收藏 / 商品素材 / 商家入驻）；
+               `image` → 切图路径（⚠️ 2026-10-10 起**已无数据源**：门店字形补进字体后没有任何一行再用 `image:`；
+                          这一级**保留**，`/static/my/store.svg` 也保留未删 ⇒ 将来要回切图不必改模板）；
                `v-else` → 无图标时的灰块占位（历史兜底路径，**保留**，别拆）。 -->
           <view v-for="item in visibleMenuItems" :key="item.key" class="menu-item" @click="goMenu(item.key)">
             <text v-if="item.icon" class="menu-icon menu-icon-font app-icon" :class="item.icon" aria-hidden="true" />
@@ -1085,14 +1100,20 @@ onShow(() => { void refreshData() })
  *      标签墨迹顶 ≈ 88 + (32 − 20.1)/2 ≈ **94.0**（参考图实测 93.7 ✓）；标签盒底 88 + 32 = 120，
  *      ＋ 卡内下内边距 16 ⇒ 卡片高 **136.0**（参考图实测 135.4 ✓）。
  */
-/* ⚠️ 2026-10-10 第三版：上排与下排宫格**逐项同构**（等分 5 列、铺满卡宽）。横向 scroll-view 已拆（原因见模板注释）：
-   `padding: 0` ⇒ 行内容宽 = 卡片宽 750 − 2×16 = **718rpx** ⇒ 每格 718/5 = **143.6rpx**，
-   列中心 = 16 + 143.6×(i+0.5) = **87.8 / 231.4 / 375.0 / 518.6 / 662.2rpx**（下排同一套数值 ⇒ 严格对齐）。
+/* ⚠️⚠️ 2026-10-10 第四版（用户：「一排五个，剩下的就下一行」）：上排仍**严格一行 5 格**（本行不折行），
+   下排改为**每排 5 格 + 折行**（见 `.menu-list`）。两排仍**共用同一条格子规则**（`.menu-item` ≡ `.order-item`）。
+   ▸ 格子宽度 = 卡宽 **20%**：`flex: 0 0 20%` ⇒ 20% × 718 = **143.6rpx**（第三版 `flex: 1 1 0` 在 5 格时同值，
+     所以上排的 5 格观感**一个像素都没变**：仍是满行 5 格、同列宽同列中心）；
+   ▸ 用 `flex: 0 0 20%` 而**不是** `flex: 1 1 20%`：**grow = 0 ⇒ 任何格子都不会被拉伸** ——
+     折行后剩下的那格仍是 143.6rpx（若 grow=1，它会被撑成整行宽，正是用户明确不要的）；
+   ▸ 行内容宽 = 卡片宽 750 − 2×16 = **718rpx**（`.order-grid` 的 `padding: 0`，格子铺满卡宽）⇒
+     列中心 = 16 + 143.6×(i+0.5) = **87.8 / 231.4 / 375.0 / 518.6 / 662.2rpx**（两排同一套数值 ⇒ 严格对齐）。
    参考图实测列中心 87.5 / 230.9 / 374.7 / 519.1 / 663.2rpx ⇒ 逐项偏差 ≤1.0rpx。 */
 .order-grid { display: flex; align-items: flex-start; padding: 0; }
 /* ⚠️ 与 `.menu-item`（含客服那个原生 button 之外的所有格）**逐字相同的声明** —— 两排列宽/列中心因此由同一套规则决定，
-   契约 `mine-order-icons.contract.ps1` 直接比较这两条声明是否逐字相同（防"只改一边"）。 */
-.order-item { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; }
+   契约 `mine-order-icons.contract.ps1` 直接比较这两条声明是否逐字相同（防"只改一边"）。
+   ⚠️ 上排**永不折行**：5 格 × 20% = 正好 100%，且 `flex-shrink: 0` + `.order-grid` 默认 `nowrap`。 */
+.order-item { display: flex; flex: 0 0 20%; min-width: 0; flex-direction: column; align-items: center; }
 /* 点击反馈：轻微缩放 + 变淡，让"点到了"更可感知（配合问题三的交互动效） */
 .order-item:active { opacity: .6; transform: scale(.94); }
 .order-icon { width: 52rpx; height: 52rpx; background: #d8d8d8; }
@@ -1128,27 +1149,40 @@ onShow(() => { void refreshData() })
 .announcement-detail-scroll { height: 520rpx; padding: 30rpx 32rpx; box-sizing: border-box; }
 .announcement-detail-content { color: #4F4F4F; font-size: 26rpx; font-weight: 400; line-height: 42rpx; white-space: pre-wrap; word-break: break-all; }
 
-/* ⚠️⚠️ 2026-10-10 宫格化（第三版：尺寸与卡片按参考图实测重做）：下方功能列表由**纵向列表**改成
-   **一行等分宫格**（图标在上、文字在下），与上方「我的订单」**逐项同构**。模板结构**一个字没动**：
-   `.menu-list` 里仍是「客服原生 button + `visibleMenuItems` 的 v-for」，只是布局从"每一行一项"变成"一排格子"。
+/* ⚠️⚠️ 2026-10-10 宫格化（第三版：尺寸与卡片按参考图实测重做；**第四版：一排 5 格 + 折行**）：
+   下方功能列表由**纵向列表**改成**等分宫格**（图标在上、文字在下），与上方「我的订单」**逐项同构**。
+   模板结构**一个字没动**：`.menu-list` 里仍是「客服原生 button + `visibleMenuItems` 的 v-for」。
 
-   ▸ 一行几格：`flex: 1 1 0` ⇒ **所有格子永远等宽**，格子数 = 可见项数（1~6 个都自适应铺满整卡宽）：
-       · 5 格（发票记录 / 设置 / 客服 / 我的收藏 / 商品素材）= 参考图那一排的形态；行内容宽 718rpx ⇒ 每格 **143.6rpx**；
-       · 6 格（再多一个「商家入驻」，普通用户的默认情形）= 每格 **119.7rpx**，最长 4 字 label 在 24rpx 字号下宽 **96rpx**
-         ⇒ 左右各余 ≈11.8rpx，**仍放得下** ⇒ 不做折行（`flex-wrap` 保持默认 nowrap，"一行"是硬要求）。
-         ⚠️ 若以后再加 5 字以上 label（96 → 120rpx），6 格就会挤 ⇒ 那时改回"每行 5 格 + 折行"。
-       · 少于 5 格（模块开关关掉「发票记录」等）= 每格变宽，整排仍铺满卡片宽度，不做居中/左对齐特判（`flex: 1` 天然均分）。
-   ▸ 不折行靠**两条**保证：格子等分（宽度够）+ `.menu-label` 的 `white-space: nowrap`（与 `.order-label` 同一条机制）。
-   ▸ 与上排的对齐：两边**同一套格子规则**（`.menu-item` 与 `.order-item` 声明逐字相同）+ 同样铺满卡宽
-     ⇒ 列宽都是 143.6rpx、列中心都是 87.8 / 231.4 / 375.0 / 518.6 / 662.2rpx（详见上方 `.order-grid` 注释与契约断言）。 */
+   ▸ **一排 5 格，多出来的折到下一排**（用户 2026-10-10 决定：「一排五个，剩下的就下一行」）：
+       · 格子 = `flex: 0 0 20%`（卡宽的 20%）⇒ 行内容宽 718rpx 时每格 **143.6rpx**，5 格正好排满一行；
+       · `.menu-list` 加 `flex-wrap: wrap` ⇒ 第 6 格起自动落到下一排，且**下一排的格宽与第一排逐像素相同**
+         （`flex-shrink: 0` + 固定 20% 基准 ⇒ 既不被压缩也不被拉伸）；
+       · 可见顺序是**客服在最前**（模板里 button 排在 v-for 之前）⇒ 普通用户 6 项 = 第一排
+         客服 / 发票记录 / 设置 / 我的收藏 / 商品素材，第二排「商家入驻」。
+   ▸ 剩余那排**左对齐**（`justify-content: flex-start`，即 flex 默认值，显式写出来把这个决定钉在代码里）：
+       理由 —— ① 与上一排共用同一套列网格：第 6 格正好落在第 1 列、第 7 格落在第 2 列，纵向成列、可预测；
+       ② 若居中，1 格会跑到整卡中轴（≈375rpx）而脱离列网格，2 格也会与上排错位；
+       ③ 用户原话「剩下的就下一行」，左对齐是"下一行"的默认读法（也与"格子从左往右排"一致）。
+   ▸ 项数随模块开关变化（`visibleMenuItems` 的模块过滤 + 已是商家身份时隐藏「商家入驻」），**1~6+ 逐项成立**：
+       · 1~4 项：只占前 1~4 列，**不拉伸**（`grow: 0` 的意义就在这里 —— 与上排同列宽，不做居中/铺满特判）；
+       · 5 项：正好一排（= 参考图那一排的形态）；
+       · 6~10 项：第一排 5 格 + 第二排 1~5 格（第二排同样左对齐、同格宽）；10 项以上继续顺延。
+   ▸ 排间用 **`row-gap: 16rpx`**：不折行时 `row-gap` **不产生任何高度**（gap 只存在于「行与行之间」），
+     所以 5 项及以下的卡片高度与第三版**逐像素一致**（24 + 52 + 12 + 32 + 16 = 136rpx）；
+     折行时两排之间才多出这 16rpx（取值 = 本页既有间距 Token：卡片间距、`.identity-list` 的 gap 同为 16rpx）。
+   ▸ 与上排的对齐：两边**同一套格子规则**（`.menu-item` 与 `.order-item` 声明逐字相同）⇒
+     列宽都是 143.6rpx、列中心都是 87.8 / 231.4 / 375.0 / 518.6 / 662.2rpx（详见上方 `.order-grid` 注释与契约断言）。 */
 .menu-section { margin: 0 16rpx 16rpx; padding: 0; border-radius: 20rpx; background: #fff; font-family: 'PingFang SC', '苹方-简', sans-serif; font-weight: 500; }
 /* ⚠️ 2026-10-10：`background: #fff` **必须没有** —— 卡面已经是白的，这里再铺一层方角白底会盖掉卡片圆角
    （父级只有 `border-radius`、没有 `overflow: hidden`）。
    纵向 24/16 是参考图实测的卡内节奏（见 `.order-icon` 前的验算：24 + 52 + 12 + 32 + 16 = 136rpx = 实测卡片高 135.4rpx）。 */
-.menu-list { display: flex; align-items: flex-start; padding: 24rpx 0 16rpx; }
-/* 宫格单元（客服之外的每一项，以及 `v-else` 灰块占位）：等宽 + 纵向"图标在上、文字在下"。
+/* ⚠️ 2026-10-10 第四版：`flex-wrap: wrap` = 一排 5 格后折行；格子 `flex: 0 0 20%` ⇒ 每格恒为卡宽 20%；
+   `justify-content: flex-start` = **剩余那排左对齐**（不拉伸、不居中）；`row-gap: 16rpx` = 折行后的排间距。
+   ⚠️ 声明顺序刻意保持 `display` → `flex-wrap` → `align-*` → `justify-content` → `gap` → `padding`。 */
+.menu-list { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; row-gap: 16rpx; padding: 24rpx 0 16rpx; }
+/* 宫格单元（客服之外的每一项，以及 `v-else` 灰块占位）：固定 20% 格宽 + 纵向"图标在上、文字在下"。
    ⚠️ 与上方 `.order-item` **逐字相同的声明** —— 两排列宽/列中心因此由同一套规则决定。 */
-.menu-item { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; }
+.menu-item { display: flex; flex: 0 0 20%; min-width: 0; flex-direction: column; align-items: center; }
 /* 点击反馈：与上方 `.order-item` 逐项同值（"同一套组件"的观感一致性） */
 .menu-item:active { opacity: .6; transform: scale(.94); }
 /**
@@ -1163,9 +1197,12 @@ onShow(() => { void refreshData() })
  *      · 行高对齐：图标盒 `line-height: 52rpx` ⇒ 该行行盒正好 52rpx（字体 descent 8.75rpx 大于 strut 的下沉量，
  *        不会多出 inline-block 常见的基线缝），再 + `.menu-label` 的 `margin-top: 12rpx` + 文字行高 32rpx
  *        ⇒ 与 flex 版逐项等高（96rpx），横向也一样是 52rpx 盒居中。
- *      · `flex: 1 1 0` 让它与其它格**等宽**（它是 `.menu-list` 的 flex item，`display` 被块化，不影响格宽）。
+ *      · `flex: 0 0 20%` 让它与其它格**同宽**（它是 `.menu-list` 的 flex item，`display` 被块化，不影响格宽）；
+ *        ⚠️ 这里**必须**跟着格子一起钉成 `flex: 0 0 20%`：若只它还是 `flex: 1 1 0`，
+ *        第一排（它 + 4 个 20% 的格）会多出 20% 自由空间被它独吞 ⇒ 客服格涨到 40%、整排错位。
+ *        按此写法它在任何一排里都正好占 1/5 卡宽（`width: 100%` 被 `flex-basis` 覆盖，不起作用）。
  */
-.menu-item-btn { display: block; flex: 1 1 0; min-width: 0; width: 100%; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; line-height: inherit; text-align: center; }
+.menu-item-btn { display: block; flex: 0 0 20%; min-width: 0; width: 100%; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; line-height: inherit; text-align: center; }
 .menu-item-btn::after { border: 0; }
 .menu-item-btn:active { opacity: .6; transform: scale(.94); }
 /* ⚠️ 2026-10-10 第三版：图标盒 **52rpx**、字形 **46rpx**（与上方 `.order-icon` 同值，推导/实测见 `.order-icon` 前的注释块）。
@@ -1193,7 +1230,9 @@ onShow(() => { void refreshData() })
  *    上边距 12rpx / `white-space: nowrap`），只有 `display: block` 是宫格新增的：
  *      · `display: block` 是给**客服那个原生 `<button>`** 用的：它走 block 流（见 `.menu-item-btn`），
  *        需要 `block` 才能把文字落到图标下面一行；在 `.menu-item` 的 flex 列里它就是普通 flex item，等价。
- *      · `white-space: nowrap` = **不折行**机制，与上方 `.order-label` 同一条（格子等分保证宽度也够）。
+ *      · `white-space: nowrap` = **标签自己绝不折行**，与上方 `.order-label` 同一条机制
+ *        （折行由 `.menu-list` 的 `flex-wrap` 按"整格"来分排，不允许在格子内部断字）：
+ *        格子恒为 143.6rpx，最长 label 4 个汉字在 24rpx 下 96rpx ⇒ 各余 ≈23.8rpx，放得下。
  */
 .menu-label { display: block; margin-top: 12rpx; color: #1E1E1E; font-size: 24rpx; font-weight: 500; line-height: 32rpx; white-space: nowrap; }
 /**
