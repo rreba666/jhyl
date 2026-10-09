@@ -15,7 +15,6 @@ import {
   acceptMyOrder,
   auditMyCancel,
   createMyTask,
-  forceCompleteMyOrder,
   getMyOrders,
   getMyStaff,
   prepareMyOrder,
@@ -23,7 +22,8 @@ import {
   rejectMyOrder,
   type DeliveryStaff,
 } from '@/api/shop-delivery'
-import { ASSIGNMENT_TYPE_LABELS, CANCEL_AUTO_APPROVE_HINT, CANCEL_AUTO_APPROVE_HINT_SHORT, DELIVERY_STATUS_OPTIONS, FORCE_COMPLETE_HINT, deliveryStatusLabel, deliveryStatusTagType } from '@/utils/deliveryStatus'
+import { ASSIGNMENT_TYPE_LABELS, CANCEL_AUTO_APPROVE_HINT, CANCEL_AUTO_APPROVE_HINT_SHORT, DELIVERY_STATUS_OPTIONS, deliveryStatusLabel, deliveryStatusTagType } from '@/utils/deliveryStatus'
+import ForceCompleteDialog from '@/components/delivery/ForceCompleteDialog.vue'
 
 const props = defineProps<{ shopId: string }>()
 /** 安排配送成功后通知父级刷新「配送任务」面板。 */
@@ -230,46 +230,20 @@ async function resumeException(row: DeliveryOrderView): Promise<void> {
 }
 
 // ===== 强制完成（DELIVERED → COMPLETED，2026-10-08 新增） =====
-
-/** 强制完成弹窗状态（原因**必填**，会进中央留痕）。 */
-const forceVisible = ref(false)
-const forcing = ref(false)
-const forceForm = reactive<{ orderNo: string; reason: string }>({ orderNo: '', reason: '' })
+// ⚠️ 实现已抽到**共享组件** `components/delivery/ForceCompleteDialog.vue`（平台「同城配送管理 →
+//    同城订单」用**同一份**）——状态、原因必填拦截、两句必提示（不会立刻打钱 / 原因必填留痕）
+//    与 toast 都在那里。本面板只负责"哪一行能点"，⛔ 不要再在这里复制一份弹窗逻辑。
+const forceCompleteRef = ref<InstanceType<typeof ForceCompleteDialog> | null>(null)
 
 /**
  * 打开「强制完成」弹窗。
  *
- * ⚠️ 为什么用**独立弹窗**而不是 `ElMessageBox.prompt`：本接口有**两句必须让运营看到的话**
- *    （不会立刻打钱 / 原因必填并留痕，见 `FORCE_COMPLETE_HINT`），prompt 放不下也藏得住。
- * ⚠️ 只在 `DELIVERED` 行展示按钮 —— 其它状态后端一律 `13003`，给了按钮就是让运营白点。
+ * ⚠️ 本店 `shopId` 通过 `:shop-id` 传给组件（商户管理员单门店，后端可按登录身份兜底）；
+ *    平台账号进这个页面时也已先在顶部选了门店，同样走这个 `shopId`。
+ * ⚠️ 只在 `DELIVERED` 行展示按钮 —— 其它状态后端一律 `13003`，给了按钮就是让商家白点。
  */
 function openForceComplete(row: DeliveryOrderView): void {
-  if (!row.orderNo) return
-  forceForm.orderNo = row.orderNo
-  forceForm.reason = ''
-  forceVisible.value = true
-}
-
-/** 提交强制完成：原因必填（前端先拦，避免必然失败的请求）。 */
-async function submitForceComplete(): Promise<void> {
-  const reason = forceForm.reason.trim()
-  if (!reason) {
-    ElMessage.warning('请填写强制完成的原因（会记入中央留痕）')
-    return
-  }
-  forcing.value = true
-  try {
-    await forceCompleteMyOrder(props.shopId || undefined, forceForm.orderNo, reason)
-    ElMessage.success('已强制完成；资金仍按结算释放期入账，不是立即打款')
-    forceVisible.value = false
-    await loadOrders()
-  } catch (error) {
-    // ⚠️ 业务态（13003 状态已变化 / 1404 非同行单 / 1004 越权）原样带出后端 message，不吞成"系统繁忙"
-    ElMessage.error(error instanceof Error ? error.message : '强制完成失败')
-    await loadOrders()
-  } finally {
-    forcing.value = false
-  }
+  forceCompleteRef.value?.open(row)
 }
 
 watch(() => props.shopId, () => { void loadOrders() })
@@ -401,29 +375,10 @@ defineExpose({ loadOrders })
       </template>
     </el-dialog>
 
-    <!-- 强制完成（已送达 → 已完成）：原因**必填**，会写中央留痕 -->
-    <el-dialog v-model="forceVisible" title="强制完成订单" width="560px" append-to-body>
-      <!-- ⚠️ 这两句是文档要求「必须让运营知道」的：① 不会立刻打钱；② 原因必填且留痕。
-           ⛔ 不要为了版面好看把它换成 tooltip 或精简掉。 -->
-      <el-alert type="warning" :closable="false" show-icon class="tip" :title="FORCE_COMPLETE_HINT" />
-      <el-form label-width="90px" size="small">
-        <el-form-item label="订单号"><el-input v-model="forceForm.orderNo" disabled /></el-form-item>
-        <el-form-item label="完成原因" required>
-          <el-input
-            v-model="forceForm.reason"
-            type="textarea"
-            :rows="3"
-            maxlength="200"
-            show-word-limit
-            placeholder="请写清核实依据，例如：电话核实已妥投（会记入中央留痕）"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="forceVisible = false">取消</el-button>
-        <el-button type="primary" :loading="forcing" @click="submitForceComplete">确认强制完成</el-button>
-      </template>
-    </el-dialog>
+    <!-- 强制完成（已送达 → 已完成）：**共享组件**（平台「同城配送管理 → 同城订单」同款），
+         原因必填会写中央留痕，两句必提示在组件里（见 `FORCE_COMPLETE_HINT`）。
+         ⚠️ 标题/宽度沿用商户端文案，组件内保持一致的用户可见文案。 -->
+    <ForceCompleteDialog ref="forceCompleteRef" :shop-id="props.shopId" title="强制完成订单" width="560px" @done="loadOrders" />
   </el-card>
 </template>
 

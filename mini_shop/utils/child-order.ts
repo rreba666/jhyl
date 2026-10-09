@@ -56,11 +56,18 @@ export function childOrderOptionText(child: ChildOrderVO): string {
 export function pickChildOrder(
   children: ChildOrderVO[] | null | undefined,
   actionLabel: string,
+  isSelectable?: (child: ChildOrderVO) => boolean,
 ): Promise<ChildOrderVO | null> {
   const list = Array.isArray(children) ? children : []
   // ✅ 后端已补齐 `id`（2026-10-02）⇒ 正常情况下 `selectable` 就是全量；
   //    这里的过滤是**防御性兜底**（万一后端回滚或某条数据异常），保留不删。
-  const selectable = list.filter((child) => child.id != null)
+  //
+  // ⚠️ `isSelectable`（2026-10-03 新增，可选）用于「本次动作**需要的字段不是 `id`**」的入口：
+  //    取消申请（`cancel-request`）的路径参数是**子单号 `orderNo`**、不是 id ⇒ 它按 `orderNo` 过滤，
+  //    不能因为"这一条没有 id"就把用户挡在门外（那是把别的入口的约束误加到它身上）。
+  //    ⚠️ 不传时**逐字保持**原行为（`id != null`）⇒ 三个退款/售后入口的判定一字未变。
+  const canPick = isSelectable ?? ((child: ChildOrderVO) => child.id != null)
+  const selectable = list.filter(canPick)
   if (!selectable.length) {
     if (list.length) {
       uni.showToast({ title: '暂不支持按子订单提交，请联系客服处理', icon: 'none', duration: 3000 })
@@ -94,4 +101,38 @@ export async function resolveTargetOrderId(
   if (!hasChildOrders(children)) return fallbackOrderId ?? null
   const child = await pickChildOrder(children, actionLabel)
   return child?.id ?? null
+}
+
+/**
+ * 解析「本次**取消申请**要作用在哪个**订单号**上」——`cancel-request` 专用。
+ *
+ * ⚠️⚠️ 为什么**不能**用 {@link resolveTargetOrderId} 顶替（2026-10-03 代码审查发现，P0）：
+ * `POST /api/delivery/orders/{orderNo}/cancel-request` 的路径参数是 **`orderNo`（子单号）**，
+ * 而 `resolveTargetOrderId` 给的是**子单的 `id`** —— 把 id 塞进 `orderNo` 路径段是**用错字段**：
+ * 单商/无子单时它还会返回 `null`（调用方直接 return ⇒ 取消按钮点了没反应）。
+ * 后端契约原文（W8 §2.1）：「`orderNo` —— **必须传子单号**（跨商拆单场景：父单会返回
+ * "订单不存在或不属于当前用户"）」。而 C 端订单详情手里拿到的是**父单号**
+ * （`/api/order/list` 只返回父单）⇒ 有子单时**必须**换成子单号。
+ *
+ * ⚠️ 过滤字段是 `orderNo`（本接口只认它），**不是** `id` —— 见 {@link pickChildOrder} 的
+ *    `isSelectable` 说明。子单号取不到时返回 `null`（**fail-closed**：调用方**不得**回退到父单号，
+ *    那是一次注定 `4000` 的请求）。
+ *
+ * @param fallbackOrderNo 非父单（无子单）时使用的订单**自身订单号**
+ * @param children 订单详情里的 `children`
+ * @param actionLabel 动作名（ActionSheet 标题用，如「申请取消」）
+ * @returns 目标订单号；无子单时返回自身订单号，用户取消或取不到子单号时返回 `null`
+ */
+export async function resolveTargetOrderNo(
+  fallbackOrderNo: string | null | undefined,
+  children: ChildOrderVO[] | null | undefined,
+  actionLabel: string,
+): Promise<string | null> {
+  if (!hasChildOrders(children)) {
+    const fallback = String(fallbackOrderNo ?? '').trim()
+    return fallback || null
+  }
+  const child = await pickChildOrder(children, actionLabel, (item) => Boolean(String(item.orderNo ?? '').trim()))
+  const childOrderNo = String(child?.orderNo ?? '').trim()
+  return childOrderNo || null
 }

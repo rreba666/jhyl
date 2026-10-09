@@ -20,7 +20,7 @@ import RefundReasonSheet from '@/components/RefundReasonSheet.vue'
 // @ts-ignore uqrcode 为 UMD 单文件库（随分包 subpkg-order 打包，避免主包出现未使用的 JS 文件）
 import UQRCode from '@/subpkg-order/utils/uqrcode'
 // 跨商拆单（P3）子订单工具：判定 / 状态文案 / 让用户选子单（与订单列表页共用）
-import { childStatusText, hasChildOrders as hasChildOrdersIn, resolveTargetOrderId as resolveChildTargetOrderId } from '@/utils/child-order'
+import { childStatusText, hasChildOrders as hasChildOrdersIn, resolveTargetOrderId as resolveChildTargetOrderId, resolveTargetOrderNo as resolveChildTargetOrderNo } from '@/utils/child-order'
 
 const order = ref<OrderDetail | null>(null)
 const loading = ref(true)
@@ -106,6 +106,21 @@ const hasChildOrders = computed(() => hasChildOrdersIn(order.value?.children))
  */
 function resolveTargetOrderId(actionLabel: string): Promise<number | string | null> {
   return resolveChildTargetOrderId(order.value?.id, order.value?.children, actionLabel)
+}
+
+/**
+ * 解析**撤销/取消申请**要作用在哪个**订单号**上（第三个入口：`cancel-request`）。
+ *
+ * ⚠️⚠️ 为什么它和上面那个函数**必须分开**（2026-10-03 代码审查发现，P0）：
+ * 秒退/自助退款/售后三个入口走的是 `.../{orderId}`（要 **id**），而取消申请走的是
+ * `POST /api/delivery/orders/{orderNo}/cancel-request`（要 **订单号**，且 W8 §2.1 明写**必须是子单号**）。
+ * 本页的 `order.value.orderNo` 是**父单号**（C 端订单详情只持有父单）⇒ 跨商拆单场景直接拿它去 POST
+ * 会得到 `4000 订单不存在或不属于当前用户`（子单号在 `children[].orderNo`）。
+ * ⇒ 有子单时先让用户选子单、取**子单号**；无子单时就是本单号（原行为不变）。
+ * 具体逻辑（含子单号取不到时的 fail-closed）见 `utils/child-order.ts` 的 `resolveTargetOrderNo`。
+ */
+function resolveCancelOrderNo(): Promise<string | null> {
+  return resolveChildTargetOrderNo(order.value?.orderNo, order.value?.children, '申请取消')
 }
 
 /** 地址修改申请表单，内容按当前用户和订单自动缓存。 */
@@ -430,24 +445,39 @@ const cancelRequestedText = computed(() => (isCancelRequested.value ? formatCanc
  */
 const cancelAutoApproveText = computed(() => (isCancelRequested.value ? formatCancelTime(order.value?.cancelAutoApproveAt) : ''))
 
-/** 取消申请弹层（复用秒退的理由弹层组件：同样的必填理由 + 快捷标签 + 失败不关弹层）。 */
+/** 取消申请弹层（复用理由弹层组件：同样的快捷标签 + 失败不关弹层；但校验口径是**取消**那一档）。 */
 const cancelSheetVisible = ref(false)
 const cancelSheetSubmitting = ref(false)
 const cancelSheetError = ref('')
+/**
+ * 取消申请实际提交的**订单号**（空串 = 尚未解析出目标）。
+ *
+ * ⚠️ 为什么必须暂存：`cancel-request` 的路径参数要**子单号**，而选子单的 ActionSheet 与
+ * 「填原因」弹层是异步的第二跳 ⇒ 解析结果要留到 `submitCancelRequest` 里用。
+ * ⚠️ 空串时**不发请求**（fail-closed）—— 绝不退回父单号（那是注定 `4000` 的请求）。
+ */
+const cancelTargetOrderNo = ref('')
 
 /** 打开取消申请弹层（按钮只在 {@link canRequestCancel} 为真时渲染，这里再兜一层）。 */
-function openCancelRequest(): void {
+async function openCancelRequest(): Promise<void> {
   if (!order.value || cancelSheetSubmitting.value) return
   if (!canRequestCancel.value) {
     uni.showToast({ title: '当前订单状态不支持申请取消', icon: 'none' })
     return
   }
+  // ⚠️ W8 §2.1：路径参数必须是**子单号** ⇒ 与三个退款入口同源解析（有子单先让用户选）。
+  //    ⚠️ 解析不到（用户取消选择 / 子单数据异常）一律**不发请求**：
+  //       用户主动取消 → 静默退出；子单数据异常 → `pickChildOrder` 已给出明确提示。
+  //       ⛔ **不得**回退到父单号（跨商拆单传父单必被后端拒 `4000`，把"没反应"变成"报错"）。
+  const targetOrderNo = await resolveCancelOrderNo()
+  if (!targetOrderNo) return
+  cancelTargetOrderNo.value = targetOrderNo
   cancelSheetError.value = ''
   cancelSheetVisible.value = true
 }
 
 /**
- * 提交取消申请（理由来自弹层 `confirm`，**已过校验与清洗**）。
+ * 提交取消申请（理由来自弹层 `confirm`，**已过校验与清洗**；理由可选，不填时后端记为"用户取消"）。
  *
  * ⚠️ 两种结果必须分开提示（W8 §2.1 表格）：
  * - 订单仍在 `WAIT_ACCEPT` ⇒ 后端**不进审核**、直接取消 + **全额退款** ⇒ 提示「已取消，退款原路退回」；
@@ -457,13 +487,16 @@ function openCancelRequest(): void {
  */
 async function submitCancelRequest(reason: string): Promise<void> {
   const current = order.value
-  const orderNo = String(current?.orderNo || '')
-  if (!current || !orderNo || cancelSheetSubmitting.value) return
+  // ⚠️ 用**解析后的目标订单号**（有子单时是子单号，见 `resolveCancelOrderNo`）——
+  //    不能用 `current.orderNo`（那是父单号，跨商拆单会被后端拒 `4000`）。
+  const targetOrderNo = cancelTargetOrderNo.value
+  if (!current || !targetOrderNo || cancelSheetSubmitting.value) return
   const orderId = String(current.id)
+  const orderNo = String(current.orderNo || '')
   cancelSheetSubmitting.value = true
   cancelSheetError.value = ''
   try {
-    await requestCancelDelivery(orderNo, reason)
+    await requestCancelDelivery(targetOrderNo, reason)
     cancelSheetVisible.value = false
     // ⚠️ 用订单号重拉（手里正好是 orderNo，少一跳）；两个端点同构，见 `load` 的注释
     await load(orderId, true, orderNo)
@@ -483,7 +516,9 @@ async function submitCancelRequest(reason: string): Promise<void> {
       await load(orderId, true, orderNo)
       return
     }
-    // 订单不存在 / 不是本人（传了父单号也会落到这里）：关弹层并如实说明，重试没有意义
+    // 订单不存在 / 不是本人：关弹层并如实说明，重试没有意义
+    // ⚠️ 2026-10-03 起目标已换成**子单号**（见 `resolveCancelOrderNo`）⇒ 正常情况下不再因为
+    //    "传了父单号"落到这里；保留该分支是为了如实展示后端的 4000（数据异常 / 订单已迁移）。
     if (isApiRequestError(error) && Number(error.code) === 4000) {
       cancelSheetVisible.value = false
       uni.showToast({ title: error.message || '订单不存在或不属于当前用户', icon: 'none', duration: 3000 })
@@ -1145,13 +1180,19 @@ onUnload(() => {
     <!-- 取消申请理由弹层（同城单；与秒退共用同一个理由输入组件）
          ⚠️ 文案必须与秒退**区分**：这里提交的是**取消申请**，走商家审核，
             **不是**"立即原路退款"（只有待接单时后端才会直接取消并全额退款）。
+         ⚠️ 校验口径必须与秒退**区分**（`mode="cancel"`）：后端 `CancelRequestBody.reason` 是
+            **≤255 字 / 无字符白名单 / 选填**，而秒退那一档是 200 字 + `@Pattern` + 必填
+            ⇒ 不传 mode 就会拿退款规则卡取消原因（长原因、表情、空原因都被前端假拦住），
+               报错文案还会写成「请填写退款理由」（见 `utils/refund-reason.ts` 的 `validateCancelReason`）。
+         ⚠️ 快捷标签由组件的 `cancel` 档默认给出（取消语义那组，不是退款那组）。
          ⚠️ 提交失败**不关弹层**：理由不丢，改完可直接重试。 -->
     <RefundReasonSheet
       v-model="cancelSheetVisible"
       title="申请取消订单"
       subtitle="提交后由商家审核；商家未在承诺时间内处理，系统会自动同意并退款。待接单的订单可直接取消并全额退款。"
       submit-text="提交申请"
-      placeholder="请填写取消原因（必填）"
+      mode="cancel"
+      placeholder="请填写取消原因（选填）"
       :submitting="cancelSheetSubmitting"
       :error-message="cancelSheetError"
       @confirm="submitCancelRequest"

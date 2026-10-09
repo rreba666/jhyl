@@ -311,9 +311,11 @@ async function submitRefund(): Promise<void> {
     return
   }
   try {
+    // ⚠️ `ElMessageBox.confirm` 是**纯文本**弹层：这里不要写 `**markdown**` 之类的记号，
+    //    星号会原样显示给客服（2026-10-08 修）。需要强调就用本文件的常规做法（`「」`/独立提示行）。
     await ElMessageBox.confirm(
       windowOverride
-        ? `确认对订单“${refundForm.orderNo}”**跳过售后时间窗限制**执行全额退款吗？豁免理由将记入审计留痕；审核仍需人工判断。`
+        ? `确认对订单“${refundForm.orderNo}”跳过售后时间窗限制执行全额退款吗？豁免理由将记入审计留痕；审核仍需人工判断。`
         : `确认对订单“${refundForm.orderNo}”执行全额退款吗？退款将通过微信异步到账，请确认。`,
       '客服人工退款二次确认',
       { type: 'warning', confirmButtonText: '确认退款', cancelButtonText: '取消' },

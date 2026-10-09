@@ -298,8 +298,14 @@ export function canFastRefundNow(
  *    ⇒ 恢复 `2013 → 'cancel-request'`，否则后端指引的这条路在前端仍然是断的。
  *    ⚠️ 注意 `2013` 的适用面**比**"能申请取消"**宽**：它自 `WAIT_ASSIGN` 起就返回，
  *       但**已取货后**（`PICKED_UP` / `DELIVERING` / `NEARBY`）后端不接受取消申请
- *       （契约：「已取货后取消请走售后申请」）⇒ 那种情况下页面**不要**用本表的 `hint`，
- *       改用 {@link CANCEL_UNAVAILABLE_AFTER_PICKUP_HINT}（见订单详情页的按钮分叉）。
+ *       （契约：「已取货后取消请走售后申请」）。
+ *       ⇒ 那种情形**不需要**另配一句文案：本表 `2013` 的 `hint`（见下方 `FAST_REFUND_GATE_RULES`）
+ *         已经**同时覆盖**"未取货可申请取消"与"已取货走售后/客服"两种情形，页面在
+ *         "已取货且不能申请取消"的分支上**直接复用**本表的 `text` 即可
+ *         （订单详情页的「无法直接退款？查看原因」按钮就是这么做的：`resolveFastRefundGate(2013)`）。
+ *       ⚠️ 2026-10-03 订正：此处原先写 `{@link CANCEL_UNAVAILABLE_AFTER_PICKUP_HINT}`，
+ *         但该常量**全仓不存在**（只有这一处引用）—— 是一个悬空的 `{@link}`，
+ *         而代码实际走的正是上面这条"复用 `2013` 的 hint"。故改为按**行为**描述。
  * 3. **`2012` 是账号级闸门**（今日次数已用完，影响当天**所有**订单）⇒ 必须调用
  *    {@link markFastRefundDailyQuotaExhausted}；其余是**订单级** ⇒ {@link markFastRefundBlocked}。
  *    这条判据原先在**两个页面各写一遍**（列表页 / 详情页），已踩过"只修一处"的坑。

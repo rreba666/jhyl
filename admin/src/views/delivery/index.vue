@@ -36,13 +36,12 @@ import {
   type DeliveryReportVO,
 } from '@/api/delivery'
 import { getEnabledShops } from '@/api/shop'
-import { getMyStaff, getMyTasks, cancelMyTask, forceCompleteMyOrder, resumeMyTask, type DeliveryStaff, type DeliveryTask } from '@/api/shop-delivery'
+import { getMyStaff, getMyTasks, cancelMyTask, resumeMyTask, type DeliveryStaff, type DeliveryTask } from '@/api/shop-delivery'
 import type { Shop } from '@/types/shop'
 import {
   CANCEL_AUTO_APPROVE_HINT,
   CANCEL_AUTO_APPROVE_HINT_SHORT,
   DELIVERY_STATUS_OPTIONS,
-  FORCE_COMPLETE_HINT,
   REFUND_STATUS_LABELS,
   deliveryEventLabel,
   deliveryStatusLabel,
@@ -55,6 +54,7 @@ import {
 } from '@/utils/deliveryStatus'
 import { operatorTypeLabel } from '@/utils/labels'
 import { useTodoStore } from '@/stores/todo'
+import ForceCompleteDialog from '@/components/delivery/ForceCompleteDialog.vue'
 
 const activeTab = ref('report')
 
@@ -751,57 +751,27 @@ async function auditCancel(row: OrderRow, approve: boolean): Promise<void> {
 }
 
 // ===== 强制完成（DELIVERED → COMPLETED，2026-10-08 新增） =====
-
-/** 强制完成弹窗状态（原因**必填**，进中央留痕 `ORDER_FORCE_COMPLETE`）。 */
-const forceVisible = ref(false)
-const forcing = ref(false)
-const forceForm = reactive<{ orderNo: string; shopId: string; reason: string }>({ orderNo: '', shopId: '', reason: '' })
+// ⚠️ 实现已抽到**共享组件** `components/delivery/ForceCompleteDialog.vue`（商户端
+//    `views/shop-delivery/components/OrderPanel.vue` 用**同一份**）——状态、原因必填拦截、
+//    两句必提示（不会立刻打钱 / 原因必填留痕）与 toast 都在那里。本页只负责"哪一行能点"，
+//    ⛔ 不要再在这里复制一份弹窗逻辑（那正是本次抽出它的原因）。
+const forceCompleteRef = ref<InstanceType<typeof ForceCompleteDialog> | null>(null)
 
 /**
  * 打开「强制完成」弹窗（平台侧）。
  *
- * ⚠️⚠️ **`shopId` 必须带上**：本接口虽然叫 `my/orders/**`，但**平台岗（超管/客服）不传 `shopId`
- *    会返回 `1000 请指定门店`** —— 平台账号没有"我的门店"这个概念。行数据自带 `row.shopId`
- *    （`DeliveryOrderView.shopId` = 订单的 `merchant_id`），所以这里取自**行**而不是上方筛选框：
- *    筛选框选「全部门店」时它是合并视图，逐行取才准确。
- * ⚠️ 取不到 `shopId` 时**如实拦下**（不猜一个门店传过去 —— 那就是伪造数据）。
+ * ⚠️ `shopId` 由**共享组件**逐行取 `row.shopId`（`DeliveryOrderView.shopId` = **门店 id**，
+ *    不是订单的 `merchant_id`；筛选框选「全部门店」时是合并视图，逐行取才准确）——
+ *    平台岗不传会 `1000 请指定门店`；取不到时组件**如实拦下**，不猜一个门店传过去。
+ * ⚠️ 只在 `deliveryStatus === 'DELIVERED'` 的行调用（其它状态后端一律 `13003`）。
  */
 function openForceComplete(row: DeliveryOrderView): void {
-  if (!row.orderNo) return
-  const shopId = row.shopId === undefined || row.shopId === null ? '' : String(row.shopId)
-  if (!shopId) {
-    ElMessage.warning('该行没有门店信息（shopId 为空），无法强制完成；请按门店筛选后再操作')
-    return
-  }
-  forceForm.orderNo = row.orderNo
-  forceForm.shopId = shopId
-  forceForm.reason = ''
-  forceVisible.value = true
-}
-
-/** 提交强制完成（原因必填；失败也要刷新，状态可能已被他方推进）。 */
-async function submitForceComplete(): Promise<void> {
-  const reason = forceForm.reason.trim()
-  if (!reason) {
-    ElMessage.warning('请填写强制完成的原因（会记入中央留痕）')
-    return
-  }
-  forcing.value = true
-  try {
-    await forceCompleteMyOrder(forceForm.shopId, forceForm.orderNo, reason)
-    ElMessage.success('已强制完成；资金仍按结算释放期入账，不是立即打款')
-    forceVisible.value = false
-    await loadOrders()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '强制完成失败')
-    await loadOrders()
-  } finally {
-    forcing.value = false
-  }
+  forceCompleteRef.value?.open(row)
 }
 
 /**
- * 按路由 query 初始化筛选（待办铃铛跳转：`/delivery?deliveryStatus=xxx`）。 * 注意：必须同时用 watch 监听 query —— 在**同一模块内**连续点铃铛（如同城待接单 → 同城待派单）
+ * 按路由 query 初始化筛选（待办铃铛跳转：`/delivery?deliveryStatus=xxx`）。
+ * 注意：必须同时用 watch 监听 query —— 在**同一模块内**连续点铃铛（如同城待接单 → 同城待派单）
  * 路径不变、只有 query 变，组件不会重新挂载，不 watch 就会"点了没反应"。
  *
  * ⚠️ 2026-09-18：先**清掉无关筛选（门店）** —— 待办数字是全平台的，
@@ -1280,30 +1250,9 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 强制完成（已送达 → 已完成，2026-10-08 新增）：原因**必填**，会写中央留痕 `ORDER_FORCE_COMPLETE` -->
-    <el-dialog v-model="forceVisible" title="强制完成同城订单" width="580px" append-to-body>
-      <!-- ⚠️ 文档要求「必须让运营知道的两件事」：① 不会立刻给商家打钱；② 原因必填且留痕。
-           ⛔ 不要改成 tooltip 或精简掉 —— 第 1 条防"运营以为点完钱就到账"，第 2 条防"随手点、事后无从追责"。 -->
-      <el-alert type="warning" :closable="false" show-icon class="tip" :title="FORCE_COMPLETE_HINT" />
-      <el-form label-width="90px" size="small">
-        <el-form-item label="订单号"><el-input v-model="forceForm.orderNo" disabled /></el-form-item>
-        <el-form-item label="门店 ID"><el-input v-model="forceForm.shopId" disabled /></el-form-item>
-        <el-form-item label="完成原因" required>
-          <el-input
-            v-model="forceForm.reason"
-            type="textarea"
-            :rows="3"
-            maxlength="200"
-            show-word-limit
-            placeholder="请写清核实依据，例如：电话核实已妥投（会记入中央留痕）"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="forceVisible = false">取消</el-button>
-        <el-button type="primary" :loading="forcing" @click="submitForceComplete">确认强制完成</el-button>
-      </template>
-    </el-dialog>
+    <!-- 强制完成（已送达 → 已完成，2026-10-08 新增）：**共享组件**（商户端同款），
+         原因必填会写中央留痕 `ORDER_FORCE_COMPLETE`，两句必提示在组件里（见 `FORCE_COMPLETE_HINT`）。 -->
+    <ForceCompleteDialog ref="forceCompleteRef" @done="loadOrders" />
   </section>
 </template>
 

@@ -42,7 +42,8 @@ export interface DeliveryOrderView {
   deliveryStatus?: string
   /**
    * 门店 ID / 门店名（2026-09-17 后端新增，已收录进 api_doc）。
-   * `shopId` = 订单的 `merchant_id`；有了它 + `shopName`，平台列表不必再逐店查询合并。
+   * `shopId` = **门店 id**（不是订单的 `merchant_id`）；有了它 + `shopName`，平台列表不必再逐店查询合并，
+   * 需要 `shopId` 的接口（如平台流转 / 强制完成）也直接取行上的这个值。
    */
   shopId?: number | string
   shopName?: string
