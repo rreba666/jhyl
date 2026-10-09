@@ -242,40 +242,43 @@ async function toggleFavorite(): Promise<void> {
  * ⚠️ 2026-10-08 修（用户反馈「下单没有出现 SKU 弹层」）：此前本页**默认取第一个可用 SKU
  * 直接加购/立即购买**（历史注释原文：「默认选择第一个可用 SKU，详情页暂按该 SKU 进行加购和立即支付」）
  * ⇒ 多规格商品（950ml / 550ml / 330ml）用户**根本没法选规格**，下单的永远是列表第一个，
- * 甚至与页面上展示的价格不是同一个规格。现在**多规格必须先过规格弹层**。
+ * 甚至与页面上展示的价格不是同一个规格。现在**加购/立即购买必须先过规格弹层**。
  */
 const availableSkus = computed(() => (product.value?.skuList || []).filter((sku) => Number(sku.enabled) !== 0))
 
-/** 是否需要先选规格（**多规格才弹**；单规格直接走原路径，保持一步到位的快捷）。 */
-const needPickSku = computed(() => availableSkus.value.length > 1)
-
-/** 规格弹层开关（多规格商品加购/立即购买前必过）。 */
+/**
+ * 规格弹层开关：**单规格也要弹**（2026-10-08 用户反馈「单规格商品没有这个弹框，导致如果要买多个
+ * 的话需要去购物车加减，很不方便，所以单规格商品也需要这个弹框」）。
+ *
+ * ⚠️ 此前**只有多于一个可用规格时**才弹层：单规格走「不加询问、固定 1 件」的快捷执行 ——
+ *    单规格商品想买多件只能先加购 1 件、再去购物车改数量。现在**加购与立即购买一律进弹层**：
+ *    弹层为单规格商品渲染唯一一个规格 chip 并默认选中、数量默认 1，用户可在弹层里步进到该规格的
+ *    库存上限；确认后按弹层给出的数量执行（加购 / 立即购买）= 「原来的动作 + 用户选定的数量」。
+ * ⚠️ 库存校验仍在：弹层里缺货规格不可选、确认按钮 `disabled`，且 `doAddToCart` 照旧把该规格
+ *    `stock` 交给 `addSkuToCartWithStock` 做二次校验（本页不新增任何请求/字段）。
+ */
 const skuSheetVisible = ref(false)
 
 /**
- * 加购 / 立即购买的统一入口：多规格先弹层选规格与数量。
+ * 加购 / 立即购买的统一入口：**一律先弹层**选规格与数量（单规格商品同样进弹层）。
  *
  * ⚠️ 弹层里同时给「加入购物车 / 立即购买」两个按钮（用户可以在弹层里改主意，与主流电商一致），
  * 所以这里**不记忆"用户先点了哪个"** —— 只负责把弹层打开。
+ * ⚠️ 保留原有的「无可用规格」阻断（全部禁用 / `skuList` 为 `null`）：弹层里没有任何可选规格，
+ *    进去只会提示「请选择规格」，就地给一句「商品库存不足」与改动前的行为一致。
  */
-function onTradeAction(action: 'cart' | 'buy'): void {
+function onTradeAction(): void {
   if (!product.value || actionLoading.value || paymentNavigationLoading.value) return
   if (!isLoggedIn()) {
     loginGuideVisible.value = true
     return
   }
-  if (needPickSku.value) {
-    skuSheetVisible.value = true
-    return
-  }
-  // 单规格：直接执行（不再多弹一层）
-  const sku = availableSkus.value[0]
-  if (!sku || Number(sku.stock) <= 0) {
+  if (!availableSkus.value.length) {
     uni.showToast({ title: '商品库存不足', icon: 'none' })
     return
   }
-  if (action === 'cart') void doAddToCart(sku, 1)
-  else doBuyNow(sku, 1)
+  // 单规格与多规格**一律弹层**（单规格时弹层只渲染一个 chip 并默认选中，数量由用户步进）。
+  skuSheetVisible.value = true
 }
 
 /** 规格弹层确认：按用户在弹层里点的动作执行（数量由弹层给出）。 */
@@ -330,14 +333,14 @@ function doBuyNow(sku: { id: string; stock: number }, quantity: number): void {
   })
 }
 
-/** 加入购物车（template 绑定入口）：多规格先弹层选规格与数量。 */
+/** 加入购物车（template 绑定入口）：一律先弹层选规格与数量。 */
 function addProductToCart(): void {
-  onTradeAction('cart')
+  onTradeAction()
 }
 
-/** 立即购买（template 绑定入口）：多规格先弹层选规格与数量。 */
+/** 立即购买（template 绑定入口）：一律先弹层选规格与数量。 */
 function buyNow(): void {
-  onTradeAction('buy')
+  onTradeAction()
 }
 
 /** 打开分享抽屉。 */
@@ -537,7 +540,7 @@ onShow(() => {
 
     <PromotionCodePoster v-model="promotionCodeVisible" :loading="promotionCodeLoading" :code-url="promotionCodeUrl" />
     <LoginGuide v-model="loginGuideVisible" />
-    <!-- 规格选择弹层（多规格商品的加购/立即购买前必过，2026-10-08 补） -->
+    <!-- 规格选择弹层（加购/立即购买前必过：多规格选规格、单规格选数量；2026-10-08 补） -->
     <SkuSheet v-model:visible="skuSheetVisible" :product="product" @confirm="onSkuConfirm" />
   </view>
 </template>

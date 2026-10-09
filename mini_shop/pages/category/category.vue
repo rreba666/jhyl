@@ -174,24 +174,16 @@ async function onAddCart(product: CategoryProduct): Promise<void> {
     //    `SkuSheet` 已挪回主包，**本页直接弹层**，不再降级为「toast + 跳详情」——
     //    至此主包分类页与分包分类页的多规格体验一致。
     //    ⚠️ 详情在这里**已经拉好了**（上面 `getProductDetail`），直接喂给弹层，弹层内不再发请求。
-    if (available.length > 1) {
-      skuSheetProduct.value = detail
-      skuSheetVisible.value = true
-      return
-    }
-    // 单规格：直接加购（保持列表页一步到位的快捷）
-    const sku = available[0]
-    const stock = Number(sku.stock)
-    if (!Number.isFinite(stock) || stock <= 0) throw new ApiRequestError('库存不足', 3001)
-    await addSkuToCartWithStock({
-      productId: Number(product.id),
-      skuId: Number(sku.id),
-      stock,
-      quantity: 1,
-      dividendEnabled: detail.dividendEnabled,
-      price: Number(sku.price),
-    })
-    uni.showToast({ title: '已加入购物车', icon: 'success' })
+    // ⚠️ 2026-10-08 三次修（用户反馈「单规格商品没有这个弹框，导致如果要买多个的话需要去购物车
+    //    加减，很不方便，所以单规格商品也需要这个弹框」）：**单规格也必须弹层** ——
+    //    弹层会为单规格商品渲染唯一一个规格 chip 并默认选中、数量默认 1，用户可直接步进到库存上限。
+    //    此前只有 `available.length > 1` 才弹层，单规格走「直接加购 1 件」的快捷路径，
+    //    想买多件只能加购后再去购物车改数量。**多规格分支的行为一字未改**（同样进弹层）。
+    //    ⚠️ 库存校验不因此丢失：弹层只让「有货」的规格可选（缺货 chip 置灰、确认按钮 disabled），
+    //    且确认加购时照旧把该规格的 `stock` 交给 `addSkuToCartWithStock` 做二次校验。
+    skuSheetProduct.value = detail
+    skuSheetVisible.value = true
+    return
   } catch (error) {
     uni.showToast({
       title: isApiRequestError(error) && error.code === 3001
