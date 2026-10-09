@@ -463,6 +463,11 @@ async function loadDirectItem(): Promise<void> {
       // 立即购买这条路本来就拿了商品详情，商品级配送开关直接取用（不额外发请求）
       pickupEnabled: normalizeDeliverySwitch(product.pickupEnabled),
       deliveryEnabled: normalizeDeliverySwitch(product.deliveryEnabled),
+      // ⚠️ 2026-10-09 修（生产商品 97 实测「后台关了同城、商城仍可选同城」）：
+      //    第十二批把同城从 deliveryEnabled 拆成独立字段后，购物车链路（api/cart.ts 的 resolveProductFlags）
+      //    同步补了，**这条路径漏了** ⇒ 条目上该字段是 undefined ⇒ normalizeDeliverySwitch 按 1（支持）兜底
+      //    ⇒ 结算页不给「同城配送」置灰、提交前也拦不住。同城**只看本字段**，必须与上面两个一起映射。
+      sameCityEnabled: normalizeDeliverySwitch(product.sameCityEnabled),
     }]
     selectedCartIds.value = []
   } catch (error) {
