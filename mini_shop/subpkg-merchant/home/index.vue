@@ -797,9 +797,14 @@ function goBack(): void {
           <text class="console-value">{{ consoleAccount.value }}</text>
         </view>
 
-        <!-- 登录名规则（2026-10-10 自动开户新增）：审核通过后登录名由规则生成，
-             不再由客服口头告知 ⇒ 必须与密码规则一起无条件显示（§八-3）。 -->
-        <view class="console-block">
+        <!-- 登录名规则（2026-10-10 自动开户新增）：审核通过后登录名由规则生成，不再由客服口头告知。
+             ⚠️ 2026-10-10 用户反馈：「登录账号」与「登录名」**说的是同一件事**（后者只是"怎么拼"），
+                并列显示等于"既给答案又讲规则"，而账号未下发时读完仍拿不到登录名。
+             ⇒ 按用户选择：**有账号时上面那格直接给答案**，本条**降为小字规则提示**
+                （没账号时它才是推导依据；有账号时它只是解释 `M1024` 是怎么来的）。
+             ⚠️ 标题**保持「登录名」不变**（改字会撞契约里钉住的文本），只做**视觉降级**区分主次。
+             ⚠️ 仍**无条件渲染**（§八-3 要求规则恒可见），只是视觉降级为次要信息。 -->
+        <view class="console-block console-block-hint">
           <text class="console-block-title">登录名</text>
           <text class="console-block-text">{{ MERCHANT_CONSOLE_LOGIN_NAME_RULE }}</text>
         </view>
@@ -1407,6 +1412,13 @@ function goBack(): void {
 }
 /* 密码说明：只讲**规则**，不显示任何密码值。 */
 .console-block { margin-top: 23rpx; padding: 23rpx; border-radius: 16rpx; background: #f6f7f9; }
+/* ⚠️ 2026-10-10 用户反馈：「登录账号」（给答案）与「登录名」（讲规则）**说的是同一件事**，
+   并列显示读完仍拿不到登录名 ⇒ 按用户选择把"登录名规则"降为**小字次要提示**：
+   去掉灰底、缩小字号与内边距、颜色退到次要层级；有账号时上格就是答案，这里只解释 `M1024` 怎么来的。
+   ⚠️ 仍**无条件渲染**（§八-3 要求规则恒可见），只是视觉降级 —— 契约断言的是"存在"，不是"显眼"。 */
+.console-block-hint { margin-top: 12rpx; padding: 0; background: transparent; }
+.console-block-hint .console-block-title { color: #86909c; font-size: 24rpx; font-weight: 400; }
+.console-block-hint .console-block-text { margin-top: 4rpx; color: #86909c; font-size: 22rpx; }
 .console-block-title {
   display: block;
   color: #1d2129;
