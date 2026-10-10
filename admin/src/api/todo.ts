@@ -68,6 +68,11 @@ export const TODO_ITEM_FALLBACKS: Record<string, { label: string; route: string;
     route: '/dividend-clawback?status=0',
     level: 'DANGER',
   },
+  // 返货待验收（2026-10-10）：该 key 的 `route` 在契约示例响应里就是
+  // `/delivery/returns?returnStatus=RETURNED`（此前 admin 侧**没有这个页面** ⇒ 点了没反应）。
+  // ⚠️ **本期不在这里加兜底**：后端已经下发正确 route ⇒ 兜底是死代码；
+  //    而 `withdraw-timeout-todo.contract.ps1` 明确断言「兜底表恰好 3 项」（防止随意扩张兜底面）
+  //    ⇒ 本页只负责**让那个 route 落得下去**（新增 `/delivery/returns` 页面 + 路由 + 菜单 + 矩阵）。
 }
 
 /**

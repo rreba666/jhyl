@@ -34,11 +34,29 @@ export const ALL_ADMIN_ROLES: AdminRole[] = ['SUPER_ADMIN', 'ADMIN', 'CUSTOMER_S
  * **这是菜单显隐与路由守卫的唯一数据源**：router 的 `meta.roles` 由 {@link rolesForPath} 反推生成，
  * 菜单项也用 `canAccess` 判断，避免出现「菜单能点、路由却拦截」的不一致
  * （历史 bug：`ADMIN` 菜单里有普通订单/自提订单/地址变更审核/商品管理，但路由 roles 漏了 `ADMIN` → 点击后被打回商户业务台）。
+ *
+ * ## 2026-10-10 新增 `/delivery/returns`（退款返货台账，只读）的角色取舍
+ * 接口 `GET /api/admin/delivery/returns`（`merchantId` 不传 = 全平台）在契约里**没有写角色**，
+ * 故按两条既有证据取**最窄可辩护**的集合 —— **超管 + 客服 + 商户管理员（不给财务）**：
+ * 1. **待办可见性（契约 `GET /api/admin/todo/summary` 的「角色可见性」一节，权威）**：
+ *    `DELIVERY_RETURN_ACCEPT`（返货待验收）在 **超管 / 客服 / 商户管理员** 三类角色的清单里，
+ *    **财务的清单只有「提现审核」一项** ⇒ 财务本来就看不到入口，给它这个 path 只会多一个用不上的菜单。
+ * 2. **待办深链必须落得下去**：该待办的 `route` 就是本页（`/delivery/returns?returnStatus=RETURNED`，
+ *    契约示例响应里可见）。**商户管理员（ADMIN）也会收到这条待办** ⇒ 矩阵里不给 ADMIN，
+ *    商户点自己的待办就会被路由守卫打回「商户业务台」—— 这正是当年 `/delivery/ghost` 补 ADMIN 的原因。
+ * 3. **与同域页面同口径**：`/after-sale`（退款/售后域）与 `/delivery/ghost` 都是「超管 + 客服 + 商户管理员」，
+ *    而 `/delivery`（同城配送管理）只给「超管 + 客服」；本页是**只读台账**且以「按门店排查返货」为目的，
+ *    取与 `/after-sale` / `/delivery/ghost` 一致的三角色集合最贴合既有惯例。
+ * 4. ⚠️ **ADMIN 的数据范围需后端确认**（与 `/delivery/ghost` 的遗留待确认项同性质）：
+ *    本页**不代传 `merchantId`**（`merchantId` 在本项目里既有"品牌ID"也有"门店ID"两种历史语义，
+ *    前端猜错会让商户看到"空台账"这种假阴性）⇒ 依赖后端按绑定商户强制过滤（`CLAUDE.md` §五 的一般口径）。
+ * 5. 页面本身**只读**：契约里该 path 只有 `get`，中控没有「确认收货 / 人工放行」写接口
+ *    （唯一验收接口是商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return`，前端不代调）。
  */
 const ROLE_ROUTES: Record<AdminRole, string[]> = {
   SUPER_ADMIN: [
     '/dashboard', '/merchant', '/homepage', '/homepage/bottom-recommendation', '/announcement',
-    '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
+    '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/delivery/returns', '/shops', '/staff', '/shop-console', '/shop-delivery', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/profit', '/wallets', '/transfers',
     '/withdraw', '/merchant-withdraw', '/logs/verify', '/logs/audit', '/logs/ledger', '/logs/apicount', '/admins', '/merchants', '/settings',
     // 短信模板管理 / 语音配置管理：后端 `/api/admin/sms/**`、`/api/admin/voice/**` 都是超管专属（非超管 403）
@@ -79,13 +97,17 @@ const ROLE_ROUTES: Record<AdminRole, string[]> = {
     //    若前端路由守卫不给 ADMIN 这个 path，商户点自己的待办会被打回商户业务台。
     //    ⚠️ 待确认：体检接口本身对 ADMIN 的数据范围（全量 or 本门店）需后端明确。
     '/dashboard', '/merchant', '/products', '/shops', '/staff', '/orders', '/orders/pickup', '/delivery/ghost',
+    // ⚠️ 含 '/delivery/returns'（2026-10-10）：商户管理员的待办里有 `DELIVERY_RETURN_ACCEPT`（返货待验收），
+    //    其 route 深链到 `/delivery/returns?returnStatus=RETURNED`；不给 ADMIN 的话，商户点自己的待办会被打回工作台。
+    //    本页只读；数据范围由后端按绑定商户过滤（⚠️ 待后端确认口径，见文件头 ROLE_ROUTES 说明第 4 条）。
+    '/delivery/returns',
     '/orders/address-audit', '/after-sale', '/logs/verify', '/logs/audit', '/shop-console', '/shop-delivery',
     // ⚠️ 系统配置管理：**只读**可见（后端只允许超管/财务写入；本页对其它角色禁用输入并说明原因）。
     //    这里给 ADMIN 的是"看得到当前平台默认比例"，不是处置权。
     '/settings/sys-config',
   ],
   CUSTOMER_SERVICE: [
-    '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/shops', '/orders', '/orders/pickup',
+    '/dashboard', '/merchant', '/users', '/products', '/categories', '/brands', '/delivery', '/delivery/ghost', '/delivery/returns', '/shops', '/orders', '/orders/pickup',
     '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify', '/logs/ledger',
     // 微信通知（订阅消息诊断）：后端只给**超管 + 运营客服**，客服是这条链路的日常使用方（答疑"店长收不到"）
     '/notify',
@@ -134,6 +156,9 @@ const ROUTE_LABELS: Record<string, string> = {
   // ⚠️ 2026-10-02：菜单名从「幽灵单巡检」改为「**订单异常巡检**」——
   //    「幽灵单」是后端内部叫法，入驻商家看不懂（用户实测反馈）；路径仍为 `/delivery/ghost`（后端 4 个待办类型的 route 深链依赖它）。
   '/delivery/ghost': '订单异常巡检',
+  // 2026-10-10 新增：退款返货台账（只读）—— 后端待办 `DELIVERY_RETURN_ACCEPT` 的 route
+  // `/delivery/returns?returnStatus=RETURNED` 此前**没有落点**（admin/src 里 0 处 `delivery/returns`）。
+  '/delivery/returns': '退款返货台账',
   '/shop-console': '店铺运营',
   '/shop-delivery': '配送工作台',
   '/shops': '门店管理',

@@ -3,9 +3,10 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { getMerchants, toggleMerchantStatus, updateMerchant } from '@/api/merchant'
+import CommissionRateHistory from '@/components/merchant/CommissionRateHistory.vue'
 import { useTodoStore } from '@/stores/todo'
 import type { MerchantFilters, MerchantVO } from '@/types/merchant'
-import { Edit, Refresh, Search, Shop, Warning } from '@element-plus/icons-vue'
+import { Edit, Refresh, Search, Shop, Timer, Warning } from '@element-plus/icons-vue'
 const route = useRoute()
 const todoStore = useTodoStore()
 const list = ref<MerchantVO[]>([])
@@ -38,6 +39,25 @@ const commissionInput = ref<number | null>(null)
  * 后端语义是"不传 = 不修改"，而传值就要过 3~20 ⇒ **恢复"跟随品牌级"只能不传**，不能传 0。
  */
 const logisticsCommissionInput = ref<number | null>(null)
+
+/**
+ * 「让利比例变更历史」独立弹窗（2026-10-10 新增）。
+ *
+ * 与「设置让利比例」弹窗里内嵌的那份**共用同一个组件**
+ * `@/components/merchant/CommissionRateHistory.vue`；这里只是给"只想看历史、不想进编辑弹窗"
+ * 的运营一个直达入口。
+ *
+ * ⚠️ 两个入口都用 `v-if="<弹窗可见> && target"` 挂载组件 ⇒ **只有弹窗打开时才创建组件、才发请求**
+ *    （组件内 `watch(..., { immediate: true })` 负责首拉），**列表渲染阶段不会为每一行发请求**。
+ */
+const historyDialogVisible = ref(false)
+const historyTarget = ref<MerchantVO | null>(null)
+
+/** 打开「让利比例变更历史」弹窗（数据由组件自己按需拉取）。 */
+function openHistoryDialog(row: MerchantVO): void {
+  historyTarget.value = row
+  historyDialogVisible.value = true
+}
 
 /** 打开让利比例弹窗，回显该商户当前值（`null` = 未设置）。 */
 function openCommissionDialog(row: MerchantVO): void {
@@ -228,12 +248,14 @@ onMounted(() => {
           <template #default="{ row }"><el-tag :type="statusType[row.status || 0]">{{ statusText[row.status || 0] }}</el-tag></template>
         </el-table-column>
         <el-table-column prop="createTime" label="创建时间" min-width="170" />
-        <el-table-column label="操作" fixed="right" width="330">
+        <el-table-column label="操作" fixed="right" width="390">
           <template #default="{ row }">
             <div class="operator-actions">
               <el-button size="small" @click="goShops(row)"><el-icon><Shop /></el-icon>门店</el-button>
               <!-- ⚠️ 2026-09-30 新增：设置让利比例（后端已部署，区间 3~20） -->
               <el-button size="small" @click="openCommissionDialog(row)"><el-icon><Edit /></el-icon>让利</el-button>
+              <!-- ⚠️ 2026-10-10 新增：让利比例变更历史（只读，懒加载；不打开就不请求） -->
+              <el-button size="small" @click="openHistoryDialog(row)"><el-icon><Timer /></el-icon>历史</el-button>
               <el-button size="small" :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)"><el-icon><Warning /></el-icon>{{ row.status === 1 ? '停用' : '启用' }}</el-button>
             </div>
           </template>
@@ -248,7 +270,7 @@ onMounted(() => {
     <!-- ⚠️ 2026-09-30 新增：设置商户让利比例（后端已部署）。
          契约：`MerchantVO.commissionRate` 读、`MerchantUpdateDTO.commissionRate` 写，
          区间 **3~20**（越界 13018），**不传 = 不修改**。 -->
-    <el-dialog v-model="commissionDialogVisible" title="设置商户让利比例" width="440px">
+    <el-dialog v-model="commissionDialogVisible" title="设置商户让利比例" width="520px">
       <div v-if="commissionTarget" class="commission-body">
         <p class="commission-brand">商户：<strong>{{ commissionTarget.brandName }}</strong></p>
         <el-form label-width="96px">
@@ -262,6 +284,14 @@ onMounted(() => {
             <span class="commission-unit">%</span>
           </el-form-item>
         </el-form>
+        <!-- ⚠️ 2026-10-10 新增：变更历史（只读）就放在输入框下面，调比例时能看到"之前改过什么"。
+             ⚠️ `v-if` 双重条件：**弹窗打开（且已选中商户）才创建组件** ⇒ 列表渲染阶段零请求、不预热。 -->
+        <div class="commission-history">
+          <CommissionRateHistory
+            v-if="commissionDialogVisible && commissionTarget"
+            :merchant-id="commissionTarget.id"
+          />
+        </div>
         <!-- ⚠️ 2026-10-08：补一句「未设置 ≠ 0%」+ 平台默认比例的出处。
              spec §6 本轮把**平台默认**抽成改为 3%：本弹窗改的是**商户级**比例（数据，不跟着改），
              商户「从未配过」时按平台默认比例结算 —— 该默认值以「系统配置管理」页
@@ -285,6 +315,21 @@ onMounted(() => {
         <el-button type="primary" :loading="commissionSaving" @click="saveCommission">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ⚠️ 2026-10-10 新增：「让利比例变更历史」独立入口（列表「历史」按钮）。
+         只读视图，与上面弹窗里内嵌的那份共用组件；同样**打开才请求**（`v-if` 挂载）。 -->
+    <el-dialog v-model="historyDialogVisible" title="让利比例变更历史" width="620px">
+      <div v-if="historyTarget" class="history-body">
+        <p class="commission-brand">商户：<strong>{{ historyTarget.brandName }}</strong></p>
+        <CommissionRateHistory
+          v-if="historyDialogVisible && historyTarget"
+          :merchant-id="historyTarget.id"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="historyDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -302,5 +347,8 @@ onMounted(() => {
 .commission-brand { margin: 0; color: #303133; font-size: 14px; }
 .commission-unit { margin-left: 8px; color: #606266; }
 .operator-actions :deep(.el-icon) { margin-right: 4px; }
+/* ⚠️ 2026-10-10：让利比例变更历史（内嵌在设置弹窗里，限高滚动，避免把弹窗撑到很长） */
+.commission-history { max-height: 260px; padding-top: 4px; overflow-y: auto; border-top: 1px solid #ebeef5; }
+.history-body { display: flex; flex-direction: column; gap: 12px; }
 .table-pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

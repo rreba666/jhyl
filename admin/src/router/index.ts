@@ -109,6 +109,20 @@ const router = createRouter({
           meta: { title: '订单异常巡检', permission: ['delivery:read'], roles: rolesForPath('/delivery/ghost'), requiresAuth: true },
         },
         {
+          // 退款返货台账（2026-10-10 新增）：后端待办 `DELIVERY_RETURN_ACCEPT`（返货待验收，DANGER）
+          // 的 route 就是 `/delivery/returns?returnStatus=RETURNED`，而此前 `admin/src` 里
+          // **0 处** `delivery/returns` ⇒ 铃铛点进去 = 路由不存在。本页补上该落点（只读）。
+          // ⚠️ 该路径在契约里**只有 GET**：中控没有「确认收货 / 人工放行」写接口
+          //    （唯一验收接口是商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return`，
+          //    前端**不代调**）⇒ 页面上只如实写明"人工放行待后端接口"，**不放任何行内动作**。
+          // ⚠️ 角色 = 超管 + 客服 + 商户管理员（与 `/after-sale`、`/delivery/ghost` 同口径；
+          //    财务不含 —— 契约的待办可见性里财务只有「提现审核」一项）。取舍理由见 `utils/permission.ts` 文件头。
+          path: 'delivery/returns',
+          name: 'DeliveryReturns',
+          component: () => import('@/views/delivery/returns/index.vue'),
+          meta: { title: '退款返货台账', permission: ['delivery:read'], roles: rolesForPath('/delivery/returns'), requiresAuth: true },
+        },
+        {
           path: 'shop-console',
           name: 'ShopConsole',
           component: () => import('@/views/shop-console/index.vue'),

@@ -35,6 +35,8 @@ import {
   Switch,
   // ⚠️ 2026-10-08：系统配置管理菜单图标
   Tools,
+  // ⚠️ 2026-10-10：退款返货台账（只读）菜单图标
+  RefreshLeft,
 } from '@element-plus/icons-vue'
 
 import { useAuthStore } from '@/stores/auth'
@@ -266,6 +268,15 @@ onUnmounted(() => {
         <el-menu-item v-if="canVisit('/delivery/ghost')" index="/delivery/ghost">
           <el-icon><Search /></el-icon>
           <template #title>订单异常巡检</template>
+        </el-menu-item>
+        <!-- 退款返货台账（2026-10-10 新增，**只读**）：后端待办 `DELIVERY_RETURN_ACCEPT`（返货待验收）
+             的 route 就是 `/delivery/returns?returnStatus=RETURNED`，此前**没有落点**（铃铛点了没反应）。
+             超管 / 客服 / 商户管理员可见（与 `/after-sale`、`/delivery/ghost` 同口径；财务的待办里没有本项）。
+             ⚠️ 契约里该 path 只有 GET ⇒ 中控没有「确认收货 / 人工放行」写接口，
+                页面里只如实写明"人工放行待后端接口"，不提供任何行内动作。 -->
+        <el-menu-item v-if="canVisit('/delivery/returns')" index="/delivery/returns">
+          <el-icon><RefreshLeft /></el-icon>
+          <template #title>退款返货台账</template>
         </el-menu-item>
         <!-- 店铺运营：商户管理员 + 超管（营业状态/时间、门店价/门店库存/本店上下架） -->
         <el-menu-item v-if="canVisit('/shop-console')" index="/shop-console">

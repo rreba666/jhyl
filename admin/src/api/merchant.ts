@@ -1,5 +1,13 @@
 import { request } from './request'
-import type { MerchantCreateDTO, MerchantFilters, MerchantPageResult, MerchantResponse, MerchantUpdateDTO, MerchantVO } from '@/types/merchant'
+import type {
+  MerchantCommissionRateLog,
+  MerchantCreateDTO,
+  MerchantFilters,
+  MerchantPageResult,
+  MerchantResponse,
+  MerchantUpdateDTO,
+  MerchantVO,
+} from '@/types/merchant'
 
 /** 校验商户接口响应，返回业务数据。 */
 function unwrapResponse<T>(response: { data: MerchantResponse<T> }, fallbackMessage: string): T {
@@ -19,6 +27,22 @@ function normalizeMerchant(m: MerchantVO): MerchantVO {
     contactPhone: m.contactPhone || '',
     status: Number(m.status) === 2 ? 2 : Number(m.status) === 1 ? 1 : 0,
     shopCount: Number(m.shopCount) || 0,
+  }
+}
+
+/**
+ * 归一化一条让利比例变更记录：只把两个 long 型 ID 转成 string。
+ *
+ * ⚠️ **刻意不动 `beforeRate` / `afterRate` / `direction` / `operatorType`**：
+ *    - `beforeRate` 契约未标可空（文档示例暗示"变更前"可能缺失）⇒ 保持原样（可能是 `null` /
+ *      键被省略 = `undefined`），渲染层按缺失显示「未设置」——**任何 `?? 0` / `|| 0` 都是编造数据**；
+ *    - `direction` / `operatorType` 契约**没有枚举** ⇒ 原样透传，不在 API 层做任何翻译/裁剪。
+ */
+function normalizeCommissionRateLog(log: MerchantCommissionRateLog): MerchantCommissionRateLog {
+  return {
+    ...log,
+    id: log.id != null ? String(log.id) : '',
+    merchantId: log.merchantId != null ? String(log.merchantId) : '',
   }
 }
 
@@ -68,6 +92,32 @@ export async function createMerchant(payload: MerchantCreateDTO): Promise<void> 
 export async function updateMerchant(id: string, payload: MerchantUpdateDTO): Promise<void> {
   const response = await request.put<MerchantResponse<null>>(`/api/admin/merchants/${String(id)}`, payload)
   unwrapResponse(response, '商户更新失败')
+}
+
+/**
+ * 查询商户**让利比例变更历史**。
+ *
+ * 契约（2026-10-10 复核 `api_doc.json`）：
+ * - `GET /api/admin/merchants/{id}/commission-rate-history`，**无 body**；
+ * - 唯一查询参数 `limit`（int32，**可选，默认 20、最大 200**）；
+ * - ⚠️ **没有分页** —— 契约里不存在 `page` / `pageSize` / `total`，本函数也**不伪造**它们；
+ * - 200 → `ResultListMerchantCommissionRateLogEntity`，**按时间倒序**；
+ *   契约写明 `data` 无数据时为 `null`（字段始终存在）⇒ 这里按空数组处理，不当成错误。
+ *
+ * ⚠️ 返回条数达到 `limit` 时**不代表数据完整**（更早的记录没有分页可翻）——
+ *    「是否可能被截断」由调用方按 `limit` 自行提示，本函数不做任何"这是全部"的暗示。
+ */
+export async function getMerchantCommissionRateHistory(
+  id: string,
+  limit?: number,
+): Promise<MerchantCommissionRateLog[]> {
+  const response = await request.get<MerchantResponse<MerchantCommissionRateLog[]>>(
+    `/api/admin/merchants/${String(id)}/commission-rate-history`,
+    // ⚠️ 不传 limit 时**不带该参数**（让后端用它自己的默认值 20），而不是由前端补一个猜出来的值
+    { params: limit == null ? {} : { limit } },
+  )
+  const data = unwrapResponse(response, '让利比例变更历史查询失败')
+  return (data ?? []).map(normalizeCommissionRateLog)
 }
 
 /**

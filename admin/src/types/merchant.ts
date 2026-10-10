@@ -93,6 +93,46 @@ export interface MerchantUpdateDTO {
   logisticsCommissionRate?: number
 }
 
+/**
+ * 商户**让利比例变更记录**（后端 `MerchantCommissionRateLogEntity`，数据源 `merchant_commission_rate_log`）。
+ *
+ * 接口：`GET /api/admin/merchants/{id}/commission-rate-history?limit=`（**按时间倒序**、
+ * **无分页**、`limit` 默认 20 / 最大 200）。
+ *
+ * ⚠️⚠️ 契约里这个 schema 的 **8 个字段全部没有字段级说明**（2026-10-10 直接读 `api_doc.json` 复核），
+ * 本项目吃过「按文档措辞猜字段取值」的 P0 ⇒ 这里只声明**契约真实写了的东西**：
+ * 1. `direction` / `operatorType` 的 `type` 只有 `string` —— **契约里没有枚举**。
+ *    ⇒ 前端**不得**按取值分支、**不得**映射成猜出来的中文标签；有值就**原样展示**（含英文原值），
+ *      缺失显示「未提供」。猜错的枚举比裸字符串危险得多。
+ * 2. `beforeRate` 的 `type` 是 `number`，但**契约没有可空性说明**（文档示例「未设置 → 6.00%」
+ *    暗示"变更前"这个值可以不存在）⇒ 前端按 `number | null | undefined` 处理，
+ *    缺失/为 null 一律显示「未设置」，**绝不兜底成 `0`**（那等于编造"变更前是 0%"这个业务事实）。
+ */
+export interface MerchantCommissionRateLog {
+  /** 记录 ID（后端 long，前端按 string 处理）。 */
+  id: string
+  /** 所属商户 ID（后端 long，前端按 string 处理）。 */
+  merchantId: string
+  /**
+   * **变更前**让利比例（%）。
+   * ⚠️ 契约未标注可空，但文档示例暗示可能缺失 ⇒ 类型按可空处理；
+   *    渲染缺失值走「未设置」，**禁止** `?? 0` / `Number(x) || 0` 之类的兜底。
+   */
+  beforeRate?: number | null
+  /**
+   * **变更后**让利比例（%）。契约标为 `number`；运行时若缺失/为 null，同样渲染「未设置」，不猜 0。
+   */
+  afterRate?: number | null
+  /** 变更方向。⚠️ 契约**无枚举** ⇒ 原样展示，不映射中文标签。 */
+  direction?: string
+  /** 操作人类型。⚠️ 契约**无枚举** ⇒ 原样展示，不映射中文标签。 */
+  operatorType?: string
+  /** 操作人名称/账号。 */
+  operatorName?: string
+  /** 记录时间（`yyyy-MM-ddTHH:mm:ss`）。 */
+  createTime?: string
+}
+
 /** 商户接口统一响应结构。 */
 export interface MerchantResponse<T> {
   code: number

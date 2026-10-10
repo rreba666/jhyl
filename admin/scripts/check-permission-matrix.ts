@@ -26,6 +26,9 @@ const MENU_PATHS = [
   '/settings/sys-config',
   // 2026-10-09：红包追回失败（仅超管 + 财务 —— 后端 `/api/admin/dividend-clawback/**` 对其它角色 1004）
   '/dividend-clawback',
+  // 2026-10-10：退款返货台账（超管 + 客服 + 商户管理员 —— 三类角色都有 `DELIVERY_RETURN_ACCEPT` 待办，
+  // 其 route 深链到本页 `?returnStatus=RETURNED`；财务的待办里没有本项）
+  '/delivery/returns',
 ]
 
 let failed = 0
@@ -67,6 +70,13 @@ assert('FINANCE 可访问 /dividend-clawback', canAccess('FINANCE', '/dividend-c
 for (const role of ['ADMIN', 'CUSTOMER_SERVICE'] as const) {
   assert(`${role} 不可访问 /dividend-clawback`, canAccess(role, '/dividend-clawback'), false)
 }
+// ②⁵ 退款返货台账（2026-10-10，`GET /api/admin/delivery/returns`，**只读**）：
+//      契约的待办可见性里 `DELIVERY_RETURN_ACCEPT`（返货待验收）给了 超管 / 客服 / 商户管理员
+//      ⇒ 矩阵必须同源给出这三者（否则待办深链点进去被打回）；财务的待办只有「提现审核」⇒ 不含财务。
+for (const role of ['SUPER_ADMIN', 'CUSTOMER_SERVICE', 'ADMIN'] as const) {
+  assert(`${role} 可访问 /delivery/returns`, canAccess(role, '/delivery/returns'), true)
+}
+assert('FINANCE 不可访问 /delivery/returns', canAccess('FINANCE', '/delivery/returns'), false)
 // ③ 客服回归
 for (const path of ['/users', '/products', '/categories', '/brands', '/delivery', '/orders', '/orders/pickup', '/orders/address-audit', '/after-sale', '/invoices', '/logs/verify']) {
   assert(`CUSTOMER_SERVICE 可访问 ${path}`, canAccess('CUSTOMER_SERVICE', path), true)
