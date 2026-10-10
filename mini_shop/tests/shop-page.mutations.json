@@ -816,4 +816,59 @@
         "find": "src=\"/subpkg-goods/static/shop/qual-label.png\"",
         "replace": "src=\"/static/shop/qual-label.png\""
     }
+    ,
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 16: the word-of-mouth cell is reverted to the hardcoded dash (the newly shipped reviewAvgScore is ignored)",
+        "find": "{ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore) },",
+        "replace": "{ name: '口碑品质', value: '--' },"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 15: the shipping-speed cell is reverted to the hardcoded dash (the newly shipped shipAvgHours is ignored)",
+        "find": "{ name: '发货时效', value: shipHoursText(shop?.shipAvgHours) },",
+        "replace": "{ name: '发货时效', value: '--' },"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 15.2: the customer-service cell is filled with the delivery punctuality metric (the explicitly forbidden substitution)",
+        "find": "{ name: '客服响应', value: '--' },",
+        "replace": "{ name: '客服响应', value: `${(Number(shop?.onTimeRate) * 100).toFixed(1)}%` },"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 16.3-3: the word-of-mouth cell reads the OBJECTIVE composite (rating) instead of the user score (reviewAvgScore)",
+        "find": "value: reviewScoreText(shop?.reviewAvgScore) }",
+        "replace": "value: reviewScoreText(shop?.rating) }"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 16: the word-of-mouth cell is renamed to the design's product-quality label (no such field exists - a rename would fake the metric)",
+        "find": "{ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore) },",
+        "replace": "{ name: '商品品质', value: reviewScoreText(shop?.reviewAvgScore) },"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 15.1: an absent shipping sample defaults to 0.0 hours instead of the dash (fabricated data)",
+        "find": "if (hours === null || hours === undefined || !Number.isFinite(Number(hours))) return '--'",
+        "replace": "if (hours === null || hours === undefined || !Number.isFinite(Number(hours))) return '0.0 小时'"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "N3 section 16.3-2: an absent review score defaults to 0.0 points instead of the dash (fabricated data)",
+        "find": "if (score === null || score === undefined || !Number.isFinite(Number(score))) return '--'",
+        "replace": "if (score === null || score === undefined || !Number.isFinite(Number(score))) return '0.0 分'"
+    },
+    {
+        "file": "mini_shop/api/shop.ts",
+        "desc": "N3 section 15: the api layer stops declaring the shipping-speed field the page now renders",
+        "find": "shipAvgHours?: number | null",
+        "replace": "shipAvgHoursUnused?: number | null"
+    },
+    {
+        "file": "mini_shop/api/shop.ts",
+        "desc": "N3 section 16: the api layer stops declaring the word-of-mouth field the page now renders",
+        "find": "reviewAvgScore?: number | null",
+        "replace": "reviewAvgScoreUnused?: number | null"
+    }
 ]

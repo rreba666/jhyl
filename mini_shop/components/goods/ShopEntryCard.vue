@@ -41,15 +41,23 @@
  *   ⛔ 仍然**不得**用 `MerchantOverviewVO.serviceScore`（恒 null 的占位）顶替。
  * - ✅ **粉丝数**：`ShopVO.fansCount`（契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）。
  *   ⛔ 仍然**不得**用 `ShopVO.boundUserCount`（「已绑定微信人数」）顶替 —— 语义不同的两个数。
- * - ✅ **服务表现**：只有**两个可计算项**有契约字段 —— `onTimeRate`（准时送达率）与
- *   `avgAcceptSeconds`（平均接单时长）；一律经 `utils/shop-metrics.ts` 生成 ⇒
- *   缺一项就少一格（**不补空格**）。
- *   ⛔ 设计稿那三格（`口碑品质`/`发货时效`/`客服响应` 与 `平均满意度97.2%`/`平均12小时发货`/
- *   `平均14秒回复`）**契约里一个都没有** ⇒ 不编、不硬编码。字段清单与口径见
- *   `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §12.2 / §12.3。
- *   ⚠️ 两张卡的设计文案还**互相不一致**（本卡第一格设计写 `商品品质`，店铺页 `4045:5815` 写
- *   `口碑品质`）—— 因为两项都已不沿用设计填充文案，这个不一致**不影响实现**；
- *   但它意味着"服务表现三项到底算哪些"在**产品侧仍未有定义**（后端只给了两个客观指标）。
+ * - ✅ **服务表现**：**三个设计格**统一由 `utils/shop-metrics.ts` 的 `shopServiceMetrics()` 生成，
+ *   本组件再 `slice(0, 3)`（下方 `metrics`）：
+ *   · 「口碑品质」← `reviewAvgScore`（2026-10-10 §16 新增：用户主观口碑平均分）；
+ *   · 「发货时效」← `shipAvgHours`（§15 新增：平均发货时长）；
+ *   · 「客服响应」→ 契约**无字段**（§15.2 / §16.4：需会话/工单体系，未实现）⇒ 恒 `--`；
+ *   ⚠️ **格名跟着字段走，不跟着设计填充文案走**：本卡片节点 `4029:5773` 第一格设计写的是
+ *      「商品品质」，而契约里**没有**商品品质字段（只有店铺口碑 `reviewAvgScore`）⇒
+ *      第一格渲染**口碑品质**（= 字段真名，与店铺页同一个 `shopServiceMetrics()` 输出，两卡不分叉）。
+ *      ⛔ 反过来把 `reviewAvgScore` 挂到「商品品质」名下才是**改口径冒充**。
+ *   ⇒ 组件只渲染**前三格**（= 设计的三格），`onTimeRate` / `avgAcceptSeconds` 那两格
+ *     由 `SHOP_METRIC_LIMIT` 截掉 —— ⚠️ 那是**刻意的**：本卡片节点只有三格
+ *     （106×46 × 3），多塞会破版；那两个指标在**店铺页**有它们自己的格子。
+ *   ⛔ 设计稿填充值（`平均满意度 97.2%` / `平均 12 小时发货` / `平均 14 秒回复`）与
+ *      `onTimeRate`（配送准时率）、`avgAcceptSeconds`（配送接单时长）**都不许**顶前两格
+ *      —— §15.2 明令禁止（口径不同）。缺字段就渲染 `--`（占位），不编数。
+ *   字段清单与口径见 `docs/26/10.10/前端对接文档-2026-10-10-全集.md`
+ *   §12.2 / §12.3 / §15 / §16。
  * - **数据来源提醒**：本组件的门店来自**商品详情**（只有 `shopId`/`shopName`/`shopImage`，S1），
  *   **不含**上面这些指标 ⇒ 父页面（`subpkg-goods/detail/detail.vue`）必须**另外**拉一次
  *   `GET /api/shop/{shopId}`（S3，公开免登录）把 `rating` / `fansCount` / 服务指标传进来。
@@ -70,7 +78,7 @@
 import { computed } from 'vue'
 import type { ShopEntry } from '@/api/product'
 // 评分 / 粉丝 / 服务表现的**共用口径**（与店铺页同源；该模块头部逐条对齐契约 §12.2/§12.3）。
-import { RATING_LABEL, fansText, ratingStars, ratingText, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
+import { RATING_LABEL, SHOP_METRIC_LIMIT, fansText, ratingStars, ratingText, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
 
 /** 一条服务指标（名 + 值，值本身已含单位，如「准时送达 97.2%」）。 */
 export interface ShopServiceMetric {
@@ -110,10 +118,12 @@ const props = withDefaults(defineProps<{
   /** 店铺粉丝数（`ShopVO.fansCount`）。⚠️ 与 `boundUserCount`（已绑定微信人数）**语义不同**，不得互替。 */
   fansCount?: number | null
   /**
-   * 服务表现（**只放契约真有的可计算项**，最多 3 条）。
-   * 推荐直接用 `utils/shop-metrics.ts` 的 `shopServiceMetrics(shop)` 生成 ——
-   * 它会自动只保留 `onTimeRate` / `avgAcceptSeconds` 有值的那几项。
-   * ⚠️ 传空数组 = 整行不渲染（不补「—」、不补空格）。
+   * 服务表现（三个设计格 + 两个真实指标；本组件只渲染前 3 条 —— 见 `metrics`）。
+   * 推荐直接用 `utils/shop-metrics.ts` 的 `shopServiceMetrics(shop)` 生成：
+   * `[口碑品质(reviewAvgScore) / 发货时效(shipAvgHours) / 客服响应(--)]`，有 `onTimeRate` /
+   * `avgAcceptSeconds` 时再追加它们自己的两格（本卡片的 `slice(0, SHOP_METRIC_LIMIT)` 会截掉）。
+   * ⚠️ 传空数组 = 整行不渲染；但 `shopServiceMetrics()` **恒返回至少三格**
+   *    （缺值填 `--`，用户 2026-10-10 明确"要留着那里"）。
    */
   serviceMetrics?: ShopServiceMetric[]
 }>(), {
@@ -147,14 +157,18 @@ const stars = computed(() => ratingStars(props.rating))
 const fans = computed(() => fansText(props.fansCount))
 
 /**
- * 服务表现的最终列表。
+ * 服务表现的最终列表（**本卡片只渲染前三格** = 设计的三格）。
  * ⚠️ 父页面若已经用 `shopServiceMetrics()` 生成过，这里再过滤一次是**幂等**的（同一套判据）；
  *    若父页面自己拼了别的指标，这里**不校验名字**（组件不该假装知道业务口径）——
  *    口径的唯一来源是 `utils/shop-metrics.ts`，两边都指向它。
+ * ⚠️ `SHOP_METRIC_LIMIT` = 3 是**设计约束**（节点 `4029:5773` 只有三格 106×46），不是随便截的：
+ *    前三条恒为三个设计格（口碑品质 / 发货时效 / 客服响应），`onTimeRate` / `avgAcceptSeconds`
+ *    追加在后面 ⇒ 在本卡片上**看不到**那两格（它们在**店铺页**有格子，见 `shop/index.vue`）。
+ *    ⚠️ 这不是"丢数据"：本卡片的设计里就没有它们的位置，硬塞会破版。
  */
 const metrics = computed(() => (props.serviceMetrics || [])
   .filter((item) => item && String(item.name || '').trim() && String(item.value || '').trim())
-  .slice(0, 3))
+  .slice(0, SHOP_METRIC_LIMIT))
 
 /** 点「进店」：**只在有真实门店 id 时**才向上抛事件（组件内不做任何 id 猜测）。 */
 function onEnter(): void {
@@ -224,7 +238,11 @@ function onEnter(): void {
       </view>
     </view>
 
-    <!-- 服务表现：设计是三格等分、文案居中、无底色。没有数据时整行不渲染。 -->
+    <!-- 服务表现：设计是三格等分、文案居中、无底色。
+         ⚠️ 2026-10-10 晚：三格**恒在**（`shopServiceMetrics()` 恒返回前三个设计格，缺值 `--`）
+         —— 口碑品质 ← `reviewAvgScore`（§16）、发货时效 ← `shipAvgHours`（§15）、
+         客服响应 恒 `--`（契约无字段，§15.2 / §16.4）。`onTimeRate` / `avgAcceptSeconds`
+         追加在后面、被 `SHOP_METRIC_LIMIT` 截掉（本卡片设计只有三格）。 -->
     <view v-if="metrics.length" class="entry-metrics">
       <view v-for="metric in metrics" :key="metric.name" class="entry-metric">
         <text class="entry-metric-name">{{ metric.name }}</text>

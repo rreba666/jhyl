@@ -8,18 +8,24 @@
  * 两处**样式不同、数据口径必须完全相同** ⇒ 只把「取数 + 文案 + 单位 + 缺省」抽到这里，
  * 样式仍各自写在各自的 SFC 里（两张卡不共用样式，见进店卡片头部注释）。
  *
- * ## 口径纪律（契约 §12.2 / §12.3，逐条对应）
+ * ## 口径纪律（契约 §12.2 / §12.3 / §15 / §16，逐条对应）
  * 1. **评分是客观指标合成，不是用户评价**：契约 `ShopVO.rating` 原文「由客观指标合成，
  *    **非用户评价**；每日定时重算」—— 合成项 = 完成率 + 无售后率 + 准时送达率（权重可配，
  *    缺数据的项不参与加权），最少订单数默认 5（样本不足**不写评分**）。
  *    ⇒ ⚠️ 它的含义**不是**直觉上的"用户打分"（`RATING_LABEL` 就是为此准备的解释文案）。
- * 2. 三个展示位**各自独立地"有才渲染"**（`rating == null` / `onTimeRate == null` /
- *    `avgAcceptSeconds == null` 一律**不出现那一格**，不补 `0`、不补 `—`、不补空框）。
- * 3. **只接契约真有的字段**：`onTimeRate`（准时送达率）与 `avgAcceptSeconds`（平均接单时长）。
- *    设计稿里的「口碑品质 / 商品品质」「满意度 %」「发货时效 12 小时」「客服响应 14 秒」
- *    **契约里都没有**（`serviceMetrics` 这个结构不存在）——
- *    ⚠️ 尤其**不许**把"平均接单时长"改名叫"客服响应"（那是另一个指标），
- *    也不许拿 `MerchantOverviewVO.serviceScore`（恒 null 占位）当评分。
+ *    ⚠️ **2026-10-10 §16 不影响这条**：§16.3-3 原文「与 `rating` **并存不混用**：`rating` =
+ *       客观运营质量（完成率/无售后率/准时率合成，每日重算）；`reviewAvgScore` = **用户主观口碑**」
+ *       ⇒ 结论**不变**（rating 仍是非用户评价）⇒ `RATING_LABEL` 文案**不改**（本次已复核）。
+ * 2. 展示位**各自独立地"有才渲染"**（`rating` / `onTimeRate` / `avgAcceptSeconds` … 无值时的处理
+ *    见第 4 条）。
+ * 3. **只接契约真有的字段**（`api_doc.json`，2026-10-10 晚 531 paths / 628 schemas）：
+ *    - 已到位：`onTimeRate`（准时送达率）、`avgAcceptSeconds`（平均接单时长）、
+ *      `shipAvgHours`（平均发货时长）、`reviewAvgScore`（口碑平均分）；
+ *    - ⛔ 仍然**没有**：`客服响应`（平均回复秒数）—— §15.2 / §16.4 原文「⏳ 未实现（需会话/工单
+ *      体系；建议工单式起步）」，并且**明令禁止**拿 `onTimeRate` / `avgAcceptSeconds` 去顶那一格
+ *      （§16.3-3「专稿 §五 明确**禁止**拿配送指标顶替『口碑品质』那一格」，§15.2 同款警告）
+ *      ⇒ 该格**保持 `--`**（占位，不是编数）。
+ *    - ⚠️ 也不许拿 `MerchantOverviewVO.serviceScore`（恒 null 占位）当评分。
  *
  * ⚠️ **计数类文案用 Chinese numerals/counters 必须与后端字段语义一致**：
  * `fansCount` 契约原文「关注该门店的用户数；恒不为 null，0 表示暂无粉丝」⇒ 0 也照实渲染
@@ -49,6 +55,37 @@ export interface ShopObjectiveMetrics {
   onTimeRate?: number | null
   avgAcceptSeconds?: number | null
   fansCount?: number
+  /**
+   * 平均发货时长（小时，1 位小数；`ShopVO.shipAvgHours`，2026-10-10 §15 新增）。
+   * 口径 = 近窗口内该店**已发货**（`ship_time` 非空）且**已支付**（`pay_time` 非空）订单的
+   * `ship_time − pay_time` 均值。**样本不足时为 null ⇒ 键缺席**（全局 `non_null` 省略）
+   * ⇒ 「发货时效」格按"没有数据"渲染占位（见 {@link shipHoursText}）。
+   */
+  shipAvgHours?: number | null
+  /**
+   * 发货时效的**样本单数**（`ShopVO.shipSampleCount`，§15）。
+   * ⚠️ 本模块**不渲染**它：格子只有"名 + 值"两个文本槽，塞进"基于 N 单"会破版（§15.1 只说
+   *    "前端**可用**它决定是否展示"）。声明它是为了**不丢契约字段**、并让调用方随时可用。
+   */
+  shipSampleCount?: number | null
+  /**
+   * 口碑平均分 1~5（1 位小数，`ShopVO.reviewAvgScore`，2026-10-10 §16 新增）。
+   * ⚠️ 与 `rating` **并存不混用**（§16.3-3）：本字段是**用户主观口碑**（只统计审核显示的评价），
+   *    `rating` 是客观运营质量合成。**无有效评价时为 null ⇒ 键缺席** ⇒ 「口碑品质」格渲染占位。
+   */
+  reviewAvgScore?: number | null
+  /**
+   * 口碑评价数（`ShopVO.reviewCount`，§16.2）。
+   * ⚠️ 同 {@link ShopObjectiveMetrics.shipSampleCount}：**声明但不在格子里渲染**（版式只有一个值槽）。
+   */
+  reviewCount?: number | null
+  /**
+   * 好评率 = **4~5 星占比**（0~1，3 位小数，`ShopVO.goodRate`，§16.2）。
+   * ⚠️ **不渲染**：它**不是**"口碑品质"那一格的头条值（那一格用 `reviewAvgScore` 才与
+   *    格名同口径）；若要展示，应另起一个**自己名下**的格子（如「好评率」），
+   *    ⛔ 不得把它冒名成设计稿别的格（口径纪律：不许改文案冒充）。
+   */
+  goodRate?: number | null
 }
 
 /**
@@ -92,32 +129,58 @@ export function fansText(fansCount: number | null | undefined): string {
 }
 
 /**
- * 服务表现列表（**只含契约真有的可计算项**）：
- * ① 准时送达率 `onTimeRate`（0~1 → 一位小数百分比，与契约示例 `0.972` 口径一致）；
- * ② 平均接单时长 `avgAcceptSeconds`（秒 → `N 秒`；≥60 秒时换算成分钟，避免出现 `523 秒` 这种读不动的值）。
+ * 「口碑品质」格的取值：`reviewAvgScore`（1 位小数 + 「分」）。
+ * ⚠️ **无有效评价时 `reviewAvgScore` 键缺席**（§16.3-2：三个字段全为 null ⇒ `non_null` 省略）
+ *    ⇒ 这里给 `--`（占位 = "无此数据"）。设计稿的填充值（`平均满意度 97.2%`）严禁写死。
+ * ⚠️ 单位用「分」而不是「%」：本字段是 **1~5 分**的平均分，不是百分比；
+ *    `goodRate`（4~5 星占比）才是百分比，**不在这里顶替**（见接口注释）。
+ * ⚠️ 与星级评分（`rating`）**并存不混用**（§16.3-3）—— 两者是不同的数，文案不得互相冒充。
+ */
+export function reviewScoreText(score: number | null | undefined): string {
+  if (score === null || score === undefined || !Number.isFinite(Number(score))) return '--'
+  return `${Number(score).toFixed(1)} 分`
+}
+
+/**
+ * 「发货时效」格的取值：`shipAvgHours`（小时，1 位小数）。
+ * ⚠️ **样本不足（默认 < 5 单）时后端写 NULL ⇒ 键缺席**（§15.1："上线/新店初期必然缺席，属正常"）
+ *    ⇒ 这里给 `--`。⛔ 不许拿 `onTimeRate`（**准时送达率**，配送口径）来顶这一格 ——
+ *    §15.2 明确两者"不是一回事"。
+ */
+export function shipHoursText(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined || !Number.isFinite(Number(hours))) return '--'
+  return `${Number(hours).toFixed(1)} 小时`
+}
+
+/**
+ * 服务表现列表（设计稿**固定的三格** + **两个真实可计算项自己的格**）：
+ * ① 口碑品质 ← `reviewAvgScore`（§16，用户主观口碑平均分；无评价 ⇒ `--`）；
+ * ② 发货时效 ← `shipAvgHours`（§15，平均发货时长；样本不足 ⇒ `--`）；
+ * ③ 客服响应 ← **永远 `--`**（§15.2 / §16.4：需会话/工单体系，**未实现**；且明令**禁止**
+ *    拿配送指标顶替 ⇒ 这一格没有可接的字段）；
+ * ④ 准时送达 ← `onTimeRate`（0~1 → 一位小数百分比，与契约示例 `0.972` 口径一致）；
+ * ⑤ 平均接单 ← `avgAcceptSeconds`（秒 → `N 秒`；≥60 秒时换算成分钟，避免出现 `523 秒` 这种读不动的值）。
  *
  * ⚠️⚠️ 2026-10-10 第七轮（用户决定）：**设计稿那三格的位置必须留着，没有值就用 `--` 占位**
- *    （用户原话：「要做，用 -- 代替都行，**要留着那里**」）。
- *    ⇒ 本函数现在**无条件**返回设计稿的三个固定格（口碑品质 / 发货时效 / 客服响应），
- *      取不到值时填 `--`。`--` 是明确表示"无此数据"，**不是伪造数据**，与仓库硬原则不冲突。
+ *    （用户原话：「要做，用 -- 代替都行，**要留着那里**」）⇒ 前三个恒在。
  *
- * ⚠️ 口径纪律（别为了填满格子去错配）：设计稿三格是**满意度 / 发货时效 / 客服响应**，
- *    而契约目前**只有** `onTimeRate`（**准时送达率**）与 `avgAcceptSeconds`（**平均接单时长**）——
- *    **两者口径不同**，所以：
- *    · 「口碑品质」「发货时效」「客服响应」三格**一律 `--`**（那三项契约里没有字段：
- *      满意度连评价模块都没有；客服响应连 IM/会话实体都没有）；
- *    · 两个**真实**指标**另起两格**、用**它们自己的准确标签**（准时送达 / 平均接单）追加在后面，
- *      有值时才出现。⇒ 格子数 3~5，模板用 flex 等分自适应，不会破版。
+ * ⚠️⚠️ **2026-10-10 晚第九轮（§15 / §16 字段到位）**：①②从"固定 `--`"**接线到真字段**
+ *    （这正是当初留占位的目的）；③**不变，仍是 `--`** —— 官方口径没给字段，也没给替代品。
  *    ⛔ 禁止把 `onTimeRate` 塞进「发货时效」、或把 `avgAcceptSeconds` 塞进「客服响应」——
- *      那是**改文案冒充**，比留空更糟。
+ *      那是**改文案冒充**，比留空更糟（§15.2 末尾原话：「**不要把** `onTimeRate`（配送准时率）/
+ *      `avgAcceptSeconds`（配送接单时长）**改文案去顶这两格**」）。
+ *    ⚠️ ④⑤ 两个**真实**指标仍**另起两格**、用**它们自己的准确标签**（准时送达 / 平均接单），
+ *      有值时才出现。⇒ 格子数 3~5，模板用 flex 等分自适应，不会破版。
  * ⚠️ 返回顺序固定（先三个设计格，再两个真实格）—— 契约没给顺序，写死在这里而不是散在模板里，
  *    两张卡（店铺页 + 进店卡）的顺序才不会分叉。
+ *    ⚠️ **进店卡片**（`ShopEntryCard.vue`）的设计只有**三格**（106×46 × 3）⇒ 组件侧
+ *    `slice(0, SHOP_METRIC_LIMIT)` 只保留前三个（三个设计格）；④⑤只在**店铺页**出现。
  */
 export function shopServiceMetrics(shop: ShopObjectiveMetrics | null | undefined): ShopServiceMetric[] {
-  // 设计稿的三格：契约当前无字段 ⇒ 固定 `--` 占位（用户要求"留着那里"）。
+  // 设计稿的三格：①②已由 §15/§16 字段接线；③ 契约**没有**对应字段（客服响应）⇒ 恒 `--` 占位。
   const list: ShopServiceMetric[] = [
-    { name: '口碑品质', value: '--' },
-    { name: '发货时效', value: '--' },
+    { name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore) },
+    { name: '发货时效', value: shipHoursText(shop?.shipAvgHours) },
     { name: '客服响应', value: '--' },
   ]
   const rate = shop?.onTimeRate

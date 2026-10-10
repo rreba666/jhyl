@@ -73,9 +73,9 @@
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "the default-rule copy drops its condition (a merchant whose password was hand-set would keep retyping a default that is not his)",
-        "find": "若客服未单独设置",
-        "replace": ""
+        "desc": "the long-winded prefix the user cut comes back (\"the password is set when CS issues the account / unless customer service set one\") - INVERTED 2026-10-10 ninth pass: re-adding it IS the regression now",
+        "find": "export const MERCHANT_CONSOLE_PASSWORD_RULE = ",
+        "replace": "const MERCHANT_CONSOLE_PASSWORD_RULE_LEGACY = '密码由客服发号时设置。若客服未单独设置'\r\nexport const MERCHANT_CONSOLE_PASSWORD_RULE = "
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
@@ -85,9 +85,21 @@
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "the \"the mini program does not show the password\" notice is dropped",
-        "find": "小程序不显示密码",
-        "replace": "密码请咨询客服"
+        "desc": "the notice the user cut comes back as the whole old note (\"the mini program does not show the password / first login may force a change / forgot it, contact CS\")",
+        "find": "export const MERCHANT_CONSOLE_PASSWORD_NOTE = ",
+        "replace": "export const MERCHANT_CONSOLE_PASSWORD_NOTE = '小程序不显示密码。首次登录若被要求先修改初始密码，请按提示修改后再使用其它功能；忘记密码或提示密码错误，请联系客服重置。'\r\nexport const MERCHANT_CONSOLE_PASSWORD_NOTE_LEGACY = "
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the initial-password rule is mis-stated (6 digits instead of 4, and 12 in total) - the rule IS in the current contract, so it must be pinned verbatim",
+        "find": "'手机号后 4 位 + 身份证后 4 位（共 8 位）'",
+        "replace": "'手机号后 6 位 + 身份证后 6 位（共 12 位）'"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the digit count is dropped from the initial-password line (the rule alone no longer says how long the password is)",
+        "find": "'手机号后 4 位 + 身份证后 4 位（共 8 位）'",
+        "replace": "'手机号后 4 位 + 身份证后 4 位'"
     },
     {
         "file": "mini_shop/subpkg-merchant/home/index.vue",

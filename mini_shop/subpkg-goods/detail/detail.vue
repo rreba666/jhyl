@@ -259,16 +259,21 @@ const SHOP_ENTRY_GAP = '20rpx'
  * ## 为什么还要多打一个请求
  * S1 只把门店**三件套**（`shopId`/`shopName`/`shopImage`）随商品详情下发；
  * S4 把评分 / 粉丝 / 服务表现放在了**门店档案 `ShopVO`** 上（`rating` / `fansCount` /
- * `onTimeRate` / `avgAcceptSeconds`）⇒ 卡片要显示它们，就必须再取一次
+ * `onTimeRate` / `avgAcceptSeconds`；**2026-10-10 晚又新增** `shipAvgHours`（§15 发货时效）与
+ * `reviewAvgScore`（§16 口碑品质））⇒ 卡片要显示它们，就必须再取一次
  * `GET /api/shop/{shopId}`（S3，**公开免登录**，游客也能拿到）。
  * ⚠️ 这是**唯一**为了这几个展示位发出的请求，且走的是**同一个** `shopId`
  *    （`shopEntryShop.id`，即后端定义的主在售门店）—— **不重新推断门店**。
+ * ⚠️ **§16.1 的三个评价端点与进店卡片无关**：`POST /api/order/{orderNo}/review`（提交评价）
+ *    属订单流程、需登录；`/api/admin/review/*`（列表 / 审核）是**中控**接口 ⇒
+ *    **C 端本页不调用它们**，只读 `ShopVO` 上聚合好的三个字段。
  *
  * ## fail-closed / 不伪造
  * - `shopId` 为空 ⇒ 不请求（也没有卡片可显示）；
- * - 请求失败 / 门店 8000 ⇒ `shopMetrics` 保持 `null` ⇒ 卡片**只少那两行**，
+ * - 请求失败 / 门店 8000 ⇒ `shopMetrics` 保持 `null` ⇒ 卡片只把这几格**如实显示为占位**
+ *   （评分 `--`、服务表现三格 `--`，见 `shopServiceMetrics(null)`）——**不编数字**，
  *   **不**因此把整页变成错误态，也**不**用商品详情里的别的数字顶替评分/粉丝；
- * - 组件侧仍各自独立判空（`rating == null` ⇒ 不渲染评分行），与店铺页同一套口径
+ * - 组件侧仍各自独立判空（`rating == null`/`undefined` ⇒ 分值渲染 `--`），与店铺页同一套口径
  *   （`utils/shop-metrics.ts`）。
  */
 const shopMetrics = ref<EnabledShop | null>(null)
