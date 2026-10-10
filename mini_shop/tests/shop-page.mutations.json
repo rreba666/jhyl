@@ -7,15 +7,15 @@
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
-    "desc": "favourite button gradient angle 113deg -> CSS 135deg",
-    "find": "background: linear-gradient(113deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }",
-    "replace": "background: linear-gradient(135deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }"
+    "desc": "favourite button gradient: the OLD (wrong) 113deg comes back (the third Figma handle matters)",
+    "find": "background: linear-gradient(104.7deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }",
+    "replace": "background: linear-gradient(113deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }"
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
-    "desc": "favourite star outline glyph back to a filled star",
-    "find": "<text class=\"shop-fav-star\">\u2606</text>",
-    "replace": "<text class=\"shop-fav-star\">\u2605</text>"
+    "desc": "favourite star cut renamed (the exported cut must be the one that is used)",
+    "find": "<image class=\"shop-fav-star\" src=\"/subpkg-goods/static/shop/fav-star.png\" mode=\"aspectFit\" />",
+    "replace": "<image class=\"shop-fav-star\" src=\"/subpkg-goods/static/shop/fav-star-missing.png\" mode=\"aspectFit\" />"
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -91,9 +91,9 @@
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
-    "desc": "cert badge back to a filled green disc (design is an outlined seal)",
-    "find": ".cert-badge { display: flex; align-items: center; justify-content: center; width: 29rpx; height: 29rpx; margin: 3rpx; border: 2rpx solid #00B42A; border-radius: 50%; box-sizing: border-box; }",
-    "replace": ".cert-badge { display: flex; align-items: center; justify-content: center; width: 35rpx; height: 35rpx; border-radius: 50%; background: #00B42A; }"
+    "desc": "cert badge back to the hand-made CSS circle + check glyph (design is an exported scalloped seal)",
+    "find": "<image class=\"cert-badge\" src=\"/subpkg-goods/static/shop/cert-badge.png\" mode=\"aspectFit\" />",
+    "replace": "<view class=\"cert-badge\"><text class=\"cert-check\">\u2713</text></view>"
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -121,9 +121,9 @@
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
-    "desc": "favourite star glyph size off design (vector box is 14x14)",
-    "find": ".shop-fav-star { color: #FFFFFF; font-size: 28rpx; line-height: 38rpx; }",
-    "replace": ".shop-fav-star { color: #FFFFFF; font-size: 25rpx; line-height: 38rpx; }"
+    "desc": "favourite star cut size off design (the 14x14 instance is 27rpx)",
+    "find": ".shop-fav-star { width: 27rpx; height: 27rpx; flex: none; }",
+    "replace": ".shop-fav-star { width: 23rpx; height: 23rpx; flex: none; }"
   },
   {
     "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -146,8 +146,32 @@
   {
     "file": "mini_shop/components/goods/ShopEntryCard.vue",
     "desc": "entry arrow grows back to the oversized 12rpx+3rpx square (vector ink is 4.58x8.11)",
-    "find": ".entry-arrow { width: 8rpx; height: 8rpx; margin-left: 4rpx; border-top: 3rpx solid #FF5500;",
-    "replace": ".entry-arrow { width: 12rpx; height: 12rpx; margin-left: 4rpx; border-top: 3rpx solid #FF5500;"
+    "find": ".entry-arrow { width: 8rpx; height: 8rpx; border-top: 3rpx solid #FF5500;",
+    "replace": ".entry-arrow { width: 12rpx; height: 12rpx; border-top: 3rpx solid #FF5500;"
+  },
+  {
+    "file": "mini_shop/components/goods/ShopEntryCard.vue",
+    "desc": "the 14px arrow instance box collapses to the ink width (button becomes ~8px narrow)",
+    "find": ".entry-arrow-box { display: flex; align-items: center; justify-content: center; width: 27rpx; height: 27rpx; flex: none; margin-left: 4rpx; }",
+    "replace": ".entry-arrow-box { display: flex; align-items: center; justify-content: center; width: 11rpx; height: 27rpx; flex: none; margin-left: 4rpx; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "the qualification row's 14px arrow instance box collapses (link 8px narrow, arrow flush right)",
+    "find": ".qualification-arrow-box { display: flex; align-items: center; justify-content: center; width: 27rpx; height: 27rpx; flex: none; }",
+    "replace": ".qualification-arrow-box { display: flex; align-items: center; justify-content: center; width: 11rpx; height: 27rpx; }"
+  },
+  {
+    "file": "mini_shop/components/goods/ShopEntryCard.vue",
+    "desc": "the star run is hardcoded to five solid stars again (ANY rating would show 5 stars)",
+    "find": "<text class=\"entry-star\">{{ starText }}</text>",
+    "replace": "<text class=\"entry-star\">\u2605\u2605\u2605\u2605\u2605</text>"
+  },
+  {
+    "file": "mini_shop/components/goods/ShopEntryCard.vue",
+    "desc": "the neutral logo tile fallback is removed (13 of 14 shops would render a broken head)",
+    "find": "<view v-else class=\"entry-logo\" />",
+    "replace": ""
   },
   {
     "file": "mini_shop/api/shop.ts",
