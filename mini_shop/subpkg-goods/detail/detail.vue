@@ -260,7 +260,8 @@ const SHOP_ENTRY_GAP = '20rpx'
  * S1 只把门店**三件套**（`shopId`/`shopName`/`shopImage`）随商品详情下发；
  * S4 把评分 / 粉丝 / 服务表现放在了**门店档案 `ShopVO`** 上（`rating` / `fansCount` /
  * `onTimeRate` / `avgAcceptSeconds`；**2026-10-10 晚又新增** `shipAvgHours`（§15 发货时效）与
- * `reviewAvgScore`（§16 口碑品质））⇒ 卡片要显示它们，就必须再取一次
+ * `reviewAvgScore`（§16 口碑品质）；**同日 20:3x §十八 再新增** `showSections`
+ * （店铺页五板块的**运营开关**位掩码））⇒ 卡片要显示它们，就必须再取一次
  * `GET /api/shop/{shopId}`（S3，**公开免登录**，游客也能拿到）。
  * ⚠️ 这是**唯一**为了这几个展示位发出的请求，且走的是**同一个** `shopId`
  *    （`shopEntryShop.id`，即后端定义的主在售门店）—— **不重新推断门店**。
@@ -644,15 +645,22 @@ onShow(() => {
              ⇒ 这里放在「价格/标题/标签」区之后、售后保障之前（主流电商的位置，也是本页最贴近
                「店铺归属」语义的落点）。
              ⚠️ `shopEntryShop` 为 null（商品没有在售门店 / 后端未下发 `shopId`）时组件**整块不渲染**；
-             ⚠️ 评分 / 粉丝 / 服务表现来自**另一次**门店档案请求（S4，见 `shopMetrics` 注释）：
-                没到 / 失败 / 这家店没这些数据 ⇒ 组件内部各自判空、**只少那两块**（不补 0、不补「—」）；
-                服务表现的"哪些项算数"由 `utils/shop-metrics.ts` 统一决定（与店铺页同源）。
+             ⚠️ 评分 / 粉丝 / 服务表现 / `showSections` 来自**另一次**门店档案请求（S4，见 `shopMetrics`
+                注释）：没到 / 失败 / 这家店没这些数据 ⇒ 组件内部**留版式渲染 `--`**
+                （⛔ 不补 0、不补假星；⚠️ 但也**不是**"整块不渲染"—— 那条口径已被用户 2026-10-10 推翻，
+                见 `ShopEntryCard.vue` 的 `showRatingSection` 注释）；
+                服务表现的"哪些项算数"（含 §十八 的板块位）由 `utils/shop-metrics.ts` 统一决定
+                （与店铺页同源，两张卡不得分叉）。
+             ⚠️ `:show-sections` 传的是**原样**的门店档案值（`null` = 没拿到 ⇒ 共享模块兜底 15 = 全开，
+                与 §18.4 伪码 `?? 15` 一致；兜底的风险见 `SHOP_SECTIONS_FALLBACK` 的注释）——
+                **不要**在这里自己写 `?? 15`：位判断的唯一入口是 `utils/shop-metrics.ts`。
              ⚠️ 给自定义组件加外边距必须用**内联 `:style`**（小程序 `styleIsolation: isolated`，
                父页面的 class 规则作用不到子组件根节点）。 -->
         <ShopEntryCard
           :shop="shopEntryShop"
           :rating="shopMetrics?.rating ?? null"
           :fans-count="shopMetrics?.fansCount ?? null"
+          :show-sections="shopMetrics?.showSections ?? null"
           :service-metrics="shopServiceMetrics(shopMetrics)"
           :style="{ marginTop: SHOP_ENTRY_GAP }"
           @enter="onEnterShop"

@@ -20,6 +20,11 @@ import { request } from '@/utils/request'
  *      §15 `shipAvgHours` / `shipSampleCount`（**发货时效**）、§16 `reviewAvgScore` /
  *      `reviewCount` / `goodRate`（**口碑品质**，店铺评价）。
  *      ⇒ **「客服响应」那一格仍无字段**（§15.2 / §16.4：需会话/工单体系，未实现）⇒ C 端保持 `--`。
+ *    ⚠️ **2026-10-10 20:3x 再刷新（§十八，本文件同步）**：`ShopVO` 新增 `showSections`
+ *      （店铺页展示开关，位掩码 1/2/4/8，默认 15）—— 见下面该字段的注释。
+ *      ⚠️ 同日另有 **admin 接口** `POST /api/admin/shop/{id}/recompute-stats`（幂等重算评分 +
+ *        发货时效 + 口碑，无需等 03:10 的定时任务）：它是**中控接口**（无 token 401），
+ *        **不是小程序能调的**，C 端也不该调 ⇒ 本文件**不封装**它。
  */
 export interface EnabledShop {
   id: number
@@ -157,6 +162,19 @@ export interface EnabledShop {
    *    若将来要展示，必须**另起一个自己名下的格子**（如「好评率」）。
    */
   goodRate?: number | null
+  /**
+   * 店铺页展示开关（`ShopVO.showSections`，**2026-10-10 20:3x §十八 新增**）。
+   * 契约注释逐字：「店铺页展示开关（位掩码：1=评分星级 2=口碑品质 4=发货时效 8=经营资质；
+   * 默认 15=全开）」。
+   * ⚠️ **位 = 运营要不要这个板块**（中控 `sys-config` 的 `shop_page_show_sections`，改完立即生效）
+   *    ⇒ 位为 0 时前端**整块不渲染**；
+   * ⚠️ 但**位开着而值缺席**时**留版式 + `--`**（用户 2026-10-10 明确推翻 §18.4 的"缺席则整块不渲染"，
+   *    逐字：「要留着那里，用 `--` 代替都行」）—— 判据与兜底见 `utils/shop-metrics.ts` 文件头。
+   * ⚠️ **缺席（老后端 / 灰度）时的兜底是 15 = 全开**，与 §18.4 伪码 `?? 15` 一致；
+   *    该兜底的**风险**（分不出"老后端"与"运营全关"）已在
+   *    `utils/shop-metrics.ts` 的 `SHOP_SECTIONS_FALLBACK` 注释里写清，动它之前先读那段。
+   */
+  showSections?: number | null
   /**
    * 粉丝数（`ShopVO.fansCount`）—— 契约明写「关注该门店的用户数；**恒不为 null**，0 表示暂无粉丝」。
    * ⚠️ 与 `boundUserCount`（已绑定微信人数，且本类型刻意不声明）**是两个不同的数**，

@@ -27,6 +27,23 @@
  *      ⇒ 该格**保持 `--`**（占位，不是编数）。
  *    - ⚠️ 也不许拿 `MerchantOverviewVO.serviceScore`（恒 null 占位）当评分。
  *
+ * ## 运营开关（§18，2026-10-10 20:3x 上线；本模块是**唯一的位判断入口**）
+ * `ShopVO.showSections`（int 位掩码，契约原文：「店铺页展示开关（位掩码：1=评分星级 2=口碑品质
+ * 4=发货时效 8=经营资质；默认 15=全开）」）—— **位 = 运营要不要这个板块**：
+ * - 位为 0 ⇒ **该板块整块不渲染**（这是后端本意，也是本模块 {@link shopSectionVisible} 的语义）；
+ * - 位为 1 但值缺席 ⇒ **留版式 + `--`**（见下面的「用户推翻 §18.4」一段）。
+ *
+ * ⚠️⚠️ **本文件有两条实现是「用户明确决定、且与后端文挡 §18.4 不一致」的，后来者不要改回去**：
+ * 文档 `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §18.4 的伪码写的是
+ * 「`if (s & 1) 渲染「评分星级」（rating 缺席则**整块不渲染**）」——即"值缺席就整块不渲染"。
+ * 用户 2026-10-10 当面**推翻**了这一条，逐字：「**要留着那里，用 `--` 代替都行**」，
+ * 并在同日另有 `03a7482` 的同类决定。⇒ 现行语义是：
+ *   ① **位开着但值缺席 ⇒ 版式留着，值渲染 `--`**（不整块消失）；
+ *   ② **「客服响应」这一格没有对应的位（后端本期不做、不给位）⇒ 永远渲染、长期 `--`**
+ *      （§18.4 末句「前端不渲染该块」同样被用户推翻）。
+ * ⇒ 这与"不伪造数据"**不冲突**：`--` 表示"无此数据"，不是编一个数字；被禁止的始终是编数值。
+ *   ⛔ 不要为了"贴合文档"把这两条改回"缺席即整块不渲染"。
+ *
  * ⚠️ **计数类文案用 Chinese numerals/counters 必须与后端字段语义一致**：
  * `fansCount` 契约原文「关注该门店的用户数；恒不为 null，0 表示暂无粉丝」⇒ 0 也照实渲染
  * `0 粉丝`（0 是**真实值**，不是"没有数据"）。这与评分不同：评分"没有"是 **null**，
@@ -37,10 +54,69 @@
 export interface ShopServiceMetric {
   name: string
   value: string
+  /**
+   * 该格是不是**设计稿那三格**之一（口碑品质 / 发货时效 / 客服响应）。
+   * - `true`  = 设计格：进店卡片**按本标记过滤后**再取前三个，缺值渲染 `--`（用户决定，见文件头）；
+   * - `false` = **追加格**（准时送达 / 平均接单）：它们是"有才出现"的真实指标，
+   *   进店卡片的设计里**没有**它们的位置 ⇒ 卡片必须把它们过滤掉（不能因为设计格被运营关掉，
+   *   就让追加格**递补**进设计格的槽位 —— 那会让用户以为那一格换了口径）。
+   * ⚠️ 缺省（`undefined`）按**设计格**处理：老调用方自己拼的"名 + 值"数组仍按旧口径渲染，
+   *    不会因为本次新增字段而整块消失。
+   */
+  designSlot?: boolean
 }
 
 /** 服务表现的展示上限（设计两张卡都是三格；契约本身没写上限，这里只做防御）。 */
 export const SHOP_METRIC_LIMIT = 3
+
+/**
+ * 店铺页板块位（`ShopVO.showSections`，§18.3）。
+ * 契约原文：「位掩码：1=评分星级 2=口碑品质 4=发货时效 8=经营资质；默认 15=全开」。
+ * ⚠️ **没有**「客服响应」的位 —— 后端本期不做（§18.4 末句），见文件头第 ② 条。
+ */
+export const SHOP_SECTION_RATING = 1
+export const SHOP_SECTION_REVIEW = 2
+export const SHOP_SECTION_SHIP = 4
+export const SHOP_SECTION_QUALIFICATION = 8
+
+/**
+ * `showSections` **缺席时的兜底值 = 15（全开）**，与 §18.4 伪码的 `shop.showSections ?? 15` 一致。
+ *
+ * ⚠️ **这个兜底的风险，必须写清楚（别当成"显然正确"）**：
+ * 客户端**分不出**下面两种情况 ——
+ *   ① **老后端 / 灰度**：根本没有这个键（前端此刻的行为应当与加这个开关之前**完全一样**）；
+ *   ② **运营把 15 位全部关掉**：按 §18.4 的「null 语义」那句，也可能表现为**键不下发**。
+ * 兜底成 15 时，②会被读成"全开" ⇒ **运营的关闭动作静默失效**（与 `CLAUDE.md` §十
+ * `normalizeDeliverySwitch(undefined) ⇒ 支持` 属**同一类**坑）。
+ * **为什么仍然选 15（而不是反过来兜底成 0）**：这条兜底**只决定版式**、不决定任何
+ * "放行/拦截"，也**不会**让任何一个数字变成假的（位开着而值缺席时渲染的是 `--`）——
+ * 与"兜底让校验必然通过"那种伪造**不是一类**；而反过来兜底成 0 会让**所有老后端 / 灰度
+ * 用户**的店铺页凭空少掉全部板块（净回归）。
+ * **残余风险的判据**：后端把该键定义为**非空 int**（DB 默认 15，`non_null` 序列化 ⇒
+ * 0 也是**下发 0**、不是省略）⇒ ②实际不会以"键缺席"的形态出现。
+ * ⚠️ 若将来后端改成 `non_empty` / 可空，或运营反馈"关了没生效"，**第一个要看的就是这里**。
+ */
+export const SHOP_SECTIONS_FALLBACK = 15
+
+/**
+ * 取 `showSections` 的有效值：缺席 / `null` / 非数值 ⇒ {@link SHOP_SECTIONS_FALLBACK}。
+ * ⚠️ 非数值（脏值）也走兜底而不是当成 0：当成 0 会让**整页板块凭空消失**，
+ *    而"看不见的失败"比"多显示一个 `--` 占位"严重得多（两者都不编数字）。
+ */
+export function shopShowSections(showSections: number | null | undefined): number {
+  if (showSections === null || showSections === undefined || !Number.isFinite(Number(showSections))) {
+    return SHOP_SECTIONS_FALLBACK
+  }
+  return Number(showSections)
+}
+
+/**
+ * 某一个板块位是否打开（**位为 0 ⇒ 整块不渲染** —— 这是后端的本意）。
+ * ⚠️ 判据只能是**位**，不能是"值有没有"：值缺席时该板块仍要留版式、渲染 `--`（用户决定）。
+ */
+export function shopSectionVisible(showSections: number | null | undefined, bit: number): boolean {
+  return (shopShowSections(showSections) & bit) !== 0
+}
 
 /**
  * 本模块消费的最小门店形状。
@@ -86,6 +162,14 @@ export interface ShopObjectiveMetrics {
    *    ⛔ 不得把它冒名成设计稿别的格（口径纪律：不许改文案冒充）。
    */
   goodRate?: number | null
+  /**
+   * 店铺页展示开关（位掩码，`ShopVO.showSections`，**§18.3 新增**）。
+   * 1=评分星级 2=口碑品质 4=发货时效 8=经营资质（默认 15=全开）。
+   * ⚠️ **位 = 运营要不要这个板块**（位为 0 ⇒ 整块不渲染）；**位开着而值缺席 ⇒ 留版式 + `--`**
+   *    （用户 2026-10-10 明确推翻 §18.4 的"缺席则整块不渲染"，见文件头）。
+   * ⚠️ 缺席时的兜底与风险见 {@link SHOP_SECTIONS_FALLBACK}。
+   */
+  showSections?: number | null
 }
 
 /**
@@ -153,7 +237,7 @@ export function shipHoursText(hours: number | null | undefined): string {
 }
 
 /**
- * 服务表现列表（设计稿**固定的三格** + **两个真实可计算项自己的格**）：
+ * 服务表现列表（设计稿**三格** + **两个真实可计算项自己的格**）：
  * ① 口碑品质 ← `reviewAvgScore`（§16，用户主观口碑平均分；无评价 ⇒ `--`）；
  * ② 发货时效 ← `shipAvgHours`（§15，平均发货时长；样本不足 ⇒ `--`）；
  * ③ 客服响应 ← **永远 `--`**（§15.2 / §16.4：需会话/工单体系，**未实现**；且明令**禁止**
@@ -162,7 +246,9 @@ export function shipHoursText(hours: number | null | undefined): string {
  * ⑤ 平均接单 ← `avgAcceptSeconds`（秒 → `N 秒`；≥60 秒时换算成分钟，避免出现 `523 秒` 这种读不动的值）。
  *
  * ⚠️⚠️ 2026-10-10 第七轮（用户决定）：**设计稿那三格的位置必须留着，没有值就用 `--` 占位**
- *    （用户原话：「要做，用 -- 代替都行，**要留着那里**」）⇒ 前三个恒在。
+ *    （用户原话：「要做，用 -- 代替都行，**要留着那里**」）⇒ **各自的位开着**时前三个恒在。
+ *    ⚠️ 2026-10-10 20:3x（§十八）追加了一层**运营开关**：①要**位 2**、②要**位 4** 打开才占位
+ *    （位为 0 = 运营主动关掉该板块 ⇒ 不渲染）；③ **没有位** ⇒ 恒在。见下面的位门禁一段。
  *
  * ⚠️⚠️ **2026-10-10 晚第九轮（§15 / §16 字段到位）**：①②从"固定 `--`"**接线到真字段**
  *    （这正是当初留占位的目的）；③**不变，仍是 `--`** —— 官方口径没给字段，也没给替代品。
@@ -173,25 +259,42 @@ export function shipHoursText(hours: number | null | undefined): string {
  *      有值时才出现。⇒ 格子数 3~5，模板用 flex 等分自适应，不会破版。
  * ⚠️ 返回顺序固定（先三个设计格，再两个真实格）—— 契约没给顺序，写死在这里而不是散在模板里，
  *    两张卡（店铺页 + 进店卡）的顺序才不会分叉。
- *    ⚠️ **进店卡片**（`ShopEntryCard.vue`）的设计只有**三格**（106×46 × 3）⇒ 组件侧
- *    `slice(0, SHOP_METRIC_LIMIT)` 只保留前三个（三个设计格）；④⑤只在**店铺页**出现。
+ *    ⚠️ **进店卡片**（`ShopEntryCard.vue`）的设计只有**三格**（106×46 × 3）⇒ 组件侧只保留
+ *    **设计格**（`designSlot !== false`）、再 `slice(0, SHOP_METRIC_LIMIT)`；④⑤只在**店铺页**出现。
+ *    ⚠️ 组件侧**不能**只靠 `slice(0, 3)`：运营把关掉某个设计格后，列表会**变短**而 ④⑤ 会**前移**，
+ *       只切前三个就会让「准时送达」递补进设计格的槽位 ⇒ 必须按 `designSlot` 过滤（见该字段注释）。
+ *
+ * ⚠️⚠️ **§18.4 的位门禁（2026-10-10 20:3x 上线；与文档的差异见文件头）**：
+ * - 「口碑品质」只在 **位 2** 打开时占位；「发货时效」只在 **位 4** 打开时占位；
+ *   位为 0 ⇒ 该格**不渲染**（不补 `--`、也不换成别的指标）；
+ * - 「客服响应」**没有位** ⇒ **永远渲染、长期 `--`**（用户 2026-10-10 决定，见文件头第 ② 条）；
+ * - ④⑤（准时送达 / 平均接单）**契约没有给位** ⇒ 不受 `showSections` 影响，保持"有值才出现"
+ *   与它们**自己的**标签（⛔ 不得因为别的格被关掉就把它们改个名塞进那个槽位）。
+ *   ⚠️ 这两格自身的"有值才渲染"判据（`!= null`）**不是** `showSections` 管辖范围 —— 别混。
  */
 export function shopServiceMetrics(shop: ShopObjectiveMetrics | null | undefined): ShopServiceMetric[] {
-  // 设计稿的三格：①②已由 §15/§16 字段接线；③ 契约**没有**对应字段（客服响应）⇒ 恒 `--` 占位。
-  const list: ShopServiceMetric[] = [
-    { name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore) },
-    { name: '发货时效', value: shipHoursText(shop?.shipAvgHours) },
-    { name: '客服响应', value: '--' },
-  ]
+  // 位 = 运营要不要这个板块（见文件头）。位为 0 ⇒ 该格整格不渲染；位开着而值缺席 ⇒ 留格 + `--`。
+  const sections = shopShowSections(shop?.showSections)
+  const list: ShopServiceMetric[] = []
+  // 设计稿三格之一「口碑品质」：位 2；值 ← `reviewAvgScore`（§16），无评价 ⇒ `--`。
+  if (sections & SHOP_SECTION_REVIEW) {
+    list.push({ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })
+  }
+  // 设计稿三格之二「发货时效」：位 4；值 ← `shipAvgHours`（§15），样本不足 ⇒ `--`。
+  if (sections & SHOP_SECTION_SHIP) {
+    list.push({ name: '发货时效', value: shipHoursText(shop?.shipAvgHours), designSlot: true })
+  }
+  // 设计稿三格之三「客服响应」：**没有位** ⇒ 恒在、恒 `--`（用户决定；契约至今没有该字段）。
+  list.push({ name: '客服响应', value: '--', designSlot: true })
   const rate = shop?.onTimeRate
   if (rate !== null && rate !== undefined && Number.isFinite(Number(rate))) {
     // 契约示例 `0.972` 恰好是一位小数百分比；`toFixed(1)` 对 0 / 1 也给出 `0.0%` / `100.0%`（真实值，照实显示）。
-    list.push({ name: '准时送达', value: `${(Number(rate) * 100).toFixed(1)}%` })
+    list.push({ name: '准时送达', value: `${(Number(rate) * 100).toFixed(1)}%`, designSlot: false })
   }
   const seconds = shop?.avgAcceptSeconds
   if (seconds !== null && seconds !== undefined && Number.isFinite(Number(seconds))) {
     const total = Number(seconds)
-    list.push({ name: '平均接单', value: total >= 60 ? `${Math.round(total / 60)} 分钟` : `${Math.round(total)} 秒` })
+    list.push({ name: '平均接单', value: total >= 60 ? `${Math.round(total / 60)} 分钟` : `${Math.round(total)} 秒`, designSlot: false })
   }
   return list
 }

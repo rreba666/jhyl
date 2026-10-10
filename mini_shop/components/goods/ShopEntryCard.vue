@@ -33,38 +33,44 @@
  * 那张卡是**渐变上的透明卡**（白字 + `#FFFFFF@10%` 半透明指标块 + 渐变「收藏」按钮）；
  * 这张是**白卡**（深色字 + 无底色指标格 + 浅橙纯色「进店」按钮）。两张卡**不共用样式**。
  *
- * ## 数据现实（⚠️ 本组件刻意"有数据才画"；**S4 起数据真的有了**）
+ * ## 数据现实（⚠️ 本组件"有数据才画数字，没有就留版式渲染 `--`"；**S4 起数据真的有了**）
  * - ✅ **评分**：`ShopVO.rating`（2026-10-10 S4 新增）。契约原文「由**客观指标合成，非用户评价**；
- *    **样本不足时为 null ⇒ 前端隐藏评分区**」⇒ 无值整行不渲染；有值时另起一行渲染
- *   `RATING_LABEL`（「综合服务分（非用户评价）」）—— 设计只画了「★★★★★ 5.0」，
- *   不加解释会被读成"用户评分"。
+ *    **样本不足时为 null**」（`shop_rating_min_orders` 默认 5 ⇒ 订单不够就**不写**评分）。
+ *   ⚠️ 契约里那句"前端隐藏评分区"**已被用户 2026-10-10 推翻**（逐字：「要留着那里，用 `--`
+ *   代替都行」，与 §18.4 不一致，见 `showRatingSection` 的注释）：现在**分值格留着渲染 `--`**，
+ *   有真值时才另起一行渲染 `RATING_LABEL`（「综合服务分（非用户评价）」）——
+ *   设计只画了「★★★★★ 5.0」，不加解释会被读成"用户评分"。
  *   ⛔ 仍然**不得**用 `MerchantOverviewVO.serviceScore`（恒 null 的占位）顶替。
  * - ✅ **粉丝数**：`ShopVO.fansCount`（契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）。
  *   ⛔ 仍然**不得**用 `ShopVO.boundUserCount`（「已绑定微信人数」）顶替 —— 语义不同的两个数。
- * - ✅ **服务表现**：**三个设计格**统一由 `utils/shop-metrics.ts` 的 `shopServiceMetrics()` 生成，
- *   本组件再 `slice(0, 3)`（下方 `metrics`）：
- *   · 「口碑品质」← `reviewAvgScore`（2026-10-10 §16 新增：用户主观口碑平均分）；
- *   · 「发货时效」← `shipAvgHours`（§15 新增：平均发货时长）；
+ * - ✅ **服务表现**：**设计格**统一由 `utils/shop-metrics.ts` 的 `shopServiceMetrics()` 生成，
+ *   本组件再过滤掉追加格并按 `SHOP_METRIC_LIMIT` 截断（下方 `metrics`）：
+ *   · 「口碑品质」← `reviewAvgScore`（2026-10-10 §16 新增：用户主观口碑平均分）；**位 2**；
+ *   · 「发货时效」← `shipAvgHours`（§15 新增：平均发货时长）；**位 4**；
  *   · 「客服响应」→ 契约**无字段**（§15.2 / §16.4：需会话/工单体系，未实现）⇒ 恒 `--`；
+ *     ⚠️ **它没有板块位** ⇒ 恒渲染（§18.4 末句"前端不渲染该块"**被用户推翻**了）。
  *   ⚠️ **格名跟着字段走，不跟着设计填充文案走**：本卡片节点 `4029:5773` 第一格设计写的是
  *      「商品品质」，而契约里**没有**商品品质字段（只有店铺口碑 `reviewAvgScore`）⇒
  *      第一格渲染**口碑品质**（= 字段真名，与店铺页同一个 `shopServiceMetrics()` 输出，两卡不分叉）。
  *      ⛔ 反过来把 `reviewAvgScore` 挂到「商品品质」名下才是**改口径冒充**。
- *   ⇒ 组件只渲染**前三格**（= 设计的三格），`onTimeRate` / `avgAcceptSeconds` 那两格
- *     由 `SHOP_METRIC_LIMIT` 截掉 —— ⚠️ 那是**刻意的**：本卡片节点只有三格
+ *   ⇒ 组件只渲染**设计格**（最多三格 = 设计的三格），`onTimeRate` / `avgAcceptSeconds` 那两格
+ *     由 `metrics` 的 `designSlot` 过滤掉 —— ⚠️ 那是**刻意的**：本卡片节点只有三格
  *     （106×46 × 3），多塞会破版；那两个指标在**店铺页**有它们自己的格子。
+ *     ⚠️ 为什么不是只 `slice(0, 3)`：运营可以关掉「口碑品质」/「发货时效」（位 2 / 位 4），
+ *        列表会变短、追加格会**前移**，只切前三个就会让「准时送达」递补进设计格的槽位。
  *   ⛔ 设计稿填充值（`平均满意度 97.2%` / `平均 12 小时发货` / `平均 14 秒回复`）与
  *      `onTimeRate`（配送准时率）、`avgAcceptSeconds`（配送接单时长）**都不许**顶前两格
  *      —— §15.2 明令禁止（口径不同）。缺字段就渲染 `--`（占位），不编数。
  *   字段清单与口径见 `docs/26/10.10/前端对接文档-2026-10-10-全集.md`
- *   §12.2 / §12.3 / §15 / §16。
+ *   §12.2 / §12.3 / §15 / §16；**§十八（2026-10-10 20:3x）**加的 `showSections` 位掩码见其 §18.3。
  * - **数据来源提醒**：本组件的门店来自**商品详情**（只有 `shopId`/`shopName`/`shopImage`，S1），
  *   **不含**上面这些指标 ⇒ 父页面（`subpkg-goods/detail/detail.vue`）必须**另外**拉一次
- *   `GET /api/shop/{shopId}`（S3，公开免登录）把 `rating` / `fansCount` / 服务指标传进来。
- * - ⚠️ 数据没到时**整块不出现**（不留 `0`／`—`／空框）。
- *   ⚠️ **"整块不出现"不等于"看起来像坏了"**：卡片头永远完整（logo 有中性方块兜底、店名、
- *   「进店」按钮），评分行/服务表现行缺席时只是卡片变矮，不会出现错位或空框 —— 这是刻意的：
- *   宁可少一块，也不放 `—`/`0`/假星星（那会被当成真实数据）。
+ *   `GET /api/shop/{shopId}`（S3，公开免登录）把 `rating` / `fansCount` / `showSections` /
+ *   服务指标传进来。
+ * - ⚠️ 父页面**没拿到档案**（没传这些 prop）时：本组件**仍渲染整张卡**（logo 有中性方块兜底、
+ *   店名、评分格渲染 `--`、服务格渲染 `--`），**不出现错位或空框**；
+ *   ⛔ 但**绝不**放 `0`/假星星（那会被当成真实数据）—— `--` 才是"无此数据"的诚实表示。
+ *   ⚠️ 注意这**不是**"缺席即整块不渲染"：那条口径**已被用户推翻**（见上）。
  *
  * ## 可导航的前提（门店由**商品详情**直给，组件自己不猜）
  * 组件**自己不会猜门店 id**：`shop` 为空时**整张卡不渲染**（`v-if="canRender"`），
@@ -78,7 +84,7 @@
 import { computed } from 'vue'
 import type { ShopEntry } from '@/api/product'
 // 评分 / 粉丝 / 服务表现的**共用口径**（与店铺页同源；该模块头部逐条对齐契约 §12.2/§12.3）。
-import { RATING_LABEL, SHOP_METRIC_LIMIT, fansText, ratingStars, ratingText, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
+import { RATING_LABEL, SHOP_METRIC_LIMIT, SHOP_SECTION_RATING, fansText, ratingStars, ratingText, shopSectionVisible, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
 
 /** 一条服务指标（名 + 值，值本身已含单位，如「准时送达 97.2%」）。 */
 export interface ShopServiceMetric {
@@ -111,25 +117,42 @@ const props = withDefaults(defineProps<{
   shop?: ShopNavigationTarget | ShopEntry | null
   /**
    * 店铺评分（`ShopVO.rating`，客观指标合成、**非用户评价**）。
-   * ⚠️ **样本不足时后端给 null** ⇒ 不传即不渲染评分行（契约明写"前端隐藏评分区"）；
-   *    判据见 `ratingText()`（用 `!= null`，**不得**兜底成 0）。
+   * ⚠️ **样本不足时后端给 null**（`shop_rating_min_orders` 默认 5 ⇒ 订单不够就**不写**评分）
+   *    ⇒ 分值格**留着渲染 `--`**（`ratingText()` 为空串时模板回退 `--`，见 `rating` 的 computed）。
+   *    ⛔ 契约里那句"前端隐藏评分区"**已被用户 2026-10-10 推翻**（逐字：「要留着那里，用 `--`
+   *    代替都行」）；⛔ 判据**不得**兜底成 0、也**不得**画空心星（那是"0 分"的分数声明）。
+   *    可见性只看 `showSections` **位 1**（见 `showRatingSection`）。
    */
   rating?: number | null
   /** 店铺粉丝数（`ShopVO.fansCount`）。⚠️ 与 `boundUserCount`（已绑定微信人数）**语义不同**，不得互替。 */
   fansCount?: number | null
   /**
-   * 服务表现（三个设计格 + 两个真实指标；本组件只渲染前 3 条 —— 见 `metrics`）。
+   * 店铺页展示开关（`ShopVO.showSections`，位掩码 1=评分星级 2=口碑品质 4=发货时效 8=经营资质，
+   * 默认 15=全开；**2026-10-10 20:3x §十八 新增**）。
+   * ⚠️ **位为 0 ⇒ 运营关掉了该板块 ⇒ 整块不渲染**；**位为 1 而值缺席 ⇒ 留版式 + `--`**
+   *    （用户 2026-10-10 明确推翻 §18.4 的"缺席则整块不渲染"，逐字：「要留着那里，用 `--` 代替都行」）
+   *    —— 本卡片与店铺页 `shop/index.vue` 必须**同构**（同一套位判断、同一套 `--` 判据）。
+   * ⚠️ 本卡片只用到**位 1（评分星级）**：位 2 / 位 4 由 `serviceMetrics` 生成时就已经过滤掉
+   *    （见 `utils/shop-metrics.ts` 的 `shopServiceMetrics()`）；位 8（经营资质）在本卡片里
+   *    **没有对应元素**（进店卡片没有资质条）。不传 / `null` ⇒ 兜底 15 = 全开（与 §18.4 伪码一致，
+   *    风险说明见共享模块的 `SHOP_SECTIONS_FALLBACK`）。
+   */
+  showSections?: number | null
+  /**
+   * 服务表现（设计的三格 + 两个真实指标；本组件只渲染**设计格**，最多 3 条 —— 见 `metrics`）。
    * 推荐直接用 `utils/shop-metrics.ts` 的 `shopServiceMetrics(shop)` 生成：
    * `[口碑品质(reviewAvgScore) / 发货时效(shipAvgHours) / 客服响应(--)]`，有 `onTimeRate` /
-   * `avgAcceptSeconds` 时再追加它们自己的两格（本卡片的 `slice(0, SHOP_METRIC_LIMIT)` 会截掉）。
-   * ⚠️ 传空数组 = 整行不渲染；但 `shopServiceMetrics()` **恒返回至少三格**
-   *    （缺值填 `--`，用户 2026-10-10 明确"要留着那里"）。
+   * `avgAcceptSeconds` 时再追加它们自己的两格（本卡片按 `designSlot` 过滤 + `slice` 截掉）。
+   * ⚠️ 传空数组 = 整行不渲染；`shopServiceMetrics()` 至少返回**一格** ——
+   *    「客服响应」没有板块位 ⇒ 恒在（缺值填 `--`，用户 2026-10-10 明确"要留着那里"）；
+   *    「口碑品质」/「发货时效」要**位 2 / 位 4** 打开才占位（§十八 运营开关）。
    */
   serviceMetrics?: ShopServiceMetric[]
 }>(), {
   shop: null,
   rating: null,
   fansCount: null,
+  showSections: null,
   serviceMetrics: () => [],
 })
 
@@ -157,17 +180,38 @@ const stars = computed(() => ratingStars(props.rating))
 const fans = computed(() => fansText(props.fansCount))
 
 /**
- * 服务表现的最终列表（**本卡片只渲染前三格** = 设计的三格）。
+ * **评分星级**是否渲染（`showSections` **位 1**，§十八 运营开关；2026-10-10 20:3x）。
+ *
+ * ⚠️ 判据只能是**位**，不能是"值有没有"：
+ * - 位为 0 ⇒ 运营关掉了「评分星级」这一格 ⇒ **整格不渲染**（`rating` 有没有值都不渲染）；
+ * - 位为 1 而 `rating` 缺席 ⇒ **留版式 + `--`**（`shop_rating_min_orders` 默认 5 ⇒
+ *   订单不足时后端合法地不写评分）—— ⚠️ 这与后端文档 §18.4 的
+ *   「rating 缺席则**整块不渲染**」**不一致**，是**用户 2026-10-10 的明确决定**，
+ *   逐字：「要留着那里，用 `--` 代替都行」（同日另有 `03a7482` 的同类决定）；
+ *   ⛔ **不要**照文档把这里改成"缺席即整块不渲染"。
+ * ⚠️ 判据与实现都在 `utils/shop-metrics.ts`（`shopSectionVisible`）—— 本卡片不自己写位运算，
+ *    与店铺页 `shop/index.vue` 用**同一个**函数，两张卡才不会分叉。
+ * ⚠️ 只门禁**评分那一格**（星串 + 分值 + 解释文案 + 中间那条分隔竖线）；
+ *    **粉丝数没有对应的位** ⇒ 粉丝格始终渲染。
+ */
+const showRatingSection = computed(() => shopSectionVisible(props.showSections, SHOP_SECTION_RATING))
+
+/**
+ * 服务表现的最终列表（**本卡片只渲染设计格**，最多三格 —— 设计的节点 `4029:5773` 只有三格 106×46）。
  * ⚠️ 父页面若已经用 `shopServiceMetrics()` 生成过，这里再过滤一次是**幂等**的（同一套判据）；
  *    若父页面自己拼了别的指标，这里**不校验名字**（组件不该假装知道业务口径）——
  *    口径的唯一来源是 `utils/shop-metrics.ts`，两边都指向它。
- * ⚠️ `SHOP_METRIC_LIMIT` = 3 是**设计约束**（节点 `4029:5773` 只有三格 106×46），不是随便截的：
- *    前三条恒为三个设计格（口碑品质 / 发货时效 / 客服响应），`onTimeRate` / `avgAcceptSeconds`
- *    追加在后面 ⇒ 在本卡片上**看不到**那两格（它们在**店铺页**有格子，见 `shop/index.vue`）。
- *    ⚠️ 这不是"丢数据"：本卡片的设计里就没有它们的位置，硬塞会破版。
+ * ⚠️ 过滤顺序很重要：**先按 `designSlot` 去掉追加格（准时送达 / 平均接单），再 `slice`**。
+ *    只靠 `slice(0, SHOP_METRIC_LIMIT)` 在**三个设计格都开着**时够用，但 §十八 的运营开关
+ *    可以关掉「口碑品质」/「发货时效」（位 2 / 位 4）⇒ 列表变短、**追加格会前移**，
+ *    那样「准时送达」就会**递补进设计格的槽位**（设计里没有它的位置，用户会以为那格换了口径）。
+ *    ⚠️ `designSlot` 缺省（`undefined`）按**设计格**处理 ⇒ 老调用方自己拼的"名 + 值"数组
+ *    仍按旧口径渲染，不会因为本次新增字段而整块消失。
+ *    ⛔ 这不是"丢数据"：那两个指标在**店铺页**有它们自己的格子（见 `shop/index.vue`）。
  */
 const metrics = computed(() => (props.serviceMetrics || [])
   .filter((item) => item && String(item.name || '').trim() && String(item.value || '').trim())
+  .filter((item) => item.designSlot !== false)
   .slice(0, SHOP_METRIC_LIMIT))
 
 /** 点「进店」：**只在有真实门店 id 时**才向上抛事件（组件内不做任何 id 猜测）。 */
@@ -190,22 +234,28 @@ function onEnter(): void {
       <view v-else class="entry-logo" />
       <view class="entry-main">
         <text v-if="shopName" class="entry-name">{{ shopName }}</text>
-        <!-- 评分行：星级 + 分数 + 分隔线 + 粉丝数；三块各自有真实数据才出现
-             （设计里的数字是填充文案，不硬编码；S4 起数据来源 = `ShopVO.rating` / `fansCount`）。 -->
+        <!-- 评分行：星级 + 分数 + 分隔线 + 粉丝数
+             （设计里的数字是填充文案，不硬编码；S4 起数据来源 = `ShopVO.rating` / `fansCount`）。
+             ⚠️ 可见性由**两层**决定（与店铺页 `shop/index.vue` 逐字同构，两卡不得分叉）：
+             ① `showSections` **位 1**（运营开关，§十八）—— 位为 0 ⇒ **评分那一格整格不渲染**
+                （连同中间那条分隔竖线）；粉丝**没有位** ⇒ 恒渲染；
+             ② 位开着时的**值** —— 缺席 ⇒ **留版式渲染 `--`**（用户决定，见 `showRatingSection` 注释）。 -->
         <!-- ⚠️ 2026-10-10 第七轮（用户决定）：本行**不再整行消失** —— 用户要「**要留着那里**」，
              没有值就用 `--`（明确表示"无此数据"，不是伪造）。与店铺页 `shop/index.vue` 的
              `shop-metrics-row` 保持逐字同构，两卡不得分叉。
              ⚠️ 2026-10-10 第八轮（用户反馈「零数据时 `--` 像粘在粉丝数上的杂物」）：
-             **分隔竖线改为无条件渲染** —— 两格（分值 / 粉丝）恒有内容（真值或 `--`），
+             **分隔竖线改为跟随评分格渲染** —— 评分格在时两格（分值 / 粉丝）恒有内容（真值或 `--`），
              永远不会悬空；竖线把 `--` 锚定为**左边的独立一格**（读作「`--` ｜ `0 粉丝`」）。
              星串**不补空心星**（☆☆☆☆☆ 会被读成"0 分"，那是一个我们没有的分数声明）。 -->
         <view class="entry-rating">
           <!-- ⚠️ 2026-10-10 第八轮：外层 `.entry-stars` **不再带 `v-if="stars"`** ——
-               店铺页那侧是「外层 `.shop-rating` 恒在 + 星串 `v-if="stars"` + 分值恒在」，
+               店铺页那侧是「外层 `.shop-rating` 的门禁只看运营位 + 星串 `v-if="stars"` + 分值恒在」，
                而这里原先把**分值也包在 `v-if="stars"` 里** ⇒ 无评分时分值 `--` 根本不存在
                （零数据的进店卡只剩一根竖线 + `0 粉丝`）。守卫下沉到**星串自己**，
-               两卡才真正同构：**分值格恒在，星串有真值才画**。 -->
-          <view class="entry-stars">
+               两卡才真正同构：**分值格恒在（位开着时），星串有真值才画**。
+               ⚠️ 2026-10-10 20:3x（§十八）：外层现在带 `v-if="showRatingSection"` ——
+                  它判的是**运营的位**（位 1），**不是**"有没有值"（后者仍是"留着 + `--`"）。 -->
+          <view v-if="showRatingSection" class="entry-stars">
             <!-- ⚠️ 设计稿里五颗星复用的是一个**名叫 `收藏_填充`** 的组件（`4002:4148`，内部矢量却叫
                  `Star 1 (Stroke)`）—— 名字有误导性，但**这里的星是实心的**（渲染图确认：
                  评分行是实心星、收藏按钮那颗才是空心星）。
@@ -217,9 +267,11 @@ function onEnter(): void {
             <text v-if="stars" class="entry-star">{{ stars }}</text>
             <text class="entry-score">{{ rating || '--' }}</text>
           </view>
-          <!-- 分隔竖线 1×8 `#E6E7EB`：**无条件画**（两格恒有内容 ⇒ 不会悬空），
-               零数据时把 `--` 锚定为分值那一格（见上面第八轮说明）。 -->
-          <view class="entry-divider" />
+          <!-- 分隔竖线 1×8 `#E6E7EB`：只跟**评分格的位**走 —— 评分格在时两格恒有内容
+               （真值或 `--`）⇒ 不会悬空，零数据时把 `--` 锚定为分值那一格（见上面第八轮说明）；
+               评分格被运营关掉（位 1 = 0）时它一起消失，免得留一条悬空竖线。
+               ⛔ 判据**不是**"有没有值"（`v-if="stars"` / `v-if="rating"` 已被反向断言钉死）。 -->
+          <view v-if="showRatingSection" class="entry-divider" />
           <!-- ⚠️ 2026-10-10 第七轮：粉丝数缺值时显示 `--`（原先"整段不出现"），
                  与店铺页同构；`0` 仍是**真实值**（契约：恒不为 null、0 = 暂无粉丝）⇒ 照实显示 `0 粉丝`。 -->
           <text class="entry-fans">{{ fans || '--' }}</text>
@@ -227,7 +279,7 @@ function onEnter(): void {
         <!-- 评分的解释文案：契约明写评分是**客观指标合成、非用户评价**，而设计只画了
              「★★★★★ 5.0」⇒ 不加这一行会被读成"用户评分"（被动误导）。只在真有评分时出现，
              不引入新配色（`#86909C`，与粉丝数同一档次要文字色）。 -->
-        <text v-if="rating" class="entry-rating-note">{{ RATING_LABEL }}</text>
+        <text v-if="showRatingSection && rating" class="entry-rating-note">{{ RATING_LABEL }}</text>
       </view>
       <view class="entry-button">
         <text class="entry-button-text">进店</text>
@@ -239,10 +291,13 @@ function onEnter(): void {
     </view>
 
     <!-- 服务表现：设计是三格等分、文案居中、无底色。
-         ⚠️ 2026-10-10 晚：三格**恒在**（`shopServiceMetrics()` 恒返回前三个设计格，缺值 `--`）
+         ⚠️ 2026-10-10 晚：设计格的**位置**留着、缺值渲染 `--`
          —— 口碑品质 ← `reviewAvgScore`（§16）、发货时效 ← `shipAvgHours`（§15）、
-         客服响应 恒 `--`（契约无字段，§15.2 / §16.4）。`onTimeRate` / `avgAcceptSeconds`
-         追加在后面、被 `SHOP_METRIC_LIMIT` 截掉（本卡片设计只有三格）。 -->
+         客服响应 恒 `--`（契约无字段，§15.2 / §16.4）。
+         ⚠️ 2026-10-10 20:3x（§十八 运营开关）：口碑品质要**位 2**、发货时效要**位 4** 才占位
+         （位为 0 ⇒ 该格整格不渲染）；**客服响应没有位** ⇒ 恒在。
+         `onTimeRate` / `avgAcceptSeconds` 追加在后面，被 `metrics` 的 `designSlot` 过滤掉
+         （它们**没有板块位**、也不递补设计格的槽位；本卡片设计只有三格，它们在店铺页有格子）。 -->
     <view v-if="metrics.length" class="entry-metrics">
       <view v-for="metric in metrics" :key="metric.name" class="entry-metric">
         <text class="entry-metric-name">{{ metric.name }}</text>

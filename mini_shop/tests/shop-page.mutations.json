@@ -14,25 +14,25 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the shop card's divider is gated again (with zero data the dash glues onto the fans count again)",
-        "find": "<view class=\"shop-divider\" />",
+        "find": "<view v-if=\"showRatingSection\" class=\"shop-divider\" />",
         "replace": "<view v-if=\"rating && fans\" class=\"shop-divider\" />"
     },
     {
         "file": "mini_shop/components/goods/ShopEntryCard.vue",
         "desc": "the entry card's divider is gated again (with zero data the dash glues onto the fans count again)",
-        "find": "<view class=\"entry-divider\" />",
+        "find": "<view v-if=\"showRatingSection\" class=\"entry-divider\" />",
         "replace": "<view v-if=\"rating && fans\" class=\"entry-divider\" />"
     },
     {
         "file": "mini_shop/components/goods/ShopEntryCard.vue",
         "desc": "the entry card wraps its value cell back inside the star-run guard (no rating => no dash, just a dangling divider)",
-        "find": "<view class=\"entry-stars\">",
+        "find": "<view v-if=\"showRatingSection\" class=\"entry-stars\">",
         "replace": "<view v-if=\"stars\" class=\"entry-stars\">"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the shop card wraps its value cell inside a star-run guard (no rating => the dash disappears)",
-        "find": "<view class=\"shop-rating\">",
+        "find": "<view v-if=\"showRatingSection\" class=\"shop-rating\">",
         "replace": "<view v-if=\"stars\" class=\"shop-rating\">"
     },
     {
@@ -56,7 +56,7 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "objective-composite label rendered even when there is no rating",
-        "find": "<text v-if=\"rating\" class=\"shop-rating-note\">{{ RATING_LABEL }}</text>",
+        "find": "<text v-if=\"showRatingSection && rating\" class=\"shop-rating-note\">{{ RATING_LABEL }}</text>",
         "replace": "<text class=\"shop-rating-note\">{{ RATING_LABEL }}</text>"
     },
     {
@@ -147,7 +147,7 @@
     {
         "file": "mini_shop/components/goods/ShopEntryCard.vue",
         "desc": "entry objective-composite label rendered without a real rating",
-        "find": "<text v-if=\"rating\" class=\"entry-rating-note\">{{ RATING_LABEL }}</text>",
+        "find": "<text v-if=\"showRatingSection && rating\" class=\"entry-rating-note\">{{ RATING_LABEL }}</text>",
         "replace": "<text class=\"entry-rating-note\">{{ RATING_LABEL }}</text>"
     },
     {
@@ -537,8 +537,8 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the qualification bar is gated again (it does not depend on the archive at all)",
-        "find": "<view class=\"qualification-bar\">",
-        "replace": "<view v-if=\"shop.value\" class=\"qualification-bar\">"
+        "find": "<view v-if=\"showQualificationSection\" class=\"qualification-bar\">",
+        "replace": "<view v-if=\"!loading\" class=\"qualification-bar\">"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -820,32 +820,32 @@
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 16: the word-of-mouth cell is reverted to the hardcoded dash (the newly shipped reviewAvgScore is ignored)",
-        "find": "{ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore) },",
-        "replace": "{ name: '口碑品质', value: '--' },"
+        "find": "list.push({ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })",
+        "replace": "list.push({ name: '口碑品质', value: '--', designSlot: true })"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 15: the shipping-speed cell is reverted to the hardcoded dash (the newly shipped shipAvgHours is ignored)",
-        "find": "{ name: '发货时效', value: shipHoursText(shop?.shipAvgHours) },",
-        "replace": "{ name: '发货时效', value: '--' },"
+        "find": "list.push({ name: '发货时效', value: shipHoursText(shop?.shipAvgHours), designSlot: true })",
+        "replace": "list.push({ name: '发货时效', value: '--', designSlot: true })"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 15.2: the customer-service cell is filled with the delivery punctuality metric (the explicitly forbidden substitution)",
-        "find": "{ name: '客服响应', value: '--' },",
-        "replace": "{ name: '客服响应', value: `${(Number(shop?.onTimeRate) * 100).toFixed(1)}%` },"
+        "find": "list.push({ name: '客服响应', value: '--', designSlot: true })",
+        "replace": "list.push({ name: '客服响应', value: `${(Number(shop?.onTimeRate) * 100).toFixed(1)}%`, designSlot: true })"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 16.3-3: the word-of-mouth cell reads the OBJECTIVE composite (rating) instead of the user score (reviewAvgScore)",
-        "find": "value: reviewScoreText(shop?.reviewAvgScore) }",
-        "replace": "value: reviewScoreText(shop?.rating) }"
+        "find": "value: reviewScoreText(shop?.reviewAvgScore), designSlot: true }",
+        "replace": "value: reviewScoreText(shop?.rating), designSlot: true }"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 16: the word-of-mouth cell is renamed to the design's product-quality label (no such field exists - a rename would fake the metric)",
-        "find": "{ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore) },",
-        "replace": "{ name: '商品品质', value: reviewScoreText(shop?.reviewAvgScore) },"
+        "find": "list.push({ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })",
+        "replace": "list.push({ name: '商品品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
@@ -870,5 +870,193 @@
         "desc": "N3 section 16: the api layer stops declaring the word-of-mouth field the page now renders",
         "find": "reviewAvgScore?: number | null",
         "replace": "reviewAvgScoreUnused?: number | null"
+    }
+,
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the rating cell loses its showSections bit gate (an operator-disabled block comes back)",
+        "find": "<view v-if=\"showRatingSection\" class=\"shop-rating\">",
+        "replace": "<view class=\"shop-rating\">"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the rating cell is gated on the VALUE again instead of on the operator bit",
+        "find": "<view v-if=\"showRatingSection\" class=\"shop-rating\">",
+        "replace": "<view v-if=\"rating\" class=\"shop-rating\">"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the rating divider loses the gate and dangles once the operator turns the block off",
+        "find": "<view v-if=\"showRatingSection\" class=\"shop-divider\" />",
+        "replace": "<view class=\"shop-divider\" />"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the rating divider is gated on the VALUE (the pre-section-18 dangling-dash bug)",
+        "find": "<view v-if=\"showRatingSection\" class=\"shop-divider\" />",
+        "replace": "<view v-if=\"rating\" class=\"shop-divider\" />"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the rating explanation reverts to the value-only gate (it would print for a block the operator turned off)",
+        "find": "<text v-if=\"showRatingSection && rating\" class=\"shop-rating-note\">{{ RATING_LABEL }}</text>",
+        "replace": "<text v-if=\"rating\" class=\"shop-rating-note\">{{ RATING_LABEL }}</text>"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the qualification bar loses its bit-8 gate (an operator-disabled block comes back)",
+        "find": "<view v-if=\"showQualificationSection\" class=\"qualification-bar\">",
+        "replace": "<view class=\"qualification-bar\">"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the qualification bar is gated on the licence FIELDS (the doc wording the user overruled)",
+        "find": "<view v-if=\"showQualificationSection\" class=\"qualification-bar\">",
+        "replace": "<view v-if=\"showQualificationSection && licenseNo\" class=\"qualification-bar\">"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the qualification gate is derived from a licence field instead of the operator bit",
+        "find": "const showQualificationSection = computed(() => shopSectionVisible(showSections.value, SHOP_SECTION_QUALIFICATION))",
+        "replace": "const showQualificationSection = computed(() => Boolean(shop.value?.licenseNo))"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the shop page hand-rolls the bit test instead of using the shared predicate",
+        "find": "const showRatingSection = computed(() => shopSectionVisible(showSections.value, SHOP_SECTION_RATING))",
+        "replace": "const showRatingSection = computed(() => (Number(showSections.value ?? 15) & 1) !== 0)"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 18: the shop page stops reading ShopVO.showSections (both gates would silently stay all-on)",
+        "find": "const showSections = computed(() => shop.value?.showSections)",
+        "replace": "const showSections = computed(() => 15)"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card rating cell loses its showSections bit gate (the two cards drift)",
+        "find": "<view v-if=\"showRatingSection\" class=\"entry-stars\">",
+        "replace": "<view class=\"entry-stars\">"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card rating cell is gated on the VALUE again instead of on the operator bit",
+        "find": "<view v-if=\"showRatingSection\" class=\"entry-stars\">",
+        "replace": "<view v-if=\"stars\" class=\"entry-stars\">"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card divider is gated on the VALUE (dangling divider / glued dash)",
+        "find": "<view v-if=\"showRatingSection\" class=\"entry-divider\" />",
+        "replace": "<view v-if=\"rating\" class=\"entry-divider\" />"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card rating explanation reverts to the value-only gate",
+        "find": "<text v-if=\"showRatingSection && rating\" class=\"entry-rating-note\">{{ RATING_LABEL }}</text>",
+        "replace": "<text v-if=\"rating\" class=\"entry-rating-note\">{{ RATING_LABEL }}</text>"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card drops the design-slot filter, so an appended metric can take a disabled slot over",
+        "find": ".filter((item) => item.designSlot !== false)",
+        "replace": ".filter(() => true)"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card stops using the shared section predicate for its rating cell",
+        "find": "const showRatingSection = computed(() => shopSectionVisible(props.showSections, SHOP_SECTION_RATING))",
+        "replace": "const showRatingSection = computed(() => props.rating != null)"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 18: the entry card drops the showSections prop default (the mask the detail page passes)",
+        "find": "  showSections: null,",
+        "replace": "  showSectionsUnused: null,"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the bit predicate stops ANDing (a cleared bit would read as visible - the silent-failure direction)",
+        "find": "return (shopShowSections(showSections) & bit) !== 0",
+        "replace": "return (shopShowSections(showSections) | bit) !== 0"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the absent-mask fallback flips to 0 (every old backend / grey release loses all blocks)",
+        "find": "export const SHOP_SECTIONS_FALLBACK = 15",
+        "replace": "export const SHOP_SECTIONS_FALLBACK = 0"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: a bare `?? 15` bypasses the documented accessor (the risk note stops applying)",
+        "find": "const sections = shopShowSections(shop?.showSections)",
+        "replace": "const sections = Number(shop?.showSections ?? 15)"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: a bit is invented for the customer-service cell (the backend defines none)",
+        "find": "list.push({ name: '客服响应', value: '--', designSlot: true })",
+        "replace": "if (sections & SHOP_SECTION_RATING) { list.push({ name: '客服响应', value: '--', designSlot: true }) }"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the ship-speed bit takes the wrong number (4 -> 8, i.e. the qualification bit)",
+        "find": "export const SHOP_SECTION_SHIP = 4",
+        "replace": "export const SHOP_SECTION_SHIP = 8"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: a customer-service bit constant is invented in place of the qualification bit",
+        "find": "export const SHOP_SECTION_QUALIFICATION = 8",
+        "replace": "export const SHOP_SECTION_SERVICE = 8"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: a design slot loses its designSlot flag (the entry card can no longer tell it apart)",
+        "find": "value: reviewScoreText(shop?.reviewAvgScore), designSlot: true }",
+        "replace": "value: reviewScoreText(shop?.reviewAvgScore) }"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the word-of-mouth cell loses its bit-2 gate (an operator-disabled cell comes back)",
+        "find": "if (sections & SHOP_SECTION_REVIEW) {",
+        "replace": "if (true) {"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the accessor loses its absent-value guard (a dirty mask would be trusted as-is)",
+        "find": "if (showSections === null || showSections === undefined || !Number.isFinite(Number(showSections))) {",
+        "replace": "if (showSections === null) {"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the DOCUMENTED user decision (keep the slot, show a dash) is deleted from the source",
+        "find": "要留着那里",
+        "replace": "保留该格",
+        "all": true
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the fallback RISK note is deleted (the next reader cannot know why 15 was chosen)",
+        "find": "normalizeDeliverySwitch",
+        "replace": "someOtherNormalizer"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 18: the shared shop shape stops declaring showSections (both cards would read undefined => all on)",
+        "find": "showSections?: number | null",
+        "replace": "showSectionsUnused?: number | null"
+    },
+    {
+        "file": "mini_shop/api/shop.ts",
+        "desc": "section 18: the api layer stops declaring ShopVO.showSections (the page gates on a field it does not know)",
+        "find": "showSections?: number | null",
+        "replace": "showSectionsUnused?: number | null"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/detail/detail.vue",
+        "desc": "section 18: the product detail page stops passing the mask to the entry card (the two cards diverge)",
+        "find": ":show-sections=\"shopMetrics?.showSections ?? null\"",
+        "replace": ":show-sections-unused=\"shopMetrics?.showSections ?? null\""
     }
 ]

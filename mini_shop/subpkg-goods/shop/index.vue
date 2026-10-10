@@ -80,18 +80,29 @@
  * 服务表现三格在契约里**一个字段都没有**，当时按"契约没有该字段"整块不渲染。
  * **第四轮（S4）起后端补齐了这些字段**（`ShopVO` 48 字段），本页**接线渲染真实值**：
  * - 店铺**评分** → `ShopVO.rating`（⚠️ 契约原文「由**客观指标合成，非用户评价**」⇒ 文案见 `RATING_LABEL`；
- *   **样本不足时为 null** ⇒ 整块不渲染，不补 `0`、不补 `—`）；
+ *   ⚠️ **样本不足时为 null**（`shop_rating_min_orders` 默认 5 ⇒ 订单不够就不写评分）⇒
+ *   **留版式 + `--`**（用户 2026-10-10 第七轮决定；见脚本 `showRatingSection` 那段），
+ *   ⛔ **不补 `0`**（"0 分"是一个我们没有的分数声明）、⛔ 也不画空心星；
+ *   ⚠️ 整格要不要渲染还先看 `showSections` **位 1**（运营开关，§18.3）：位为 0 ⇒ 整格不渲染）；
  * - 店铺**粉丝数** → `ShopVO.fansCount`（契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）；
- *   ⛔ **不得**用 `boundUserCount`（已绑定微信人数，语义不同）；
+ *   ⛔ **不得**用 `boundUserCount`（已绑定微信人数，语义不同）；⚠️ 粉丝**没有**板块位 ⇒ 恒渲染；
  * - **服务表现** → 统一由 `utils/shop-metrics.ts` 的 `shopServiceMetrics()` 生成，本页不自己拼：
- *   · 「口碑品质」← `ShopVO.reviewAvgScore`（**§16 新增**：用户主观口碑平均分 1~5）；
- *   · 「发货时效」← `ShopVO.shipAvgHours`（**§15 新增**：平均发货时长，小时）；
- *   · 「客服响应」→ ⛔ **契约无字段**（§15.2 / §16.4：需会话/工单体系，**未实现**）⇒ 该格恒 `--`；
+ *   · 「口碑品质」← `ShopVO.reviewAvgScore`（**§16 新增**：用户主观口碑平均分 1~5）；位 **2**；
+ *   · 「发货时效」← `ShopVO.shipAvgHours`（**§15 新增**：平均发货时长，小时）；位 **4**；
+ *   · 「客服响应」→ ⛔ **契约无字段**（§15.2 / §16.4：需会话/工单体系，**未实现**），
+ *     **也没有对应的板块位** ⇒ 该格**永远渲染、恒 `--`**（用户 2026-10-10 明确要留着）；
  *   · 另起两格「准时送达」← `onTimeRate`、「平均接单」← `avgAcceptSeconds`（始终是它们**自己的**名字）。
+ *     这两格**没有板块位** ⇒ 不受运营开关影响，仍是"有值才出现"；也**不得**因为别的格被关掉
+ *     就改个名递补进那个槽位（那是改口径冒充）。
  *   ⚠️ §15.2 末尾**明令禁止**拿配送口径的 `onTimeRate` / `avgAcceptSeconds` 去顶前两格；
  *   ⛔ 设计稿里的**填充数值**（`平均满意度 97.2%` / `平均 12 小时发货` / `客服响应 14 秒`）一律不编。
  *   字段清单与口径（含"评分是客观合成、非用户评价"）见
- *   `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §12.2 / §12.3 / §12.4 / §12.5 / §15 / §16。
+ *   `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §12.2 / §12.3 / §12.4 / §12.5 / §15 / §16；
+ *   ⚠️ **同日 20:3x 又有 §十八**：新增 `ShopVO.showSections`（店铺页五板块的**运营开关**）——
+ *   位 1=评分星级 / 2=口碑品质 / 4=发货时效 / 8=经营资质，默认 15。**本页的位判断只有一处**
+ *   （脚本里的 `showSections` / `showRatingSection` / `showQualificationSection` + 共享模块里的
+ *   `shopServiceMetrics`）；⚠️ 其中「位开着但值缺席 ⇒ 留版式 `--`」与「客服响应恒渲染」是
+ *   **用户明确推翻 §18.4** 后的口径，逐条写在脚本那段注释里，⛔ 别照文档改回去。
  * - **「收藏」按钮** → S4 的 `POST/DELETE /api/shop/{shopId}/follow`（详见 `onFavoriteTap`）。
  * 展示口径（文案 / 单位 / 缺省）统一走 `utils/shop-metrics.ts`，与商品详情页的进店卡片**同源**。
  *
@@ -166,7 +177,7 @@ import { followShop, getShopDetail, getShopFollowStatus, unfollowShop, type Enab
 //    会把"这家店没了"渲染成"这家店没商品"（本仓库最忌的静默失真）。
 import { getShopProducts, type ProductCard } from '@/api/product'
 // 评分 / 粉丝 / 服务表现的**共用口径**（与商品详情页进店卡片同源，见该模块头部注释）。
-import { RATING_LABEL, fansText, ratingStars, ratingText, shopServiceMetrics } from '@/utils/shop-metrics'
+import { RATING_LABEL, SHOP_SECTION_QUALIFICATION, SHOP_SECTION_RATING, fansText, ratingStars, ratingText, shopSectionVisible, shopServiceMetrics } from '@/utils/shop-metrics'
 // 商品卡「标题 / 卖点」的**共用口径**（与首页 `HomeProductCard` 同源）——
 // ⚠️ 2026-10-10 用户报障「店铺页商品卡展示的字段跟首页不一样」：本页手写卡原先取
 //    `descriptionTitle || name` + `description`，首页组件取 `name` + `descriptionTitle || tag`
@@ -358,12 +369,60 @@ const recommendedParam = computed(() => activeSort.value === 'reputation')
 
 /**
  * 店铺卡内的「服务表现」格（真实数据，见 `utils/shop-metrics.ts`）。
- * ⚠️ 该数组**恒非空**：三个设计格（口碑品质 / 发货时效 / 客服响应）恒在，取不到值就是 `--`
- *    （用户 2026-10-10：「要做，用 -- 代替都行，要留着那里」）；`onTimeRate` /
- *    `avgAcceptSeconds` 有值时**另起两格**。`v-if="serviceMetrics.length"` 因此恒真（保留无害）。
+ * ⚠️ 该数组**至少有一格**：「客服响应」**没有对应的板块位**（后端本期不做）⇒ 恒在、恒 `--`
+ *    （用户 2026-10-10 决定：「要留着那里，用 `--` 代替都行」）；
+ *    「口碑品质」/「发货时效」由 `showSections` 的**位 2 / 位 4** 决定要不要占位（位为 0 ⇒ 整格不渲染），
+ *    `onTimeRate` / `avgAcceptSeconds` 有值时**另起两格**（它们没有位，不受开关影响）。
  * ⚠️ 它属于**滚动收起**的那一块（见 `COLLAPSE_BLOCK_IDS`）。
  */
 const serviceMetrics = computed(() => shopServiceMetrics(shop.value))
+
+/**
+ * 店铺页展示开关（`ShopVO.showSections`，§18.3 新增；位掩码 1=评分星级 2=口碑品质 4=发货时效
+ * 8=经营资质，默认 15=全开）。
+ *
+ * ## 语义（本页唯一解释处；`utils/shop-metrics.ts` 是唯一的位判断实现）
+ * - **位为 0 ⇒ 该板块整块不渲染** —— 这是后端的本意（运营在中控 `sys-config` 关掉某个板块）；
+ * - **位为 1 但值缺席 ⇒ 留版式 + `--`**（⚠️ 见下面那段"与文档不一致"的说明）；
+ * - ⚠️ **缺席时兜底 15（全开）**，与 §18.4 伪码 `?? 15` 一致 ——
+ *   风险（分不出"老后端没这个键"与"运营全关了"）写在 `utils/shop-metrics.ts` 的
+ *   `SHOP_SECTIONS_FALLBACK` 注释里，**动这个兜底之前先读那段**。
+ *
+ * ## ⚠️⚠️ 与后端文档 §18.4 的**两处不一致**（用户 2026-10-10 当面明确决定，⛔ 不要"修正"回去）
+ * 文档 `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §18.4 的伪码是
+ * 「`if (s & 1) 渲染「评分星级」（rating 缺席则**整块不渲染**）`」——即**值缺席就整块不渲染**。
+ * 用户**推翻**了它，逐字：「**要留着那里，用 `--` 代替都行**」（同日另有 `03a7482` 的同类决定）。
+ * ⇒ 现行：**位开着、值缺席 ⇒ 版式留着、值渲染 `--`**（`--` = "无此数据"，**不是**编一个数字，
+ *    因此与"绝不伪造数据"的硬原则不冲突；被禁止的始终是编数值）。
+ * 文档同节末句「客服响应本期不做 ⇒ 前端不渲染该块」**同样被用户推翻** ⇒ 那一格永远渲染、长期 `--`。
+ *
+ * `utils/shop-metrics.ts` 承担「口碑品质 / 发货时效 / 客服响应」三格的位判断；
+ * 本页这套 computed 只服务**评分星级**（位 1，卡内那一行）与**经营资质**（位 8，资质条）。
+ */
+const showSections = computed(() => shop.value?.showSections)
+
+/**
+ * **评分星级**（位 1）是否渲染。
+ * ⚠️ 判据只能是**位**，不能是"有没有评分"：`shop_rating_min_orders`（默认 5）意味着
+ *    **评分可以合法地缺席**（订单不足 ⇒ 后端不写评分 ⇒ 键不下发）—— 那种情况要**留版式 + `--`**
+ *    （用户决定，见上面「与文档不一致」一段），**不画空心星**（五颗空心星会被读成"0 分"，
+ *    那是我们没有的分数声明，契约 §4 有反向断言）。
+ * ⚠️ 它只门禁**评分那一格**（星串 + 分值 + 解释文案 + 中间那条分隔竖线）；
+ *    **粉丝数没有对应的位** ⇒ 粉丝格始终渲染。
+ */
+const showRatingSection = computed(() => shopSectionVisible(showSections.value, SHOP_SECTION_RATING))
+
+/**
+ * **经营资质**（位 8）是否渲染。
+ * ⚠️ 位 8 关掉时隐藏的是**整条资质条**（`qualification-bar`：左边设计师给的「店铺资质」图 +
+ *    右边「经营资质」入口）—— 整条就是"经营资质"这一个模块，只留左边那句标签会变成
+ *    **一条点不动的空条**。连带效果：店铺页上**没有**通往 `subpkg-goods/shop/qualification`
+ *    的入口了（该页本身仍注册、仍可深链，不在本页的管辖范围）。
+ * ⚠️ 位 8 **开着**时，资质条**照旧恒渲染**（哪怕门店一个资质字段都没录）：
+ *    它通向的资质页会渲染**诚实的空态**（"资质信息暂未公示"），
+ *    而 §18.4 那句"有值才渲染"与用户"要留着那里、别让板块消失"的口径相反 ⇒ 按用户口径走。
+ */
+const showQualificationSection = computed(() => shopSectionVisible(showSections.value, SHOP_SECTION_QUALIFICATION))
 
 /**
  * ===== 随滚动收起的一块（用户 2026-10-10 第四条 + 第六轮更正 + 第八轮范围确认）=====
@@ -907,8 +966,11 @@ function formatAmount(value: number): string {
            ⚠️ 顶部偏移由 `headStyle` 绑成"真实状态栏高 + 44"（写死会在刘海屏/不同状态栏下压住卡片）。 -->
       <view id="shop-head" class="shop-head" :class="{ 'shop-head-stuck': headStuck }" :style="headStyle">
         <!-- ① 店铺卡：**无论数据到没到都渲染**（用户 2026-10-10：「就算是没有相应的字段也是有内容的啊」）。
-             ⚠️ 这里**没有** `v-if`/`v-else`：卡里**不依赖后端字段**的部分（logo 槽 / 店名 / 收藏按钮 /
-                资质条）必须恒在；只有**数据位**（评分行 / 粉丝 / 服务表现三格）各自判空不渲染。
+             ⚠️ 这里**没有** `v-if`/`v-else`：卡里**不依赖后端字段**的部分（logo 槽 / 店名 / 收藏按钮）必须恒在；
+                 数据位（评分行 / 粉丝 / 服务表现格）的可见性由**两层**决定：
+                 ① `showSections` 的**位**（运营开关，§18.3 —— 位为 0 ⇒ 整块不渲染）；
+                 ② 位开着时的**值**（值缺席 ⇒ **留着版式渲染 `--`**，用户 2026-10-10 决定，
+                    ⚠️ 与 §18.4 的"缺席则整块不渲染"不一致，见脚本 `showRatingSection` 那段）。
              ⚠️ 档案取不到时，店名退回**进店时就已知**的那个（`shopNameText` ← `knownShopName`），
                 并在卡内用一行**如实的状态**说明（加载中 / 门店不存在 / 加载失败可重试）。 -->
         <view class="shop-card">
@@ -931,11 +993,13 @@ function formatAmount(value: number): string {
                    数据（**S4 起为真实字段**，2026-10-10 第四轮接线）：
                    评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
                    解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
-                   光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null** ⇒ 星串与分值
-                   一起不渲染（不补 0、不补 `—`）；粉丝 ← `ShopVO.fansCount`
+                   光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null**
+                   （`shop_rating_min_orders` 默认 5 ⇒ 订单不够就不写评分）⇒ **留版式、分值渲染 `--`**
+                   （用户 2026-10-10 第七轮决定，⛔ 不补 0 —— "0 分"是我们没有的分数声明）；
+                   粉丝 ← `ShopVO.fansCount`
                    （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染 —— 2026-10-10 实测线上
                    `GET /api/shop/5` 就是 `"fansCount": 0`，而 `rating` / `onTimeRate` /
-                   `avgAcceptSeconds` **三个键后端一个都不下发** ⇒ 那一行按"没有数据"如实留空）。
+                   `avgAcceptSeconds` **三个键后端一个都不下发** ⇒ 那几格按"没有数据"如实渲染 `--`）。
                    ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
                       `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
               <view
@@ -948,21 +1012,30 @@ function formatAmount(value: number): string {
                      （⭐ **不画空星**：五颗空心星会被读成"0 分/零星"，那是**我们没有的评分**，
                      属伪造一种"分数声明"，见契约 §4y 的同类红线）。
                      ⚠️ 2026-10-10 第八轮（用户反馈「零数据时 `--` 像粘在粉丝数上的杂物」）：
-                     **分隔竖线改为无条件渲染** —— 两个格子（分值 / 粉丝）现在恒有内容
+                     **分隔竖线改为跟随评分格渲染** —— 评分格在时两个格子（分值 / 粉丝）恒有内容
                      （真值或 `--`），所以永远不会有"悬空的竖线"；竖线把 `--` 明确锚定为
                      **左边的独立一格**，零数据时读作「`--` ｜ `0 粉丝`」而不是「`-- 0 粉丝`」。
-                     这是"字段化"处理，**不新增任何文字标签**、不暗示分数。 -->
+                     这是"字段化"处理，**不新增任何文字标签**、不暗示分数。
+                     ⚠️ 2026-10-10 20:3x（§十八 位门禁）后它多了一个**前置条件**：评分格被运营
+                     关掉（位 1 = 0）时竖线也跟着走（见下一段）。⛔ 但判据仍**不是**"有没有值"。 -->
                 <view class="shop-metrics-row">
-                  <view class="shop-rating">
+                  <!-- ⚠️ **评分星级**（`showSections` 位 1，§18.3）：
+                       位为 0 ⇒ 运营主动关掉了这一格 ⇒ **整格不渲染**（连同下面那条分隔竖线，
+                       免得留一条悬空竖线）；位为 1 时**即使没有评分也留着**并渲染 `--` ——
+                       `shop_rating_min_orders`（默认 5）意味着评分可以**合法缺席**，
+                       而用户 2026-10-10 明确「要留着那里，用 `--` 代替都行」（见脚本里的说明）。 -->
+                  <view v-if="showRatingSection" class="shop-rating">
                     <text v-if="stars" class="shop-stars">{{ stars }}</text>
                     <text class="shop-score">{{ rating || '--' }}</text>
                   </view>
                   <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）。
-                       ⚠️ 无条件画（两格恒有内容 ⇒ 不会悬空），见上面第八轮的说明。 -->
-                  <view class="shop-divider" />
+                       ⚠️ 只跟**评分格的位**走（评分格在 ⇒ 两格恒有内容 ⇒ 不会悬空）；
+                       ⛔ 不得改成按"有没有值"来画（那正是第八轮修掉的"零数据时 `--` 像粘在
+                          粉丝数上的杂物"——竖线把 `--` 锚定为左边独立的一格）。 -->
+                  <view v-if="showRatingSection" class="shop-divider" />
                   <text class="shop-fans">{{ fans || '--' }}</text>
                 </view>
-                <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
+                <text v-if="showRatingSection && rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
               </view>
             </view>
               <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
@@ -999,6 +1072,11 @@ function formatAmount(value: number): string {
                    （§15.2 / §16.4 原文「⏳ 未实现（需会话/工单体系…）」），
                    ⛔ 且 §15.2 明令**不许**拿 `onTimeRate` / `avgAcceptSeconds` 改文案去顶那一格；
                  · 另起两格用**它们自己的名字**：准时送达（`onTimeRate`）/ 平均接单（`avgAcceptSeconds`）。
+                 ⚠️⚠️ **2026-10-10 20:3x §十八（运营开关）**：前两格还要各自的**位**才占位 ——
+                   口碑品质 = **位 2**、发货时效 = **位 4**（位为 0 ⇒ 该格**整格不渲染**，这是后端本意）；
+                   **「客服响应」没有位** ⇒ 恒渲染、恒 `--`（用户明确要留着，⛔ 别照 §18.4 末句删掉）；
+                   准时送达 / 平均接单**也没有位** ⇒ 不受开关影响。
+                   位判断只在 `utils/shop-metrics.ts`（本页不自己判；模板只管渲染这个数组）。
                  取数、单位、缺省**全部**在 `utils/shop-metrics.ts`（本页不自己拼）。
                  ⚠️ 设计稿里的填充值（`平均满意度 97.2%` / `平均 12 小时发货` / `客服响应 14 秒`）
                     一个都不写死 —— 那是伪造数据。
@@ -1031,8 +1109,13 @@ function formatAmount(value: number): string {
             </view>
           </view>
 
-        <!-- ② 资质条：`#FFF4E8`，只有上圆角 12，内边距 上12/右12/下24/左12（下 24 是给白卡压叠留的）。 -->
-        <view class="qualification-bar">
+        <!-- ② 资质条：`#FFF4E8`，只有上圆角 12，内边距 上12/右12/下24/左12（下 24 是给白卡压叠留的）。
+             ⚠️ **经营资质**（`showSections` 位 8，§18.3）：位为 0 ⇒ **整条不渲染** ——
+                左「店铺资质」+ 右「经营资质」入口是**同一个模块**，只留左边那半句会变成
+                一条点不动的空条；连带店铺页上就没有通往资质页的入口了（见脚本 `showQualificationSection`）。
+             ⚠️ 位 8 开着时**照旧恒渲染**（哪怕门店一个资质字段都没录）：点进去的资质页渲染的是
+                **诚实的空态**，不是空白框。⛔ 不要按 §18.4 那句"有值才渲染"把它改成依赖资质字段。 -->
+        <view v-if="showQualificationSection" class="qualification-bar">
           <!-- 「店铺资质」= **设计师给的矢量原件**（用户 2026-10-10 第八轮逐字：「店铺资质四个字
                换成我给的这个图片」，源文件 `mini_shop/static/shop/店铺资质.svg`，viewBox **68×18**）。
                ⚠️ **小程序 `<image>` 不支持 SVG**：真机上什么都不显示（只有开发者工具能渲染）——
