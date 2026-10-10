@@ -148,6 +148,14 @@
             "navigationStyle": "custom",
             "navigationBarBackgroundColor": "#FFFFFF"
           }
+        },
+        {
+          "path": "shop/qualification",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "经营资质",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
         }
       ]
     },

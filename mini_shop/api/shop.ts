@@ -7,11 +7,26 @@ import { request } from '@/utils/request'
  * ⚠️ 这里**只声明前端真正消费的字段**。管理口径字段（`deposit` / `commissionRate` / `groupId` /
  *    `boundUserCount` …）刻意不声明：尤其 `boundUserCount` 是「已绑定微信人数」，**不是粉丝数** ——
  *    设计稿里的 `3484 粉丝` 在现有契约里**没有**任何对应字段（`ShopVO` 全字段逐条核对过）。
+ *
+ * ⚠️ **经营资质页（2026-10-10 新增）的数据现实**：`ShopVO` 全字段里与资质相关的**只有**
+ *    `name`（店铺名）与 `businessName`（工商名称）。**营业执照 / 食品经营许可证的图片没有**
+ *    —— 那些字段只存在于商户**入驻表单**（`MerchantApplyDTO.licenseImage` /
+ *    `MerchantApplyVO.licenseImage` / `AdminMerchantApplyVO.licenseImage`，都是 B/C 端商户侧），
+ *    以及平台级主题 `ThemeV2VO.companyName / businessLicenseNo`（那是**平台运营方**的公司信息，
+ *    按门店展示就是伪造归属 ⇒ 一律不用）。
+ *    ⇒ 资质页的证照区块走**诚实空态**，缺口已记 `docs/26/10.10/后端需求-店铺页数据缺口-2026-10-10.md`。
  */
 export interface EnabledShop {
   id: number
   name: string
   address: string
+  /**
+   * 工商名称（`ShopVO.businessName`，契约原文注释「工商名称」）。
+   * 店铺页**经营资质**页的「商家主体」用它 —— 这是契约里**唯一**真有的主体字段。
+   * ⚠️ 可为空串（2026-10-10 实测 `GET /api/shop/all`：14 家门店里只有 1 家填了）⇒
+   *    调用方必须按「未公示」处理，**不得**用 `merchantName` / 主题配置里的平台公司名顶替。
+   */
+  businessName?: string
   phone?: string
   status?: number
   createTime?: string

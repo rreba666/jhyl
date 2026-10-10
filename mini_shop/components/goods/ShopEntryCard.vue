@@ -2,13 +2,20 @@
 /**
  * C 端 · 商品详情页「进店卡片」（Figma 节点 `4029:5751`，`详情页进店卡片`）。
  *
- * ## 设计口径（值与实现说明逐条对齐，色值/字号不是眼估的）
+ * ## 设计口径（2026-10-10 **重新从 Figma 节点树逐字段取**，色值/字号不是眼估的）
+ * 逐项「设计值 → 我们现值 → 差异 → 是否已修」的对照表：
+ * `docs/26/10.10/店铺页与进店卡片-设计稿逐项复核与修复-2026-10-10.md`。
+ * 原始节点树 / @2x 渲染图：`docs/_ref/shop-page/figma-recheck-2026-10-10/`。
+ *
  * 设计尺寸 390×126 的**白卡**（画板里上下各留 51px 灰底只是衬白用）：
- * - 卡片：`#FFFFFF`，内边距 **12**（→ 23rpx），卡片内纵向间距 **12**（→ 23rpx）；
+ * - 卡片：`#FFFFFF`，内边距 **12**（→ 23rpx），卡片内纵向间距 **12**（→ 23rpx；实测值，
+ *   与店铺页那张卡的 16 不同，别互相抄）；
  * - 顶部行：logo **44×44 圆角 6**（→ 85rpx / 12rpx）+ 店名（16px/600/行高 24，`#1D2129`）
- *   + 评分行（星级 10×10 `#FFB200`、分数 12px `#FFB200`、分隔竖线 1×8 `#E6E7EB`、粉丝 12px `#86909C`）
- *   + 「进店」按钮（**60×28 圆角 4**，纯色 `#FFF4E8`，文案 12px `#FF5500`，右箭头 `#FF5500`）；
- * - 服务表现行：三格等分、**文案居中**，指标名 12px `#86909C` / 指标值 13px `#1D2129`，格间距 24。
+ *   + 评分行（星级 5×10×10 间距 3 `#FFB200`、分数 12px `#FFB200`、分隔竖线 1×8 `#E6E7EB`、粉丝 12px `#86909C`）
+ *   + 「进店」按钮（**60×28 圆角 4**，纯色 `#FFF4E8`，`pad=T4 R8 B4 L12`，元素间距 2，
+ *   文案 12px `#FF5500`，右箭头 ink **4.58×8.11** `#FF5500`）；
+ * - 服务表现行：三格等分（各 106×46）、**文案居中**，指标名 12px `#86909C` / 指标值 13px `#1D2129`，
+ *   格间距 24，格内纵向间距 4。
  *
  * ## 与「店铺页」那张卡的差异（很容易抄错，实现说明 §2.3 有对照表）
  * 那张卡是**渐变上的透明卡**（白字 + `#FFFFFF@10%` 半透明指标块 + 渐变「收藏」按钮）；
@@ -126,9 +133,12 @@ function onEnter(): void {
         <view v-if="ratingText || fansText" class="entry-rating">
           <view v-if="ratingText" class="entry-stars">
             <!-- ⚠️ 设计稿里五颗星复用的是一个**名叫 `收藏_填充`** 的组件（`4002:4148`，内部只有一个
-                 `Star 1 (Stroke)` 矢量）—— 名字有误导性，那就是**实心五角星**，不是收藏图标。
-                 这里用实心星字形 `★`（#FFB200）绘制，避免为一次小图标新增二进制切图
-                 （仓库禁本地 webp，新增图片还要占包体积）。 -->
+                 `Star 1 (Stroke)` 矢量）—— 名字有误导性，但**这里的星是实心的**（渲染图确认：
+                 评分行是实心星、收藏按钮那颗才是空心星）。
+                 每个星位 10×10、星星之间 3 ⇒ 整块 62px；实心星字形 `★` 的字身 ≈ 1em，
+                 故取 20rpx（10.4px）+ 字距 4rpx ⇒ 5×20 + 5×4 = 120rpx ≈ 62px（旧值 19rpx 裸排只有 49px，
+                 整行左移 12px），墨迹 ≈ 8.7px 也对得上设计的 9.47。
+                 用字形而不是切图：仓库禁本地 webp，新增位图还要占包体积。 -->
             <text class="entry-star">★★★★★</text>
             <text class="entry-score">{{ ratingText }}</text>
           </view>
@@ -140,7 +150,8 @@ function onEnter(): void {
       </view>
       <view class="entry-button">
         <text class="entry-button-text">进店</text>
-        <!-- 右箭头：设计是 5×8 的折线（`箭头_右`）—— 用两根边框旋转 45° 画，零切图。 -->
+        <!-- 右箭头：`箭头_右` 实例 14×14 内的矢量 ink **4.58×8.11**（`#FF5500`，`Vector 166 (Stroke)`）
+             —— 用两根边框旋转 45° 画，零切图。 -->
         <view class="entry-arrow" />
       </view>
     </view>
@@ -168,18 +179,26 @@ function onEnter(): void {
 .entry-name { color: #1D2129; font-size: 31rpx; font-weight: 600; line-height: 46rpx; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .entry-rating { display: flex; align-items: center; height: 38rpx; }
 .entry-stars { display: flex; align-items: center; }
-.entry-star { color: #FFB200; font-size: 19rpx; line-height: 38rpx; }
+/* 实心星 `★`：20rpx 字身 + 4rpx 字距 ⇒ 五颗合计 ≈ 62px（= 设计里 5×10 + 4×3）。 */
+.entry-star { color: #FFB200; font-size: 20rpx; letter-spacing: 4rpx; line-height: 38rpx; }
+/* 分数：12px `#FFB200`，与星块间距 6（12rpx）。 */
 .entry-score { margin-left: 12rpx; color: #FFB200; font-size: 23rpx; line-height: 38rpx; }
+/* 分隔竖线 1×8 `#E6E7EB`，两侧间距 8（15rpx）。 */
 .entry-divider { width: 2rpx; height: 15rpx; margin: 0 15rpx; background: #E6E7EB; }
 .entry-fans { color: #86909C; font-size: 23rpx; line-height: 38rpx; }
 /* 「进店」按钮：60×28 圆角 4，纯色 #FFF4E8，内边距 上4/右8/下4/左12，元素间距 2 */
 .entry-button { display: flex; align-items: center; flex: none; height: 54rpx; padding: 8rpx 15rpx 8rpx 23rpx; border-radius: 8rpx; background: #FFF4E8; box-sizing: border-box; }
 .entry-button-text { color: #FF5500; font-size: 23rpx; line-height: 38rpx; }
-.entry-arrow { width: 12rpx; height: 12rpx; margin-left: 4rpx; border-top: 3rpx solid #FF5500; border-right: 3rpx solid #FF5500; transform: rotate(45deg); }
-/* 服务表现行：三格等分、文案居中、格间距 24（设计：366 = 106×3 + 24×2） */
+/* 箭头 14×14 实例、矢量 ink 4.58×8.11：旋转 45° 的「正方形两边」墨迹 = 0.707·S × 1.414·S，S = 边长 + 边框
+   ⇒ 8rpx + 3rpx ⇒ ink ≈ 4.05×8.09px（旧值 12rpx + 3rpx ⇒ 5.9×11.8px，高了 45%）。 */
+.entry-arrow { width: 8rpx; height: 8rpx; margin-left: 4rpx; border-top: 3rpx solid #FF5500; border-right: 3rpx solid #FF5500; transform: rotate(45deg); }
+/* 服务表现行：三格等分、文案居中、格间距 24（设计：366 = 106×3 + 24×2），格内纵向间距 4。
+   ⚠️ 与顶部行的间距是 **12**（`Frame 126` 的 `gap=12`），不是卡片根上的 16 —— 卡片根本只有一个子块，
+   那个 16 是空档。 */
 .entry-metrics { display: flex; align-items: center; margin-top: 23rpx; }
 .entry-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-left: 46rpx; }
 .entry-metric:first-child { margin-left: 0; }
 .entry-metric-name { color: #86909C; font-size: 23rpx; line-height: 38rpx; }
+/* 指标值 13px/行高 22 `#1D2129`，与名称间距 4（8rpx）。 */
 .entry-metric-value { margin-top: 8rpx; color: #1D2129; font-size: 25rpx; line-height: 42rpx; }
 </style>

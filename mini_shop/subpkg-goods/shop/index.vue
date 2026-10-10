@@ -2,17 +2,22 @@
 /**
  * C 端 · 店铺页（Figma 节点 `4045:5815`，`店铺_首页_两项`，390×1007）。
  *
- * ## 设计口径（全部取自实现说明的**实测值**，不是眼估）
- * | 区块 | 设计 y 区间 | 高 | 度量 |
+ * ## 设计口径（2026-10-10 **重新从 Figma 节点树逐元素取**，不眼估、不沿用旧规格）
+ *
+ * 逐项「设计值 → 我们现值 → 差异 → 是否已修」的对照表：
+ * `docs/26/10.10/店铺页与进店卡片-设计稿逐项复核与修复-2026-10-10.md`。
+ * 原始节点树 / @2x 渲染图：`docs/_ref/shop-page/figma-recheck-2026-10-10/`。
+ *
+ * | 区块 | 设计 y 区间 | 高 | 度量（节点树原值） |
  * |---|---|---|---|
- * | 渐变头图 | 0 → 248 | 248 | `linear-gradient(180deg, #704138 0%, #9A674D 100%)`（渲染图逐点核对一致） |
- * | 导航栏 | 0 → 92 | 48+44 | 白色返回箭头 + **居中白色标题**；不画 iOS 胶囊（微信原生提供） |
- * | 店铺卡 | 92 → 235 | 143 | ⚠️ **透明卡**（产品已定：白填充 `visible:false` 不画成白卡），白字压渐变 |
- * | 资质条 | 235 → 291 | 56 | `#FFF4E8`，圆角 **上12/上12/下0/下0** |
- * | 白内容区 | 279 → 1007 | 728 | 圆角 12/12/0/0，与资质条**重叠 12px** |
- * | Tab 栏 | 279 → 321 | 42 | 底部 1px `#F1F2F4`；选中 `#FF5500` + 28×2 下划线 |
- * | 筛选行 | 321 → 369 | 48 | 选中：`#FFF4E8` + 1px `#FF5500` 描边；未选中：`#F6F7F9` |
- * | 商品网格 | 369 → 967 | 598 | 每行 2 张、卡宽 177、列间距 12、行间距 24 |
+ * | 渐变头图 | 0 → 248 | 248 | `GRADIENT_LINEAR [0%:#704138 100%:#9A674D] handles=(0.5,0)→(0.5,1)` ⇒ `180deg` 同值（渲染图逐点取色一致） |
+ * | 导航栏 | 0 → 92 | 48+44 | 白色返回箭头（矢量 9×17，`#FFFFFF@90%`）+ 居中白标题 17px/600；设计假设状态栏 48 |
+ * | 店铺卡 | 92 → 235 | 143 | ⚠️ **透明卡**（节点 `fills` 是 `visible:false` 的 `#FFFFFF`，不画成白卡），白字压渐变；`r=12`、`pad=T12 R12 B16 L12` |
+ * | 资质条 | 235 → 291 | 56 | `#FFF4E8`，圆角 **12/12/0/0**，`pad=T12 R12 B24 L12`（下 24 是给白卡压叠留的） |
+ * | 白内容区 | 279 → 1007 | 728 | 圆角 12/12/0/0，`pad-bottom 40`；与资质条**重叠 12**（父 `Frame 130` 的 `gap=-12`） |
+ * | Tab 栏 | 279 → 321 | 42 | 底部 **0.5px** `#F1F2F4`（INSIDE）；选中 `#FF5500` + 28×2 下划线；文案顶距 10、下划线贴底 |
+ * | 筛选行 | 321 → 369 | 48 | `pad=12`、`gap=8`；选中 `#FFF4E8` + 1px INSIDE `#FF5500` 描边；未选中 `#F6F7F9` |
+ * | 商品网格 | 369 → 967 | 598 | `pad=T0 R12 B0 L12`、**行间距 24 / 列间距 12**、卡宽 177、**末行后无间距**（容器止于末行底） |
  *
  * ## 与设计的差异（都要显式说明，不许"看起来差不多"）
  * 1. **负间距**：`Frame 130` 用 `itemSpacing = -12` 做「白卡压住资质条 12px」。
@@ -21,10 +26,18 @@
  *    没有用 `z-index`：两条都不带定位，顺序即层级，少一个魔法值。
  * 2. **导航栏**：设计里它在渐变头图内部（48 系统栏 + 44 标题栏，共 92）。
  *    实现取「真实状态栏高度 + 44px」并**固定**在顶部（否则滚下去就没有返回入口了），
- *    背景用同一渐变的 **0→92 切片**（`#704138 → #7F4F40`，端点取自渲染图在 y=92 的实测色），
+ *    背景用同一渐变的 **0→92 切片**（`#704138 → #804F40`；`#804F40` 是 `#704138`→`#9A674D`
+ *    在 t=92/248 的线性插值，也与渲染图在 y=92 的实测色 `#805041` 一致），
  *    这样未滚动时与 477rpx 的头图渐变**视觉连续**，滚动后返回箭头依然在。
- * 3. **无阴影**：设计里白卡那条 `DROP_SHADOW #E66A00@20%` 是 `visible:false` ⇒ 实现**不加阴影**
- *    （且 `clips` 也会裁掉向上偏移的阴影，见实现说明 §1.3 注解）。
+ * 3. **无阴影**：设计里白卡那条 `DROP_SHADOW #E56A00@20% off(0,-8) r16` 是 `visible:false`
+ *    ⇒ 实现**不加阴影**（且 `clips` 也会裁掉向上偏移的阴影）。
+ * 4. **收藏按钮的渐变角度**：节点是 `handles=(0,0)→(1,1)`，即**按包围盒归一化的对角线**
+ *    （66×28 的盒子 ⇒ 方向 (66,28)），**不是** CSS 的 `135deg`（那是屏幕空间 45°，在扁盒子上
+ *    会明显过陡、颜色提前跑完）。等价 CSS 角度 = `180deg - atan(W/H)` = 180 - atan(66/28)
+ *    ≈ **113deg**（用渲染图逐点取样反解验证过：t≈0.068/0.564/0.945 三处都吻合）。
+ * 5. **认证徽标**：设计是 18×18 实例内的 **14.83 描边「扇贝形」徽章**（绿描边 + 绿对勾），
+ *    不是实心绿圆。扇贝（8 瓣波浪边）在 WXSS 里画不出来 ⇒ 退化为**同色的描边圆 + 绿对勾**
+ *    （去掉填充色是这次最关键的修正：旧实现画成了实心绿圆 + 白对勾）。
  *
  * ## 数据来源（2026-10-10 S2b / S3 已全部落地，本页不再有"无接口"的占位逻辑）
  * 本页**两个真实数据源**（都免登录、游客可访问）：
@@ -143,6 +156,25 @@ const lastPageSize = ref(0)
  *    本仓库已知后端 `total` 在部分接口上不可信，用"本页是否满页"判断不会漏也不会死循环。
  */
 const hasMore = computed(() => lastPageSize.value >= PAGE_SIZE)
+
+/**
+ * 网格卡片的**视图模型**：把后端价格拆成「整数段 / 小数段」两截（外加符号段）。
+ *
+ * ⚠️ 设计稿的 `¥ 299.00` 是**一个** TEXT 节点配 `characterStyleOverrides`：
+ *    `¥ ` = 12px/**500**、整数 `299` = **18px/500**、小数 `.00` = 14px/500 —— 三段**字号不同**。
+ *    旧规格只记了"`¥` 与数字字号不同"，把数字整段按 14px/600 渲染 ⇒ 价格比设计小一圈、还粗了一档；
+ *    2026-10-10 重新解析节点树才发现整数位是 **18px**（见文首对照表第 20 条）。
+ *    WXML 模板里没法对同一条目反复调函数拆分，所以在这里一次算好。
+ */
+const gridProducts = computed(() => products.value.map((product) => {
+  const text = formatAmount(Number(product.price))
+  const dot = text.indexOf('.')
+  return {
+    ...product,
+    priceInt: dot < 0 ? text : text.slice(0, dot),
+    priceDec: dot < 0 ? '' : text.slice(dot),
+  }
+}))
 
 /**
  * 请求竞态 token：切换排序后**在飞的旧请求必须作废**（与 `subpkg-wallet/flows/flows.vue` 同款）。
@@ -290,11 +322,19 @@ function onFavoriteTap(): void {
 }
 
 /**
- * 「经营资质」：契约里没有资质内容接口、也没有资质页（实现说明 §4.3 第 8 条）
- * ⇒ 不静默留死链，点它给一句中性提示。
+ * 「经营资质」：打开**经营资质页**（本分包新增 `subpkg-goods/shop/qualification`）。
+ *
+ * ⚠️ 设计稿里**没有**这张页面的节点（2026-10-10 把 Figma 文件「店铺」页整棵树按
+ *    `资质 / 营业执照 / 许可证 / 证照` 四个词扫过一遍，只命中这条入口本身，
+ *    没有任何画板）⇒ 页面按用户给的**真实小程序参考页**（别家店铺的「经营资质」）排版。
+ * 📄 页面只渲染**契约真有的**字段：`ShopVO.name`（店铺名）/ `ShopVO.businessName`（工商名称
+ *    = 商家主体）；**营业执照 / 许可证图片契约里没有**（图片只在商户**入驻表单**上：
+ *    `MerchantApplyDTO.licenseImage`，C 端 `ShopVO` 全字段无此列）⇒ 页面给诚实空态。
  */
 function onQualificationTap(): void {
-  uni.showToast({ title: '经营资质页暂未开放', icon: 'none' })
+  // 没带 shopId 时不跳：资质页同样以 shopId 为唯一取数依据，空手跳过去只能显示错误。
+  if (!shopId.value) return
+  uni.navigateTo({ url: `/subpkg-goods/shop/qualification?shopId=${encodeURIComponent(shopId.value)}` })
 }
 
 /** 打开商品详情（网格做出来后的既有跳转口径）。 */
@@ -349,10 +389,11 @@ function formatAmount(value: number): string {
                    店名走 `shop.name`、logo 走 `shop.shopImage`（未配置时不画 `<image>`，不塞占位图）。 -->
             </view>
             <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
-                 （方向 handle (0,0)→(1,1) = 左上→右下 ⇒ 135deg），文案白字 12px。
+                 （方向 handle (0,0)→(1,1) = 按包围盒归一化的对角线 ⇒ CSS `113deg`，见样式表注释），
+                 内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星，文案白字 12px。
                  点击只提示（店铺收藏读写接口缺失，见 onFavoriteTap 注释）。 -->
             <view class="shop-fav" @click="onFavoriteTap">
-              <text class="shop-fav-star">★</text>
+              <text class="shop-fav-star">☆</text>
               <text class="shop-fav-text">收藏</text>
             </view>
           </view>
@@ -363,12 +404,11 @@ function formatAmount(value: number): string {
 
         <!-- ② 资质条：`#FFF4E8`，只有上圆角 12，内边距 上12/右12/下24/左12（下 24 是给白卡压叠留的）。 -->
         <view class="qualification-bar">
-          <!-- ⚠️ 「店铺资质」在设计稿里是**转曲 VECTOR**（节点 `4045:5860`，67×14，#8C5D2A），
-               节点树里**没有文字** ⇒ 文案待设计提供。这里按需求做成**占位 + 明确标注**，
-               **不自己编文案**（实现说明 §7.2）。 -->
-          <view class="qualification-label">
-            <text class="qualification-placeholder">待设计提供文案</text>
-          </view>
+          <!-- 「店铺资质」在设计稿里是**转曲矢量**（节点 `4045:5860`，ink 66.86×14，`#8C5D2A`）
+               ⇒ 节点树里没有文字节点，但 **@2x 渲染图里字是清楚的**：把该区域放大到 6× 后可读为
+               「店铺资质」（4 字，ink 宽 66.86 ⇒ 字身 ≈ 16.7px，ink 高 14 ⇒ 字号 ≈ 17px；笔画偏粗 ⇒ 600）。
+               ⚠️ 旧实现按"文案待设计提供"渲染了虚线占位 —— 那是**看漏了渲染图**，已按实测改为真文案。 -->
+          <text class="qualification-label">店铺资质</text>
           <view class="qualification-link" @click="onQualificationTap">
             <view class="cert-badge"><text class="cert-check">✓</text></view>
             <text class="qualification-text">经营资质</text>
@@ -420,8 +460,8 @@ function formatAmount(value: number): string {
                   · 取数失败 → `productsError`（不谎报"没有商品"）；
                   · 取数成功但 `total=0` → 空态「该店铺暂无在售商品」；
                   · 网格为空时**不渲染** `.goods-grid`（连它的 padding 都不出现）。 -->
-          <view v-if="products.length" class="goods-grid">
-            <view v-for="product in products" :key="product.id" class="goods-card" @click="openProduct(product)">
+          <view v-if="gridProducts.length" class="goods-grid">
+            <view v-for="product in gridProducts" :key="product.id" class="goods-card" @click="openProduct(product)">
               <view class="goods-image-wrap">
                 <!-- 设计里图片容器是 177×177 圆角 8，内层图 `scaleMode=FILL` 被裁成方形。 -->
                 <image class="goods-image" :src="product.mainImage" mode="aspectFill" />
@@ -429,11 +469,14 @@ function formatAmount(value: number): string {
               <view class="goods-info">
                 <text class="goods-title">{{ product.descriptionTitle || product.name }}</text>
                 <text v-if="product.description" class="goods-selling">{{ product.description }}</text>
-                <view class="goods-price">
-                  <!-- 设计里 `¥` 与数字**字号不同**（`styleOverrides=8`）⇒ 两段 text，不写成一整串。 -->
+                <!-- 价格：设计里 `¥ 299.00` 是**一个 TEXT 节点 + `characterStyleOverrides`**，
+                     `¥ ` = 12px/500、整数 = **18px**/500、小数 = 14px/500（三段**字号不同、字重都是 500**）
+                     ⇒ 这里必须用嵌套 text 保持同一条行内基线，不能拼成一整串。 -->
+                <text class="goods-price">
                   <text class="goods-price-symbol">¥</text>
-                  <text class="goods-price-value">{{ formatAmount(product.price) }}</text>
-                </view>
+                  <text class="goods-price-int">{{ product.priceInt }}</text>
+                  <text v-if="product.priceDec" class="goods-price-dec">{{ product.priceDec }}</text>
+                </text>
               </view>
             </view>
           </view>
@@ -473,8 +516,8 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .hero-gradient { position: absolute; top: 0; left: 0; right: 0; height: 477rpx; background: linear-gradient(180deg, #704138 0%, #9A674D 100%); }
 
 /* ② 导航栏（固定）：背景是上面那条渐变的 **0→92 切片**，
-   终点 `#7F4F40` 取渲染图在 y=92 的实测色（线性插值同为 #7F4F40）。 */
-.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #704138 0%, #7F4F40 100%); box-sizing: border-box; }
+   终点 `#804F40` = `#704138`→`#9A674D` 在 t=92/248 的线性插值（渲染图实测 #805041，差 1 为抗锯齿）。 */
+.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #704138 0%, #804F40 100%); box-sizing: border-box; }
 /* 返回热区 40×44，右内边距 12 / 左内边距 16（设计值 → 23rpx / 31rpx） */
 .nav-back { position: absolute; left: 0; bottom: 0; display: flex; align-items: center; width: 77rpx; height: 85rpx; padding-left: 31rpx; box-sizing: content-box; }
 /* 箭头：9×17 的白色折线（#FFFFFF@90%）—— 边框旋转 45° 画法，不引入切图。 */
@@ -494,31 +537,45 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .shop-card-main { flex: 1; min-width: 0; margin-left: 23rpx; margin-right: 38rpx; display: flex; flex-direction: column; justify-content: center; }
 /* 店名 16px/600/行高 24，白色 */
 .shop-name { color: #FFFFFF; font-size: 31rpx; font-weight: 600; line-height: 46rpx; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-/* 「收藏」按钮 66×28 圆角 4，渐变 #FF9900 → #FF3C00（左上→右下），内边距 上4/右12/下4/左12，间距 4 */
-.shop-fav { display: flex; align-items: center; flex: none; height: 54rpx; padding: 8rpx 23rpx; border-radius: 8rpx; background: linear-gradient(135deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }
-.shop-fav-star { color: #FFFFFF; font-size: 25rpx; line-height: 38rpx; }
+/* 「收藏」按钮 66×28 圆角 4，渐变 #FF9900 → #FF3C00，内边距 上4/右12/下4/左12，间距 4。
+   ⚠️ 角度是 **113deg** 而不是 `135deg`：节点的 `handles=(0,0)→(1,1)` 是**按包围盒归一化的对角线**
+   （66×28 的盒子 ⇒ 方向向量 (66,28)），等价 CSS 角度 = `180deg - atan(W/H)` ≈ 113deg。
+   `135deg` 是屏幕空间 45°，在扁盒子上会明显过陡（渲染图取样反解验证：t≈0.068/0.564/0.945 三处全中）。 */
+.shop-fav { display: flex; align-items: center; flex: none; height: 54rpx; padding: 8rpx 23rpx; border-radius: 8rpx; background: linear-gradient(113deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }
+/* 星形：设计是 14×14 的**空心（描边）**白星 —— 节点名 `收藏` 下的矢量叫 `Star 1 (Stroke)`，
+   渲染图放大后也是空心星。⚠️ 旧实现用了实心 `★`，这是"抄了名字没看图"。 */
+.shop-fav-star { color: #FFFFFF; font-size: 28rpx; line-height: 38rpx; }
 .shop-fav-text { margin-left: 8rpx; color: #FFFFFF; font-size: 23rpx; line-height: 38rpx; }
 
 /* ④ 资质条：390×56（108rpx），`#FFF4E8`，**只有上圆角 12**，左右两侧 space-between、垂直居中。 */
 .qualification-bar { display: flex; align-items: center; justify-content: space-between; height: 108rpx; padding: 23rpx 23rpx 46rpx; border-radius: 23rpx 23rpx 0 0; background: #FFF4E8; box-sizing: border-box; }
-/* 「店铺资质」占位：设计里是转曲矢量字 67×14 `#8C5D2A`，**文案待设计提供** ⇒ 虚线占位 + 明确标注。 */
-.qualification-placeholder { color: #8C5D2A; font-size: 21rpx; line-height: 30rpx; }
-.qualification-label { display: flex; align-items: center; height: 35rpx; padding: 0 12rpx; border: 2rpx dashed #8C5D2A; border-radius: 6rpx; box-sizing: border-box; }
+/* 「店铺资质」：转曲矢量渲染图实测 ink 66.86×14、`#8C5D2A` ⇒ 字号 ≈17px（4 字 × 16.7）、字重 600。 */
+.qualification-label { color: #8C5D2A; font-size: 33rpx; font-weight: 600; line-height: 35rpx; }
 .qualification-link { display: flex; align-items: center; }
-/* 绿色认证徽标 18×18（内部矢量 15×15 `#00B42A`）：实心圆 + 白色对勾字形，零切图。 */
-.cert-badge { display: flex; align-items: center; justify-content: center; width: 35rpx; height: 35rpx; border-radius: 50%; background: #00B42A; }
-.cert-check { color: #FFFFFF; font-size: 23rpx; line-height: 1; }
-/* 「经营资质」13px/400/行高 20，`#86909C` */
+/* 认证徽标：设计是 18×18 实例内的 **14.83 描边扇贝形**徽章（`#00B42A` 描边 + 同色对勾）。
+   扇贝的 8 瓣波浪边 WXSS 画不出来 ⇒ 退化为**描边圆 + 绿对勾**（关键修正：不再是实心绿圆 + 白对勾）。
+   外框保持 18px（35rpx），圆环 29rpx（15.1px ≈ 设计的 14.83）居中，故左右各留 3rpx。 */
+.cert-badge { display: flex; align-items: center; justify-content: center; width: 29rpx; height: 29rpx; margin: 3rpx; border: 2rpx solid #00B42A; border-radius: 50%; box-sizing: border-box; }
+.cert-check { color: #00B42A; font-size: 19rpx; line-height: 1; }
+/* 「经营资质」13px/400/行高 20，`#86909C`；与徽标间距 4（8rpx）。 */
 .qualification-text { margin-left: 8rpx; color: #86909C; font-size: 25rpx; line-height: 38rpx; }
-.qualification-arrow { width: 13rpx; height: 13rpx; margin-left: 8rpx; border-top: 3rpx solid #86909C; border-right: 3rpx solid #86909C; transform: rotate(45deg); }
+/* 箭头：`箭头_右` 实例 14×14 内的矢量 ink 4.58×8.11（`#86909C`）。
+   ⚠️ 折线用「正方形两边旋转 45°」画：旋转后的 ink = 0.707·S × 1.414·S，S = width + border
+   ⇒ 取 width/height 8rpx + 3rpx 边框 ⇒ ink ≈ 4.05×8.09px，与设计基本重合。
+   旧实现 13rpx+3rpx ⇒ ink 5.9×11.8px，大了 ~45%。
+   ⚠️ 设计里文案与箭头**没有间距**（`Frame 124` 无 gap：52 + 14 = 66）⇒ 这里不能加 margin-left。 */
+.qualification-arrow { width: 8rpx; height: 8rpx; border-top: 3rpx solid #86909C; border-right: 3rpx solid #86909C; transform: rotate(45deg); }
 
 /* ⑤ 白内容区：圆角 12/12/0/0 + 底部留白 40px（77rpx）。
    ⚠️ `margin-top: -23rpx` = 设计里 `Frame 130` 的 `gap: -12`（小程序 gap 不支持负值）。 */
 .shop-content { margin-top: -23rpx; padding-bottom: 77rpx; border-radius: 23rpx 23rpx 0 0; background: #FFFFFF; }
 
-/* Tab 栏：390×42（81rpx），底部 1px `#F1F2F4`（INSIDE）；两个等宽。 */
-.tab-bar { display: flex; align-items: stretch; height: 81rpx; border-bottom: 2rpx solid #F1F2F4; box-sizing: border-box; }
-.tab { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+/* Tab 栏：390×42（81rpx），底部 **0.5px** `#F1F2F4`（INSIDE，0.5 设计 px = 1rpx）；两个等宽。 */
+.tab-bar { display: flex; align-items: stretch; height: 81rpx; border-bottom: 1rpx solid #F1F2F4; box-sizing: border-box; }
+/* ⚠️ 内容**顶对齐**、不是垂直居中：设计里文案距 tab 顶 10px（`Component 4` 的 `pad-top 10`），
+   下划线 28×2 贴到 tab 底（y 319..321 = tab 底 321），文案与下划线间距 8。
+   旧实现用 `justify-content: center` ⇒ 整组上移约 5px。19+42+15+4 = 80rpx = 内容盒高（81 - 1rpx 描边）。 */
+.tab { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 19rpx; box-sizing: border-box; }
 /* 选中：14px/500 `#FF5500`；未选中：`#1D2129`。 */
 .tab-text { color: #1D2129; font-size: 27rpx; font-weight: 500; line-height: 42rpx; }
 .tab-text-active { color: #FF5500; }
@@ -533,17 +590,22 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .filter-chip-active { border-color: #FF5500; background: #FFF4E8; }
 .filter-text { color: #1D2129; font-size: 23rpx; line-height: 38rpx; }
 .filter-text-active { color: #FF5500; }
-/* 排序双三角 12×12：上三角 `#1D2129`（升序生效）/ 下三角 `#86909C`（未生效）。 */
+/* 排序双三角：实例 12×12 内的两个三角各 5.18×3.31，上 `#1D2129`（升序生效）/ 下 `#86909C`；
+   两个三角间距 2（4rpx），三角与文案间距 2（4rpx）。
+   ⚠️ CSS 三角的**墨迹**宽 = 左右边框厚之和 ⇒ 10rpx（5.2px）才等于设计的 5.18px；
+   旧实现 6rpx+6rpx = 12rpx（6.24px）偏宽 20%。 */
 .sort-arrows { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 23rpx; height: 23rpx; margin-left: 4rpx; }
-.sort-arrow-up { width: 0; height: 0; border-right: 6rpx solid transparent; border-bottom: 6rpx solid #86909C; border-left: 6rpx solid transparent; }
-.sort-arrow-down { width: 0; height: 0; margin-top: 3rpx; border-top: 6rpx solid #86909C; border-right: 6rpx solid transparent; border-left: 6rpx solid transparent; }
+.sort-arrow-up { width: 0; height: 0; border-right: 5rpx solid transparent; border-bottom: 6rpx solid #86909C; border-left: 5rpx solid transparent; }
+.sort-arrow-down { width: 0; height: 0; margin-top: 4rpx; border-top: 6rpx solid #86909C; border-right: 5rpx solid transparent; border-left: 5rpx solid transparent; }
 .sort-arrow-up.sort-arrow-on { border-bottom-color: #1D2129; }
 .sort-arrow-down.sort-arrow-on { border-top-color: #1D2129; }
 
-/* 商品网格：左右内边距 12（23rpx），列间距 12（23rpx），行间距 24（46rpx），卡宽 177（340rpx） */
-.goods-grid { display: flex; flex-wrap: wrap; padding: 0 23rpx; box-sizing: border-box; }
-.goods-card { width: 340rpx; margin-right: 23rpx; margin-bottom: 46rpx; }
-.goods-card:nth-child(2n) { margin-right: 0; }
+/* 商品网格：左右内边距 12（23rpx），**列间距 12 / 行间距 24**，卡宽 177（340rpx）。
+   ⚠️ 用 flex `gap` 而不是卡片的 `margin-bottom`：设计里 `Frame 129` 的容器高度**止于末行底部**
+   （369 + 287 + 24 + 287 = 967 = 容器底），末行之后**没有**间距；`margin-bottom` 会多出 24px 白。 */
+.goods-grid { display: flex; flex-wrap: wrap; gap: 46rpx 23rpx; padding: 0 23rpx; box-sizing: border-box; }
+/* 卡片 177 宽、圆角 8（节点 `Frame 27` 的 `r=8`；卡无底色所以圆角不可见，仍按设计写上）。 */
+.goods-card { width: 340rpx; border-radius: 15rpx; }
 /* 图片容器 177×177 圆角 8（340rpx / 15rpx） */
 .goods-image-wrap { width: 340rpx; height: 340rpx; overflow: hidden; border-radius: 15rpx; background: #F2F3F7; }
 .goods-image { width: 100%; height: 100%; }
@@ -552,10 +614,14 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .goods-title { display: -webkit-box; overflow: hidden; color: #1D2129; font-size: 27rpx; font-weight: 600; line-height: 42rpx; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 /* 卖点 13px/400/行高 20，`#FF7B2E`，一行 */
 .goods-selling { display: -webkit-box; overflow: hidden; margin-top: 8rpx; color: #FF7B2E; font-size: 25rpx; line-height: 38rpx; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
-/* 价格行：`¥` 小一号 + 金额 14px/600，`#FF5500` */
-.goods-price { display: flex; align-items: baseline; margin-top: 23rpx; }
-.goods-price-symbol { color: #FF5500; font-size: 22rpx; line-height: 42rpx; }
-.goods-price-value { margin-left: 4rpx; color: #FF5500; font-size: 27rpx; font-weight: 600; line-height: 42rpx; }
+/* 价格行：设计是**一个 TEXT 节点**（`Frame 33`，h=22，`main=SPACE_BETWEEN` 但只有一个子节点）
+   + `characterStyleOverrides` 三段：`¥ ` 12px/500、整数 18px/500、小数 14px/500，全部 `#FF5500`、lh22。
+   ⇒ 用**嵌套 text**（同一条行内基线），字号分别 23/35/27rpx，字重统一 **500**（旧实现是 600）。 */
+.goods-price { display: block; margin-top: 23rpx; color: #FF5500; font-size: 27rpx; font-weight: 500; line-height: 42rpx; }
+/* `¥` 与数字之间设计里有一个**空格**（覆盖区间 `chars 0..1` = "¥ "）⇒ 用 6rpx（≈3px）右边距等价表达。 */
+.goods-price-symbol { margin-right: 6rpx; color: #FF5500; font-size: 23rpx; font-weight: 500; }
+.goods-price-int { color: #FF5500; font-size: 35rpx; font-weight: 500; }
+.goods-price-dec { color: #FF5500; font-size: 27rpx; font-weight: 500; }
 
 /* 网格状态文案（空态 / 取数失败 / 首页加载中）：三档共用一套中性灰，不引入新配色。
    ⚠️ 文案由模板按**真实状态**给（无在售商品 ≠ 门店不存在 ≠ 请求失败），这里只管排版。 */
