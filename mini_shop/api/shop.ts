@@ -195,7 +195,8 @@ export function getShopDetail(shopId: string | number): Promise<EnabledShop> {
  * 「返回当前用户是否已关注该门店 + 该店粉丝数（供店铺页「关注」按钮与粉丝数展示）。」
  *
  * ⚠️ **必须登录**：契约明写这三个 follow 接口**不在公开白名单**（白名单只放行
- *    `/api/shop/all`、`/api/shop/*`、`/api/shop/*/products`）⇒ **无 token 得到 401**
+ *    `/api/shop/all`、`/api/shop/{id}`、`/api/shop/{id}/products`）⇒ **无 token 得到 401**
+ *    ⚠️ 注意别在注释里写 `*` 紧跟 `/`（那是块注释结束符，会把注释提前截断 —— 本行原先就这么炸过）
  *    （后端已实测 ✔）。而且 `utils/request.ts` 的"公开浏览降级重试"白名单**只覆盖 GET 只读接口**，
  *    本接口也**不在**那份白名单里 —— 是刻意的：未登录直接调只会拿到 401,
  *    所以调用方**必须先用 {@link isLoggedIn} 判断**，未登录就**不要发这个请求**
