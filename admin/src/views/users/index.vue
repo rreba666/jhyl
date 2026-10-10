@@ -10,22 +10,46 @@ const store = useUserStore()
 const selected = ref<User[]>([])
 type UserStatusTab = 'normal' | 'deleted' | 'banned'
 const statusTab = ref<UserStatusTab>('normal')
+/** 页签 → 文案（工具栏「共 N 条」的标注 + 行样式判定共用，避免文案与页签脱钩）。 */
+const STATUS_TAB_LABELS: Record<UserStatusTab, string> = { normal: '正常', deleted: '已删除', banned: '封禁' }
 const hasSelection = computed(() => selected.value.length > 0)
 const activeSelected = computed(() => selected.value.filter((user) => user.delFlag !== 1))
-const visibleUsers = computed(() => store.list.filter((user) => getUserStatus(user) === statusTab.value))
 const detailVisible = ref(false)
 const detailUserId = ref('')
 type WalletForm = Pick<UserDetail, 'pendingPromotion' | 'pendingBonus' | 'balance'>
 const walletForm = ref<WalletForm>({ pendingPromotion: 0, pendingBonus: 0, balance: 0 })
 const walletOriginal = ref<WalletForm | null>(null)
 
+/**
+ * 「共 N 条」的文案标注：`store.total` 现在是**服务端按当前页签筛选后**的总数
+ * （不是全量用户数）⇒ 工具栏必须写明它是"当前页签"的口径，
+ * 否则运营会把某个页签的条数当成用户总数（例如「已删除」页签显示 3 条 ≠ 全站只有 3 个用户）。
+ */
+const statusTabLabel = computed(() => STATUS_TAB_LABELS[statusTab.value])
+
 function normalizeBanStatus(value: UserBanStatusValue): 0 | 1 {
   return value === 1 || value === '1' ? 1 : 0
 }
 
+/**
+ * 行 → 状态页签。
+ *
+ * ⚠️ 2026-10-10：**不再用它对列表做前端过滤**（那正是"服务端分页 + 前端筛选"不自洽的根因：
+ * 后端回全量用户的第 N 页，前端再筛 ⇒ 每页偏少甚至空页，页数按筛后数量算）。
+ * 现在筛选下发到后端（见 `stores/user.ts` 的 `resolveListQuery`：页签 → `delFlag`/`banStatus`），
+ * 表格直接渲染**服务端返回的当前页 `store.list`**，不再二次过滤。
+ *
+ * 本函数保留为「页签 ↔ 行状态」的**唯一口径来源**，供行样式等展示层判定使用
+ * （⚠️ 只做展示，**不**用来决定某行"该不该出现在表里"——那件事由后端说了算）。
+ */
 function getUserStatus(user: User): UserStatusTab {
   if (user.delFlag === 1) return 'deleted'
   return normalizeBanStatus(user.banStatus) === 1 ? 'banned' : 'normal'
+}
+
+/** 行样式：非当前页签的行加浅色提示（服务端已筛过，正常不会出现；出现即说明后端口径与页签不一致）。 */
+function userRowClassName({ row }: { row: User }): string {
+  return getUserStatus(row) === statusTab.value ? '' : 'user-row--off-tab'
 }
 
 /** 将详情中的当前余额复制到独立表单，避免直接修改响应数据。 */
@@ -90,20 +114,31 @@ async function saveWallet(): Promise<void> {
   }
 }
 
+/** 切换状态页签：换页签 = 换筛选条件 ⇒ **必须回到第 1 页**再查（否则会停在新筛选下的空页上）。 */
 function handleStatusTabChange(value: string | number): void {
   statusTab.value = String(value) as UserStatusTab
+  // 重新查询后表格整体换页，旧勾选行已不在表内 ⇒ 清空勾选，避免批量操作作用到看不见的行
   selected.value = []
+  store.page = 1
+  void loadList()
 }
 
+/**
+ * 加载当前页签的用户列表（**筛选与分页都在服务端**，页签作为参数透传给 store）。
+ *
+ * ⚠️ 页签是「当前列表的筛选条件」的唯一来源：`fetchList(statusTab.value)`
+ * 会把它映射成 `delFlag`/`banStatus` 下发（见 `stores/user.ts` 的 `resolveListQuery`）。
+ * 列表页签一旦与请求参数脱钩，就会出现"表格里混进别的页签的行"这类问题。
+ */
 async function loadList(): Promise<void> {
   try {
-    await store.fetchList()
+    await store.fetchList(statusTab.value)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '用户列表查询失败')
   }
 }
 
-/** 按关键词搜索用户（ID/昵称/手机号），回车或点击触发。 */
+/** 按关键词搜索用户（ID/昵称/手机号），回车或点击触发；沿用当前页签的筛选。 */
 function searchUsers(): void {
   store.page = 1
   void loadList()
@@ -116,7 +151,7 @@ async function toggleBan(user: User): Promise<void> {
       nextStatus === 1 ? `确认封禁用户“${user.nickname}”吗？` : `确认解封用户“${user.nickname}”吗？`,
       '状态确认',
     )
-    await store.updateBanStatus(user, nextStatus)
+    await store.updateBanStatus(user, nextStatus, statusTab.value)
     ElMessage.success(nextStatus === 1 ? '用户已封禁' : '用户已解封')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '用户状态更新失败')
@@ -128,7 +163,7 @@ async function batchBan(status: UserBanStatus): Promise<void> {
   const action = status === 1 ? '封禁' : '解封'
   try {
     await ElMessageBox.confirm(`确认${action}选中的 ${selected.value.length} 个用户吗？`, `批量${action}确认`)
-    const result = await store.updateBanStatuses(selected.value, status)
+    const result = await store.updateBanStatuses(selected.value, status, statusTab.value)
     selected.value = []
     if (result.failedIds.length) {
       ElMessage.warning(`${action}成功 ${result.successIds.length} 个，失败 ${result.failedIds.length} 个`)
@@ -144,12 +179,18 @@ function isDeleted(user: User): boolean {
   return user.delFlag === 1
 }
 
-/** 删除单个用户，软删除后仍可恢复。 */
+/**
+ * 删除单个用户，软删除后仍可恢复。
+ *
+ * ⚠️ 带上当前页签：删除后该行离开「正常/封禁」页签，刷新必须沿用**当前页签的筛选**；
+ * 若删掉的是最后一页的最后一行，`store.fetchList` 会把页码退回上一页（见其注释），
+ * 不会把用户留在空白页上。
+ */
 async function removeUser(user: User): Promise<void> {
   if (isDeleted(user)) return
   try {
     await ElMessageBox.confirm(`确认删除用户“${user.nickname}”吗？`, '删除用户确认')
-    await store.removeUser(user.id)
+    await store.removeUser(user.id, statusTab.value)
     selected.value = []
     ElMessage.success('用户已删除')
   } catch (error) {
@@ -162,7 +203,7 @@ async function removeSelected(): Promise<void> {
   if (!activeSelected.value.length) return
   try {
     await ElMessageBox.confirm(`确认删除选中的 ${activeSelected.value.length} 个用户吗？`, '批量删除用户确认')
-    const result = await store.removeUsers(activeSelected.value.map((user) => user.id))
+    const result = await store.removeUsers(activeSelected.value.map((user) => user.id), statusTab.value)
     selected.value = []
     ElMessage.success(result.failedIds.length ? `删除成功 ${result.successIds.length} 个，失败 ${result.failedIds.length} 个` : `已删除 ${result.successIds.length} 个用户`)
   } catch (error) {
@@ -170,11 +211,11 @@ async function removeSelected(): Promise<void> {
   }
 }
 
-/** 恢复单个软删除用户。 */
+/** 恢复单个软删除用户（带当前页签：恢复后该行离开「已删除」页签，空末页会把页码退回上一页）。 */
 async function restoreUser(user: User): Promise<void> {
   try {
     await ElMessageBox.confirm(`确认恢复用户“${user.nickname}”吗？`, '恢复用户确认')
-    await store.restoreOne(user.id)
+    await store.restoreOne(user.id, statusTab.value)
     ElMessage.success('用户已恢复')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '用户恢复失败')
@@ -213,7 +254,7 @@ async function saveWechatId(): Promise<void> {
     return
   }
   try {
-    await store.registerWechatId(userId, next)
+    await store.registerWechatId(userId, next, statusTab.value)
     // 详情接口（`AdminUserDetailVO.wxId`）同样回传该字段 ⇒ 重新拉一次，
     // 让输入框显示**后端真值**而不是本地提交值（本项目硬原则：不拿本地值冒充后端状态）
     await store.fetchDetail(userId)
@@ -246,7 +287,7 @@ onMounted(() => { void loadList() })
     </el-tabs>
     <el-card shadow="never" class="content-card">
       <div class="toolbar">
-        <div><strong>用户列表</strong><span class="toolbar-count">共 {{ store.total }} 条</span></div>
+        <div><strong>用户列表</strong><span class="toolbar-count">共 {{ store.total }} 条（{{ statusTabLabel }}）</span></div>
         <div class="toolbar-actions">
           <el-input v-model="store.filters.keyword" placeholder="用户ID/昵称/手机号" clearable class="search-input" @keyup.enter="searchUsers" @clear="searchUsers" />
           <el-button type="primary" @click="searchUsers">搜索</el-button>
@@ -257,12 +298,15 @@ onMounted(() => { void loadList() })
           <el-button :loading="store.loading" @click="loadList">刷新</el-button>
         </div>
       </div>
+      <!-- ⚠️ `:data` = **服务端返回的当前页**（服务端已按页签筛过；**不再**前端 filter），
+           `:total` = 服务端 `total`（**已按当前页签筛选**）⇒ 分页条与「共 N 条」口径一致。 -->
       <DataTable
-        :data="visibleUsers"
+        :data="store.list"
         :loading="store.loading"
-        :total="visibleUsers.length"
+        :total="store.total"
         :page="store.page"
         :page-size="store.pageSize"
+        :row-class-name="userRowClassName"
         empty-text="暂无用户数据"
         @selection-change="selected = $event"
         @page-change="store.page = $event; void loadList()"
@@ -362,6 +406,9 @@ onMounted(() => { void loadList() })
 .user-tab--deleted { color: var(--el-text-color-secondary); }
 .user-tab--banned { color: var(--el-color-danger); }
 .search-input { width: 220px; }
+/* ⚠️ 仅作"口径不一致"提示：服务端已按页签筛选，正常不会出现别页签的行。
+   出现时用左侧浅灰虚线标出来（不是错误态，也不要拿它当筛选结果看）。 */
+.user-row--off-tab { opacity: .55; }
 .muted { color: var(--el-text-color-secondary); }
 .muted-cell { color: var(--el-text-color-secondary); }
 </style>

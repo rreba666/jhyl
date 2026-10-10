@@ -73,7 +73,6 @@ button, input { font-family: inherit; }
 .admin-menu .el-sub-menu__title, .admin-menu .el-menu-item { height: 42px; margin: 4px 0; border-radius: 8px; color: var(--vben-sidebar-text); font-size: 14px; transition: color .2s ease, background-color .2s ease, box-shadow .2s ease; }
 .admin-menu .el-sub-menu__title { font-weight: 600; }
 .admin-menu .el-sub-menu__title:hover, .admin-menu .el-menu-item:hover { background: var(--vben-sidebar-hover); color: var(--vben-sidebar-active-text); }
-.admin-menu .el-sub-menu.is-opened > .el-sub-menu__title { color: var(--vben-sidebar-active-text); }
 .admin-menu .el-sub-menu__icon-arrow { color: var(--vben-sidebar-muted); }
 .admin-menu .el-sub-menu .el-menu { background: transparent; }
 .admin-menu .el-sub-menu .el-menu-item { height: 38px; margin: 2px 0; padding-left: 44px !important; color: var(--vben-sidebar-muted); font-size: 13px; }
@@ -84,9 +83,24 @@ button, input { font-family: inherit; }
 .admin-menu > .el-sub-menu > .el-sub-menu__title { padding-left: 14px !important; }
 .admin-menu > .el-menu-item > .el-icon,
 .admin-menu > .el-sub-menu > .el-sub-menu__title > .el-icon { width: 20px; height: 20px; flex-shrink: 0; margin-right: 10px; font-size: 17px; }
+/* ⚠️⚠️ 2026-10-10 修「侧边栏看起来有两项同时选中」：
+   本段原先把 **`is-opened`（展开态）** 与 **`is-active`（选中态）** 写在**同一条规则**里、
+   给了一模一样的"金底 + 金左标 + 加粗" ⇒ 只要某个分组是展开的（`/homepage`、`/orders`
+   在 `AdminLayout.vue` 的 `:default-openeds` 里**默认就展开**），它的父项就长得跟当前路由
+   一模一样 ⇒ 截图上「主页管理」（展开的父级）与「用户管理」（当前路由）**两项都像被选中**。
+   ⇒ 语义上必须分开：
+     · `is-active`  = 当前路由（或"当前路由在自己的子树里"）→ **强选中**（金底 + 金左标）；
+     · `is-opened`  = 只是被展开 → **弱提示**（仅文字色，**不给底色/左标**）。
+   ⚠️ 也就是说：**展开一个分组不等于选中它**（这是本条的判据，别再合并回去）。
+   ⚠️ 展开但未进入的分组用 `--vben-sidebar-muted`（比普通项 `--vben-sidebar-text` 更弱），
+      既区别于"完全没动过的项"、又明显弱于选中态；不新增色值，只用既有 token。 */
 .admin-menu > .el-menu-item.is-active,
-.admin-menu > .el-sub-menu.is-active > .el-sub-menu__title,
-.admin-menu > .el-sub-menu.is-opened > .el-sub-menu__title { background: var(--vben-sidebar-active); color: var(--vben-sidebar-active-text); box-shadow: inset 2px 0 var(--vben-primary); font-weight: 600; }
+.admin-menu .el-sub-menu .el-menu-item.is-active,
+.admin-menu > .el-sub-menu.is-active > .el-sub-menu__title { background: var(--vben-sidebar-active); color: var(--vben-sidebar-active-text); box-shadow: inset 2px 0 var(--vben-primary); font-weight: 600; }
+/* 展开但未进入：只把父项文字压到 muted，**不加底色、不加左标、不加粗**（弱于选中态）。
+   ⚠️ 必须补 `:hover`：本规则比上面的 hover 规则更具体，否则展开的分组**一悬停就不再变色**（反馈丢失）。 */
+.admin-menu > .el-sub-menu.is-opened:not(.is-active) > .el-sub-menu__title { background: transparent; box-shadow: none; color: var(--vben-sidebar-muted); font-weight: 600; }
+.admin-menu > .el-sub-menu.is-opened:not(.is-active) > .el-sub-menu__title:hover { background: var(--vben-sidebar-hover); color: var(--vben-sidebar-active-text); }
 
 .admin-header { display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 24px; background: var(--vben-surface); border-bottom: 1px solid var(--vben-border); transition: background-color .25s ease, border-color .25s ease; }
 .header-left, .header-actions, .profile-trigger { display: flex; align-items: center; gap: 16px; }

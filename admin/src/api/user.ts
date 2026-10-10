@@ -1,6 +1,6 @@
 import { request } from './request'
 import { resolveMediaUrl } from './media'
-import type { AdminWalletUpsertDTO, User, UserBanStatus, UserDetail, UserPageResult, UserResponse } from '@/types/user'
+import type { AdminWalletUpsertDTO, User, UserBanStatus, UserDetail, UserIdentity, UserListQuery, UserPageResult, UserResponse } from '@/types/user'
 import { sanitizeBonusText } from '@/utils/textSafe'
 
 /** 校验用户管理接口响应；后端错误文案统一做旧词兜底替换，避免页面出现历史遗留旧词。 */
@@ -10,12 +10,25 @@ function unwrapResponse<T>(response: { data: UserResponse<T> }, fallbackMessage:
   return result.data as T
 }
 
+/**
+ * 归一化用户列表中的长整型 ID、封禁状态与**身份**。
+ *
+ * ⚠️ `identity`（契约：0=游客, 1=注册用户）此前**完全没做归一化**，而列表页用
+ * `row.identity === 1`（严格相等）判断「注册用户 / 游客」⇒
+ * 后端若下发字符串 `"1"`（该字段在 `api_doc.json` 里的 `enum` 恰恰写成 `["0","1"]`
+ * **字符串**，与其 `type: integer` 自相矛盾），页面会把注册用户**静默显示成「游客」**。
+ * 两处（列表页 + 详情抽屉）都读这个字段，所以在**这一层**归一化，只做一次。
+ */
+function normalizeIdentity(value: unknown): UserIdentity {
+  return value === 1 || value === '1' ? 1 : 0
+}
+
 /** 归一化用户列表中的长整型 ID 和封禁状态。 */
 function normalizeUserPage(data: UserPageResult): UserPageResult {
   return {
     ...data,
     total: Number(data.total) || 0,
-    list: (data.list || []).map((user) => ({ ...user, id: String(user.id), avatarUrl: resolveMediaUrl(user.avatarUrl), banStatus: user.banStatus ?? 0, delFlag: Number(user.delFlag) === 1 ? 1 : 0 })),
+    list: (data.list || []).map((user) => ({ ...user, id: String(user.id), identity: normalizeIdentity(user.identity), avatarUrl: resolveMediaUrl(user.avatarUrl), banStatus: user.banStatus ?? 0, delFlag: Number(user.delFlag) === 1 ? 1 : 0 })),
   }
 }
 
@@ -60,6 +73,7 @@ function normalizeUserDetail(data: UserDetail): UserDetail {
   return {
     ...data,
     id: String(data.id),
+    identity: normalizeIdentity(data.identity),
     avatarUrl: resolveMediaUrl(data.avatarUrl),
     banStatus: data.banStatus ?? 0,
     delFlag: Number(data.delFlag) === 1 ? 1 : 0,
@@ -69,10 +83,23 @@ function normalizeUserDetail(data: UserDetail): UserDetail {
   }
 }
 
-/** 查询 B 端用户分页列表。keyword 纯数字按用户 ID 精确匹配，否则按昵称/手机号模糊匹配。 */
-export async function getUsers(page: number, pageSize: number, keyword?: string): Promise<UserPageResult> {
+/**
+ * 查询 B 端用户分页列表。
+ *
+ * ⚠️ 筛选是**服务端**行为（2026-10-10 修「分页与筛选不自洽」）：契约
+ * `GET /api/admin/user/list` 支持 `keyword` / `delFlag` / `banStatus` / `page` / `pageSize`，
+ * 而此前本函数**只发 `keyword`** ⇒ 页签筛选被迫在前端做（对**当前页**过滤），
+ * 页数/总数全错。现在页签映射成 `query.delFlag` / `query.banStatus` 一并下发。
+ *
+ * ⚠️ 未选 = **不下发该参数**（契约「不传返回全部」）；**不要**发空串/`null`占位。
+ *
+ * `keyword` 纯数字按用户 ID 精确匹配，否则按昵称/手机号模糊匹配。
+ */
+export async function getUsers(page: number, pageSize: number, keyword?: string, query?: UserListQuery): Promise<UserPageResult> {
   const params: Record<string, string | number> = { page, pageSize }
   if (keyword && keyword.trim()) params.keyword = keyword.trim()
+  if (query?.delFlag !== undefined) params.delFlag = query.delFlag
+  if (query?.banStatus !== undefined) params.banStatus = query.banStatus
   const response = await request.get<UserResponse<UserPageResult>>('/api/admin/user/list', { params })
   return normalizeUserPage(unwrapResponse(response, '用户列表查询失败'))
 }
