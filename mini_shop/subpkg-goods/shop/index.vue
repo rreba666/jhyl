@@ -54,12 +54,13 @@
  *    ③ **不导出设计稿的 logo**：它是 IMAGE 填充（平台自己的品牌图），拿它当"门店门头图"= 给没有
  *       logo 的门店安一个别人的 logo ⇒ 未配置 `shopImage` 时只画 10% 白的中性方块（无图无字）。
  *
- * ## 数据来源（2026-10-10 S2b / S3 已全部落地，本页不再有"无接口"的占位逻辑）
- * 本页**两个真实数据源**（都免登录、游客可访问）：
+ * ## 数据来源（2026-10-10 S2b / S3 / **S4** 已全部落地，本页不再有"无接口"的占位逻辑）
+ * 本页**三个真实数据源**（前两个免登录、游客可访问；第三个必须登录）：
  * | 区块 | 接口 | 说明 |
  * |---|---|---|
- * | 店铺档案 | `GET /api/shop/{shopId}`（S3，新增） | `Result<ShopVO>`，与 `/api/shop/all` 同构 |
- * | 商品网格 | `GET /api/shop/{shopId}/products`（S2b，新增） | `sortBy` + `page` / `pageSize` |
+ * | 店铺档案 | `GET /api/shop/{shopId}`（S3，新增） | `Result<ShopVO>`，与 `/api/shop/all` 同构；S4 起**多带 11 个字段** |
+ * | 商品网格 | `GET /api/shop/{shopId}/products`（S2b，新增） | `sortBy` + `page` / `pageSize`；S4 起多一个 `recommended` 布尔筛选 |
+ * | 关注状态 | `GET /api/shop/{shopId}/follow-status`（S4，**新增能力，需登录**） | `{ followed, fansCount }` |
  *
  * ⚠️ **两种"没有"必须分开渲染**（混在一起就是静默失真）：
  * - 门店不存在 /**已停用** / 软删 ⇒ 上面第一个接口返回业务码 **`8000`**（不是 500、不是 401）
@@ -74,30 +75,42 @@
  * ⚠️ 负间距与设计值断言注意：网格为空时**不渲染** `.goods-grid`（连同它的 `padding`），
  *    否则空态下面会多出一条白的空隙。
  *
- * ## 新节点 `4045:5826`（= 本页店铺卡 `Frame 114`）**确认了什么、我们仍填不了什么**
- * 2026-10-10 第三轮重取该节点（390×143，`docs/_ref/shop-card-4045-5826/`）——它**只覆盖店铺卡本体**
- * （logo + 店名 + 评分行 + 收藏按钮 + 服务表现三格），**不含**资质条 / Tab / 筛选 / 商品网格。
- * 卡内的两块在契约里**依然一个字段都没有**（下面逐条给了 2026-10-10 的复核方式）⇒ **一律不渲染**
- * （不编文案、不放 `0`/`—`、不硬编码设计稿的填充数字）：
- * - 店铺**评分**（节点 `4045:5834..5841`：5 颗 10×10 实心星 + `5.0`，`#FFB200`）：
- *   契约无 `rating`（`MerchantOverviewVO.serviceScore` 是**恒 null 占位**，不得挪用）。
- *   复核：本地 `api_doc.json` 与 dev `/v3/api-docs`（HTTP 200，1 394 605 B）的 `ShopVO` 逐字段一致，
- *   37 个字段里**没有**任何评分字段；
- * - 店铺**粉丝数**（节点 `4045:5843` = `3484 粉丝`）：契约无 `fansCount`；`ShopVO.boundUserCount`
- *   = 「已绑定微信人数」，**语义不同**，且实测 dev `/api/shop/all` 14 家**全都没下发**该键；
- * - **服务表现**三格（节点 `4045:5847`：128/116/103 × 55，`#FFFFFF@10%`，r=6）：契约无服务指标字段。
- * - **店铺收藏**：契约无关注/收藏店铺的读写接口（全库只有**商品**收藏）⇒ 按钮只提示未开放。
- * ⇒ 已按本轮口径把这三项进需求单：`docs/26/10.10/后端需求-店铺页数据缺口-2026-10-10.md` **R8**
- *   （P0：评分 / 粉丝数 / 服务表现，含需要的字段名与待定口径）；旧的缺口清单见
- *   `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3。
+ * ## 新节点 `4045:5826`（= 本页店铺卡 `Frame 114`）**里三块展示位的数据（2026-10-10 S4 已补齐）**
+ * 2026-10-10 第三轮重取该节点（390×143，`docs/_ref/shop-card-4045-5826/`）时，卡内的评分行 /
+ * 服务表现三格在契约里**一个字段都没有**，当时按"契约没有该字段"整块不渲染。
+ * **第四轮（S4）起后端补齐了这些字段**（`ShopVO` 48 字段），本页**接线渲染真实值**：
+ * - 店铺**评分** → `ShopVO.rating`（⚠️ 契约原文「由**客观指标合成，非用户评价**」⇒ 文案见 `RATING_LABEL`；
+ *   **样本不足时为 null** ⇒ 整块不渲染，不补 `0`、不补 `—`）；
+ * - 店铺**粉丝数** → `ShopVO.fansCount`（契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）；
+ *   ⛔ **不得**用 `boundUserCount`（已绑定微信人数，语义不同）；
+ * - **服务表现** → `ShopVO.onTimeRate`（准时送达率）+ `ShopVO.avgAcceptSeconds`（平均接单时长）
+ *   —— 这是契约里**仅有的两个可计算项** ⇒ 两格就两格（不足三格**不补空格**）；
+ *   ⛔ 设计稿的「口碑品质 / 商品品质」「平均满意度」「平均 12 小时发货」「客服响应 14 秒」
+ *   **契约里都没有**，一律不编（尤其不许把"平均接单"改叫"客服响应"）。
+ *   字段清单与口径（含"评分是客观合成、非用户评价"）见
+ *   `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §12.2 / §12.3 / §12.4 / §12.5。
+ * - **「收藏」按钮** → S4 的 `POST/DELETE /api/shop/{shopId}/follow`（详见 `onFavoriteTap`）。
+ * 展示口径（文案 / 单位 / 缺省）统一走 `utils/shop-metrics.ts`，与商品详情页的进店卡片**同源**。
+ *
+ * ## 滚动形态（节点 `4050:6387` `店铺_首页_滚动`，2026-10-10 补充）
+ * 该节点**整棵树每个元素都标了 `scrollBehavior=SCROLLS`**（设计侧明确"随页面滚动"，
+ * 没有任何 FIXED/sticky 标记）⇒ **本页不需要吸顶 / 折叠 / 视差**，让内容自然滚过即可。
+ * 它与 `4045:5815` 的差异是"滚到底"的一帧：渐变头图仍 248 高但被 92 高的父框裁掉，
+ * 店铺卡从 143 压到 72（评分行 / 服务表现行**在卡外被裁掉**）、Tab 选中态换成「商品」、
+ * 筛选行多了个「新品」。逐帧对照与推断见
+ * `docs/26/10.10/店铺页滚动形态-4050-6387-推断与实现-2026-10-10.md`。
  */
 import { computed, ref } from 'vue'
-import { onLoad, onReachBottom } from '@dcloudio/uni-app'
-import { getShopDetail, type EnabledShop } from '@/api/shop'
+import { onLoad, onPageScroll, onReachBottom } from '@dcloudio/uni-app'
+import { followShop, getShopDetail, getShopFollowStatus, unfollowShop, type EnabledShop } from '@/api/shop'
 // ⚠️ 用 `getShopProducts`（= `GET /api/shop/{shopId}/products`，S2b）而**不是**
 //    `getProductList({ shopId })`：后者是"商品维度"的接口，对不存在的门店回 `200` + `total=0`，
 //    会把"这家店没了"渲染成"这家店没商品"（本仓库最忌的静默失真）。
 import { getShopProducts, type ProductCard } from '@/api/product'
+// 评分 / 粉丝 / 服务表现的**共用口径**（与商品详情页进店卡片同源，见该模块头部注释）。
+import { RATING_LABEL, fansText, ratingStars, ratingText, shopServiceMetrics } from '@/utils/shop-metrics'
+import { isLoggedIn } from '@/utils/auth'
+import LoginGuide from '@/components/LoginGuide.vue'
 import { isApiRequestError } from '@/utils/request'
 
 /**
@@ -115,6 +128,30 @@ const loading = ref(true)
 const errorMessage = ref('')
 /** 门店**不存在 / 已停用 / 已被删除**（接口业务码 `8000`，或页面压根没带 `shopId`）。 */
 const shopUnavailable = ref(false)
+
+/**
+ * 「收藏」= **关注门店**（S4 §12.4 新增能力）。
+ *
+ * ⚠️ **设计文案是「收藏」，契约能力是「关注」**：设计节点 `4045:5826` 的按钮文字逐字为
+ *    「收藏」（`api_doc.json` 的三个接口则是 `follow` / `unfollow` / `follow-status`，
+ *    描述里写「关注门店」「该店粉丝数」「供店铺页「**关注**」按钮与粉丝数展示」）。
+ *    两者是同一个动作（收藏这家店 = 关注这家店，粉丝数因此 +1）⇒
+ *    **按设计渲染「收藏」文案**（不擅自改设计文案），
+ *    但**状态与文案的语义按契约走**（`followed` 驱动实心/空心星，见 `favText`）。
+ *
+ * ⚠️ **必须登录**（契约：这三个接口不在公开白名单 ⇒ 无 token 得 **401**，已实测 ✔）。
+ *    ⇒ 未登录**根本不发**这两个请求：按钮是"去登录"的入口（`loginGuideVisible`），
+ *    而不是"操作失败"的报错。`null` = 还不知道（未登录 / 状态请求失败）⇒
+ *    **不显示"已收藏"**（不伪造状态），只显示中性的「收藏」。
+ */
+const followed = ref<boolean | null>(null)
+/** 关注/取关请求进行中：防连点（幂等接口也挡一下，避免来回点出一串请求）。 */
+const followLoading = ref(false)
+/** 登录引导弹层（与商品详情页同一组件、同一口径）。 */
+const loginGuideVisible = ref(false)
+
+/** 「收藏」按钮文案：**已关注**才作「已收藏」，未关注/未知一律「收藏」（不伪造已关注态）。 */
+const favText = computed(() => (followed.value === true ? '已收藏' : '收藏'))
 
 /** 真实状态栏高度（px）；导航栏高度 = 状态栏 + 设计稿的 **44px 标题栏**。 */
 const statusBarHeight = ref(0)
@@ -134,13 +171,16 @@ const logo = computed(() => String(shop.value?.shopImage || '').trim())
 const activeTab = ref<'home' | 'goods'>('home')
 
 /**
- * 当前排序。设计给了三个筛选项，映射关系（实现说明 §4.2）：
- * - `销量` → `sortBy=sold_desc` ✅ 契约支持；
- * - `价格` → `sortBy=price_asc|price_desc` ✅ 契约支持（图标上三角=升序、下三角=降序）；
- * - `口碑优品` → ⚠️ 契约**没有**对应枚举（`reputation_desc` 需后端补，§4.3 第 9 条）
- *   ⇒ 点它只给一句中性提示，**不切换选中态**（不能假装它已生效）。
+ * 当前筛选档（设计给了三个 chip，映射关系见 `sortByParam` / `recommendedParam`）：
+ * - `销量` → `sortBy=sold_desc` ✅；
+ * - `价格` → `sortBy=price_asc|price_desc` ✅（图标上三角=升序、下三角=降序）；
+ * - `口碑优品` → **`recommended=true`**（✅ 2026-10-10 S4 §12.5 起支持）。
+ *   ⚠️ 口径变了：它**不是** `sortBy` 的新枚举，而是**"只看推荐商品"的布尔筛选**
+ *   （契约原文「是否只看推荐商品（店铺页「口碑优品」栏位用）：true ⇒ isRecommended=1 的在售商品」）
+ *   ⇒ 因此它**可以**进选中态（旧实现在这里"只给一句中性提示、不切换选中态"，
+ *   理由是"契约没有对应枚举"—— 那个理由**已作废**，见 §12.5）。
  */
-const activeSort = ref<'sold' | 'price'>('sold')
+const activeSort = ref<'sold' | 'price' | 'reputation'>('sold')
 /** 价格排序方向：`asc` = 从低到高（设计稿渲染图里**上三角为深色** ⇒ 默认升序）。 */
 const priceOrder = ref<'asc' | 'desc'>('asc')
 
@@ -150,11 +190,120 @@ const priceOrder = ref<'asc' | 'desc'>('asc')
  * ⚠️ `sortBy` 在契约里是**可选**参数（`sold_desc / price_asc / price_desc / new_desc / sort_order`），
  *    不传 = 后端默认排序。两个价格档**各自**给出自己的枚举值（升/降序不可互相顶替）；
  *    「销量」档给出 `sold_desc`（设计里「销量」= 销量倒序，映射关系见 `activeSort` 注释）。
+ *    「口碑优品」档**沿用 `sold_desc`**：契约明写该接口带 `recommended` 时
+ *    「排序与分页与不带该参数一致」⇒ 改的只有筛选，不另编一个排序值。
  */
 const sortByParam = computed<'sold_desc' | 'price_asc' | 'price_desc'>(() => {
   if (activeSort.value !== 'price') return 'sold_desc'
   return priceOrder.value === 'desc' ? 'price_desc' : 'price_asc'
 })
+
+/**
+ * 是否只看推荐商品（「口碑优品」档 ⇒ `recommended=true`；其余档**不传该参数**）。
+ * ⚠️ 只在 `true` 时下发：不传 = 后端默认（不筛选），多写一个 `false` 语义相同、只是 URL 变长。
+ */
+const recommendedParam = computed(() => activeSort.value === 'reputation')
+
+/**
+ * 店铺卡内的「服务表现」三格（真实数据，见 `utils/shop-metrics.ts`）；没有可计算项时是空数组。
+ * ⚠️ 这是**滚动折叠**要收起来的那一块（用户 2026-10-10 对节点 `4050:6387` 的澄清：
+ *    「图中**这块内容滚动后不显示，其他的固定，中间要有过渡动画**」）。
+ */
+const serviceMetrics = computed(() => shopServiceMetrics(shop.value))
+
+/**
+ * 滚动折叠阈值（px，页面纵向滚动距离）。
+ * **这是推断值，不是节点标称值** —— 节点 `4050:6387` 只给了"滚到底"那一帧的几何
+ * （渐变头 248→被 92 的父框裁掉、店铺卡 143→72、Tab 选中态换「商品」），
+ * **Figma 帧只表达状态、不表达时序**，所以阈值只能由"这一帧对应的滚动量"反推：
+ * 头图可折叠量 = 248 − 92 = **156px**，取整到 60 是为了让过渡在**首屏就看得见**
+ * （156 太靠后：网格已经滚过一屏，用户会以为卡里那块"本来就没了"）。
+ * ⇒ 真机上手要调的**第一个值**就是它（变大 = 更晚收起）。
+ */
+const SERVICE_COLLAPSE_THRESHOLD = 60
+
+/**
+ * 折叠的**缓冲带**（px）：只有在 `阈值 − 40` 以下才恢复，避免在阈值附近来回抖动。
+ * 真机要调的**第二个值**（见 `onPageScroll` 注释）。
+ */
+const SERVICE_COLLAPSE_HYSTERESIS = 40
+
+/** 是否已滚过阈值 ⇒ 折叠服务表现那一块（**可逆**：滚回去会恢复，见 `onPageScroll` 注释）。 */
+const serviceCollapsed = ref(false)
+
+/**
+ * 店铺客观指标的展示值（真实字段，口径见 `utils/shop-metrics.ts`）：
+ * 评分 / 星串 / 粉丝 / 服务表现，四项**各自独立**地在没有真实值时为空。
+ */
+const rating = computed(() => ratingText(shop.value?.rating))
+const stars = computed(() => ratingStars(shop.value?.rating))
+const fans = computed(() => fansText(shop.value?.fansCount))
+
+/**
+ * 滚动监听（uni-app 页面级滚动用 `onPageScroll`，不猜 DOM `window`）。
+ *
+ * ## 为什么是"可逆"（而不是单向收起）
+ * 节点只是**一帧静态图**，本身**不表达**单向还是双向。这里选**可逆**，理由有两条硬的：
+ * ① 顺滑度：单向收起后往回滚会出现"内容**再也回不来**"的观感 —— 那更像 bug 而不是设计；
+ * ② 一致性：`CLAUDE.md` §十二 的既有口径是"吸顶元素恒定 sticky、只过渡可过渡属性"，
+ *    可逆的、由同一个布尔驱动的过渡与它同构，不会出现"回滚时另一个分支又跳一下"。
+ * ⚠️ **脱离阈值加缓冲带（60 / 40）**：阈值处手指微抖会反复穿越 ⇒ 过渡被反复打断（视觉上像抖动）。
+ *    要真机上调的**第二个值**就是这个缓冲带（本文件取 `SERVICE_COLLAPSE_HYSTERESIS`）。
+ * ⚠️ 顺手在这里**量一次服务表现行的真实高度**（`measureServiceRow`）：`onLoad` 时模板还没渲染完，
+ *    量到的会是 0 ⇒ 必须在每次滚动里试着量，量到就记下、之后不再量。
+ */
+onPageScroll((event) => {
+  measureServiceRow(0)
+  const top = Number(event?.scrollTop) || 0
+  if (!serviceCollapsed.value && top >= SERVICE_COLLAPSE_THRESHOLD) {
+    serviceCollapsed.value = true
+    return
+  }
+  if (serviceCollapsed.value && top <= SERVICE_COLLAPSE_THRESHOLD - SERVICE_COLLAPSE_HYSTERESIS) {
+    serviceCollapsed.value = false
+  }
+})
+
+/**
+ * 服务表现行上绑定的一次性内联高度（`record`）。
+ *
+ * ⚠️ 为什么不用 CSS 里的固定 `height: 108rpx`：三格的高度由内容决定（设计是 HUG），
+ *    写死一个"看起来差不多"的数就是**在样式里编数据**。这里改为**首帧量一次真实高度**，
+ *    之后 `height: 0 / N px` 的过渡两端都是**真实几何**。
+ *    量不到（非微信环境 / 节点未渲染）时留空 ⇒ 模板退化为"不折叠"，**绝不用假高度顶上**。
+ * @see https://uniapp.dcloud.net.cn/api/ui/nodes-info.html
+ */
+const serviceRowHeights = ref<Record<number, number>>({})
+
+/** 量一次服务表现行的真实高度（仅在折叠时用得到；量过就不重复量）。 */
+function measureServiceRow(index: number): void {
+  if (serviceRowHeights.value[index] !== undefined) return
+  uni.createSelectorQuery()
+    .select(`#shop-service-row-${index}`)
+    .boundingClientRect((rect) => {
+      const height = Number((rect as { height?: number } | null)?.height) || 0
+      if (height > 0) serviceRowHeights.value = { ...serviceRowHeights.value, [index]: height }
+    })
+    .exec()
+}
+
+/**
+ * 根据折叠状态与已量到的高度，给出该行的内联样式。
+ * - 没量到真实高度 ⇒ **返回空对象**（即不折叠：宁可不动，也不用假高度把布局搞坏）；
+ * - 未折叠 ⇒ 显式高度 = 真实高度（过渡的起点）；
+ * - 已折叠 ⇒ 高度 0 + `opacity: 0`（配合 `overflow: hidden` 收干净，不留空档）。
+ *
+ * ⚠️ 用**显式高度**而不是 `max-height`：`max-height` 从一个大值收到 0 时，
+ *    感知速度是非线性的（前 80% 的动画时间只走了很小的视觉变化），看起来"先卡一下再突然收完"。
+ * ⚠️ 也**不能**用 `display: none` —— 它不可过渡，会变成硬切。
+ */
+function serviceRowStyle(index: number): Record<string, string> {
+  const measured = serviceRowHeights.value[index]
+  if (measured === undefined) return {}
+  return serviceCollapsed.value
+    ? { height: '0px', opacity: '0' }
+    : { height: `${measured}px`, opacity: '1' }
+}
 
 /** 每页条数（契约限 1~100；取 10 —— 与首页/搜索页同档，网格一小屏约 4 张）。 */
 const PAGE_SIZE = 10
@@ -228,6 +377,8 @@ async function loadProducts(reset = true): Promise<void> {
     const result = await getShopProducts({
       shopId: shopId.value,
       sortBy: sortByParam.value,
+      // 「口碑优品」档：只看推荐商品（S4 §12.5）；其余档不传该参数。
+      recommended: recommendedParam.value,
       page: targetPage,
       pageSize: PAGE_SIZE,
     })
@@ -291,8 +442,66 @@ onLoad(async (options) => {
     loading.value = false
   }
   // 门店不存在 ⇒ 不再去问商品（问了也只有 8000）。
-  if (shop.value) await loadProducts(true)
+  if (shop.value) {
+    await loadProducts(true)
+    // ⚠️ 关注状态**必须登录**才查（未登录时该接口 401，见 `followed` 注释）：
+    //    放在商品之后、且不 await 进关键路径 —— 它只影响按钮上的一个词，不该拖慢首屏。
+    void loadFollowStatus()
+  }
 })
+
+/**
+ * 查当前用户的关注状态（S4 §12.4）。
+ *
+ * ⚠️ **未登录直接跳过**：契约明写这三个接口不在公开白名单 ⇒ 无 token 得 **401**
+ *    （而且 `utils/request.ts` 的"游客降级重试"白名单只覆盖 GET 只读公开接口，
+ *    本接口**不在**那份白名单里 ⇒ 未登录发出去只会拿到 401 并清一次会话）。
+ * ⚠️ 失败**不打扰用户**：状态拿不到就保持 `null`（按钮显示中性的「收藏」），
+ *    不弹错、不改页面为错误态 —— 粉丝数本身走 `ShopVO.fansCount`（公开），不受影响。
+ */
+async function loadFollowStatus(): Promise<void> {
+  if (!shopId.value || !isLoggedIn()) return
+  try {
+    const status = await getShopFollowStatus(shopId.value)
+    // ⚠️ 契约里该响应**没有字段级 schema**（`ResultMapStringObject`）⇒ 只做保守解析：
+    //    键存在且是布尔才认，否则保持"未知"（不把 undefined 当 false）。
+    followed.value = typeof status?.followed === 'boolean' ? status.followed : null
+  } catch {
+    followed.value = null
+  }
+}
+
+/**
+ * 「收藏」按钮：**关注 / 取关门店**（`POST` / `DELETE /api/shop/{shopId}/follow`，S4 §12.4）。
+ *
+ * - 未登录 ⇒ 打开登录引导（**不发请求**，见 `followed` 注释）；
+ * - 已关注 ⇒ `DELETE`（取关）；否则 ⇒ `POST`（关注）。两者契约都写明**幂等**
+ *   （「已关注再调返回成功」/「未关注再调返回成功」）⇒ 连点/重试都不会报错。
+ * - 成功后**只翻转本地状态**：粉丝数由后端「按实际行数校准」，前端**不自己 ±1**
+ *   （那会和后端的校准口径分叉；下次进店拿到的 `fansCount` 才是权威值）。
+ * - 失败 ⇒ 中性提示 + **状态不变**（不回滚成假的"已收藏"，也不假装成功）。
+ */
+async function onFavoriteTap(): Promise<void> {
+  if (!shopId.value || followLoading.value) return
+  if (!isLoggedIn()) {
+    loginGuideVisible.value = true
+    return
+  }
+  followLoading.value = true
+  const target = followed.value !== true
+  try {
+    if (target) {
+      await followShop(shopId.value)
+    } else {
+      await unfollowShop(shopId.value)
+    }
+    followed.value = target
+  } catch (error) {
+    uni.showToast({ title: error instanceof Error ? error.message : '操作失败，请重试', icon: 'none' })
+  } finally {
+    followLoading.value = false
+  }
+}
 
 /** 返回上一级；没有历史页面时回首页。 */
 function goBack(): void {
@@ -310,15 +519,17 @@ function switchTab(tab: 'home' | 'goods'): void {
 }
 
 /**
- * 选择排序项并**立即按新排序重查第 1 页**（S2b 的 `sortBy`，见 `sortByParam`）。
+ * 选择筛选档并**立即按新筛选重查第 1 页**（S2b 的 `sortBy` + S4 的 `recommended`）。
  *
- * - 点「销量」：切到销量档（已在该档则什么都不做，`sortByParam` 不变 ⇒ 不发重复请求）；
- * - 点「价格」：未在价格档 ⇒ 切过去并回到**升序**（设计默认）；已在价格档 ⇒ **反转升降序**。
+ * - 点「销量」：切到销量档（已在该档则什么都不做，两个参数都不变 ⇒ 不发重复请求）；
+ * - 点「价格」：未在价格档 ⇒ 切过去并回到**升序**（设计默认）；已在价格档 ⇒ **反转升降序**；
+ * - 点「口碑优品」：切到该档（`recommended=true`，S4 §12.5）；已在该档则什么都不做。
  * ⚠️ 重查走 `loadProducts(true)`：它会用 token 作废在飞的旧请求（见该函数注释），
  *    所以连着点也不会出现"列表回到上一个排序"。
  */
-function selectSort(sort: 'sold' | 'price'): void {
+function selectSort(sort: 'sold' | 'price' | 'reputation'): void {
   if (sort === activeSort.value) {
+    // 「价格」是唯一"同一档再点有第二种含义"的档（反转升降序）；其余两档再点即无操作。
     if (sort !== 'price') return
     priceOrder.value = priceOrder.value === 'asc' ? 'desc' : 'asc'
   } else {
@@ -329,31 +540,14 @@ function selectSort(sort: 'sold' | 'price'): void {
 }
 
 /**
- * 「口碑优品」：契约里 `sortBy` 没有对应枚举（实现说明 §4.3 第 9 条）⇒ 只给中性提示，
- * 不改选中态、不发请求（不假装生效）。
- */
-function onReputationTap(): void {
-  uni.showToast({ title: '该排序暂未开放', icon: 'none' })
-}
-
-/**
- * 「收藏」按钮：契约里**没有**店铺关注/收藏的读接口，也没有写接口
- * （`favorite` + `POST/DELETE /api/shop/{shopId}/favorite`，实现说明 §4.3 第 6 条）
- * ⇒ 按钮按设计渲染，但**不伪造已收藏状态**、也不发请求，只如实提示功能未开放。
- */
-function onFavoriteTap(): void {
-  uni.showToast({ title: '店铺收藏功能暂未开放', icon: 'none' })
-}
-
-/**
- * 「经营资质」：打开**经营资质页**（本分包新增 `subpkg-goods/shop/qualification`）。
+ * 「经营资质」：打开**经营资质页**（本分包 `subpkg-goods/shop/qualification`）。
  *
  * ⚠️ 设计稿里**没有**这张页面的节点（2026-10-10 把 Figma 文件「店铺」页整棵树按
  *    `资质 / 营业执照 / 许可证 / 证照` 四个词扫过一遍，只命中这条入口本身，
  *    没有任何画板）⇒ 页面按用户给的**真实小程序参考页**（别家店铺的「经营资质」）排版。
- * 📄 页面只渲染**契约真有的**字段：`ShopVO.name`（店铺名）/ `ShopVO.businessName`（工商名称
- *    = 商家主体）；**营业执照 / 许可证图片契约里没有**（图片只在商户**入驻表单**上：
- *    `MerchantApplyDTO.licenseImage`，C 端 `ShopVO` 全字段无此列）⇒ 页面给诚实空态。
+ * ✅ 2026-10-10 S4 起 `ShopVO` **已经有**门店级资质字段（`licenseNo/licenseImage` /
+ *    `foodPermitNo/foodPermitImage/foodPermitExpireDate`）⇒ 资质页渲染**真实证照**，
+ *    某店没录时仍走"暂未公示"的诚实空态（见该页头部注释）。
  */
 function onQualificationTap(): void {
   // 没带 shopId 时不跳：资质页同样以 shopId 为唯一取数依据，空手跳过去只能显示错误。
@@ -408,27 +602,67 @@ function formatAmount(value: number): string {
             <view v-else class="shop-logo" />
             <view class="shop-card-main">
               <text class="shop-name">{{ shop?.name }}</text>
-              <!-- ⚠️ 评分行与粉丝数：设计里这两项是**写死的填充文案**，契约里既没有 `rating`
-                   也没有 `fansCount` ⇒ 整行不渲染（数值本身见文件头「不渲染清单」，此处不重复写出）。
-                   注意：不得用 `MerchantOverviewVO.serviceScore`（恒 null 占位）或
-                   `ShopVO.boundUserCount`（已绑定微信人数）顶替。 -->
-              <!-- ✅ 门店档案现在是**真实数据**（`GET /api/shop/{shopId}`，S3）：
-                   店名走 `shop.name`、logo 走 `shop.shopImage`；未配置时画**中性方块**（不是占位图、
-                   也不是设计稿那枚平台自己的品牌图）。 -->
+              <!-- 评分行 / 粉丝数（**S4 起为真实字段**，2026-10-10 第四轮接线）：
+                   评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
+                   解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
+                   光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null** ⇒ 星串与分值
+                   一起不渲染（不补 0、不补 `—`）；粉丝 ← `ShopVO.fansCount`
+                   （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）。
+                   ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
+                      `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
+              <view v-if="rating || fans" class="shop-metrics-row">
+                <view v-if="rating" class="shop-rating">
+                  <text class="shop-stars">{{ stars }}</text>
+                  <text class="shop-score">{{ rating }}</text>
+                </view>
+                <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）；
+                     只有两边都有值时才画（单边时不出现一根悬空的竖线）。 -->
+                <view v-if="rating && fans" class="shop-divider" />
+                <text v-if="fans" class="shop-fans">{{ fans }}</text>
+              </view>
+              <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
             </view>
             <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
                  （三个 handle 的仿射变换 ⇒ CSS `104.7deg`，见样式表注释），
                  内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星（真实切图，
                  `static/shop/fav-star.png`），文案白字 12px。
-                 点击只提示（店铺收藏读写接口缺失，见 onFavoriteTap 注释）。 -->
-            <view class="shop-fav" @click="onFavoriteTap">
+                 ✅ 2026-10-10 S4 起**可用**：点击 = 关注/取关门店（`/api/shop/{shopId}/follow`），
+                    未登录则弹登录引导；文案「收藏」是设计原文，已关注时作「已收藏」（见 `favText`）。 -->
+            <view class="shop-fav" :class="{ 'shop-fav-on': followed === true }" @click="onFavoriteTap">
               <image class="shop-fav-star" src="/subpkg-goods/static/shop/fav-star.png" mode="aspectFit" />
-              <text class="shop-fav-text">收藏</text>
+              <text class="shop-fav-text">{{ favText }}</text>
             </view>
           </view>
 
-          <!-- ⚠️ 服务表现三格（128/116/103 × 55，`#FFFFFF@10%`，圆角 6，左对齐）：
-               契约无服务指标字段 ⇒ 整行不渲染（不放假数据）。 -->
+          <!-- **服务表现**（设计 `服务表现` 390×55：三格 `#FFFFFF@10%`、圆角 6、
+               名 12px `#FFFFFF@80%` / 值 13px `#FFFFFF`）——
+               数据只接契约真有的两项（`onTimeRate` 准时送达率、`avgAcceptSeconds` 平均接单时长），
+               见 `utils/shop-metrics.ts`。
+               ⚠️ 这里**没有**设计稿的「口碑品质 / 商品品质」「平均满意度」「平均 12 小时发货」
+                  「客服响应 14 秒」：契约里一个都没有，一律不编。
+                  ⚠️ **本次核对**：节点 `4045:5815` 里这三格写的是
+                  「口碑品质 / 发货时效 / 客服响应」，而**进店卡片**节点（`4029:5751`）第一格写
+                  「商品品质」—— 两张卡的设计文案本身不一致（旧需求单 §4-4 已记）。
+                  因为服务表现的三项在契约里**都不存在**，我们改用契约真有的两项指标名，
+                  这个不一致**不影响本页**（不再沿用设计填充文案）。
+               ⚠️ **滚动折叠**：用户 2026-10-10 对节点 `4050:6387` 的澄清是
+                  「图中**这块内容滚动后不显示**，其他的固定，中间要有过渡动画」
+                  ⇒ 本块是**唯一**随滚动收起的内容（`serviceCollapsed`），
+                  其余（渐变 / 店名 / 评分 / 粉丝 / 收藏 / Tab / 筛选 / 网格）保持不动。
+                  过渡机制 = 显式 `height` + `opacity`（`display` 不可过渡），
+                  高度取**首帧量到的真实值**（见 `measureServiceRow`）。 -->
+          <view
+            :id="`shop-service-row-${0}`"
+            v-if="serviceMetrics.length"
+            class="shop-service-row"
+            :class="{ 'shop-service-row-collapsed': serviceCollapsed }"
+            :style="serviceRowStyle(0)"
+          >
+            <view v-for="metric in serviceMetrics" :key="metric.name" class="shop-metric">
+              <text class="shop-metric-name">{{ metric.name }}</text>
+              <text class="shop-metric-value">{{ metric.value }}</text>
+            </view>
+          </view>
         </view>
 
         <!-- ② 资质条：`#FFF4E8`，只有上圆角 12，内边距 上12/右12/下24/左12（下 24 是给白卡压叠留的）。 -->
@@ -483,8 +717,8 @@ function formatAmount(value: number): string {
                 <view class="sort-arrow-down" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'desc' }" />
               </view>
             </view>
-            <view class="filter-chip" @click="onReputationTap">
-              <text class="filter-text">口碑优品</text>
+            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'reputation' }" @click="selectSort('reputation')">
+              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'reputation' }">口碑优品</text>
             </view>
           </view>
 
@@ -536,6 +770,10 @@ function formatAmount(value: number): string {
         </view>
       </template>
     </view>
+
+    <!-- 登录引导（未登录点「收藏」时打开）——与商品详情页同一组件、同一口径：
+         关注门店的三个接口都要登录（无 token 得 401），所以未登录时**不发请求**、只引导去登录。 -->
+    <LoginGuide v-model="loginGuideVisible" />
   </view>
 </template>
 
@@ -584,6 +822,52 @@ page { background: #F2F3F7; overflow-x: hidden; }
    ⇒ 按钮总宽 12 + 14 + 4 + 24 + 12 = 66 ✓。 */
 .shop-fav-star { width: 27rpx; height: 27rpx; flex: none; }
 .shop-fav-text { margin-left: 8rpx; color: #FFFFFF; font-size: 23rpx; line-height: 38rpx; }
+/* 已关注态：**只改透明度**，不改尺寸/颜色 —— 渐变填充与星形都是设计值，
+   加个环或换色都属于"设计稿没有的视觉声明"；文案已由「收藏」变「已收藏」表达状态。 */
+.shop-fav-on { opacity: 0.72; }
+
+/* 评分行 / 粉丝数（设计 `Frame 117` 160×20，`gap=8`；星块 `Frame 116` 62×10 `gap=3`；
+   分值 12px `#FFB200` 与星块间距 6；竖线 1×8 `#FFFFFF@70%`；粉丝 12px `#FFFFFF@80%`）。
+   ⚠️ 只有真实字段有值时才渲染（见模板），这里只管排版。 */
+.shop-metrics-row { display: flex; align-items: center; margin-top: 4rpx; }
+.shop-rating { display: flex; align-items: center; }
+/* 星串：设计每颗 10×10、间距 3 ⇒ 整块 62px。`★`/`☆` 字身都是 1em ⇒ 20rpx + 4rpx 字距
+   ≈ 62px（与进店卡片同一算法，见 `ShopEntryCard.vue` 的注释）。 */
+.shop-stars { color: #FFB200; font-size: 20rpx; letter-spacing: 4rpx; line-height: 38rpx; }
+.shop-score { margin-left: 12rpx; color: #FFB200; font-size: 23rpx; line-height: 38rpx; }
+/* 分隔竖线 1×8（`#FFFFFF@70%` + 节点 `opacity=0.8` ⇒ 白 0.56 最接近实测观感）。 */
+.shop-divider { width: 2rpx; height: 15rpx; margin: 0 15rpx; background: rgba(255, 255, 255, 0.56); }
+.shop-fans { color: rgba(255, 255, 255, 0.8); font-size: 23rpx; line-height: 38rpx; }
+/* 评分的解释文案（`RATING_LABEL`）：契约明写评分是**客观指标合成、非用户评价**，
+   而设计只画了「★★★★★ 5.0」⇒ 不加这一行，用户会把它读成"用户评分"（被动误导）。
+   12px、白 60%（压在渐变上的次要文字；比粉丝那行更弱，不抢店名与分值）。 */
+.shop-rating-note { display: block; margin-top: 2rpx; color: rgba(255, 255, 255, 0.6); font-size: 23rpx; line-height: 32rpx; }
+
+/* 服务表现（设计 `服务表现` 390×55，`gap=8`，三格 `#FFFFFF@10%`、圆角 6、
+   内边距 上下6 左右12、格内间距 1；名 12px `#FFFFFF@80%`、值 13px `#FFFFFF`）。
+   ⚠️ 设计是三格 `sizingH=HUG`（宽由内容撑开）；契约只给两项可计算指标 ⇒ 这里用
+    `flex: 1` 让**实际存在的格数**均分（两格就两格，不补一个空格假装是三格）。 */
+.shop-service-row { display: flex; align-items: center; margin-top: 23rpx; }
+.shop-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 12rpx 23rpx; border-radius: 12rpx; background: rgba(255, 255, 255, 0.1); box-sizing: border-box; }
+.shop-metric + .shop-metric { margin-left: 15rpx; }
+.shop-metric-name { color: rgba(255, 255, 255, 0.8); font-size: 23rpx; line-height: 38rpx; }
+.shop-metric-value { margin-top: 2rpx; color: #FFFFFF; font-size: 25rpx; line-height: 42rpx; }
+
+/* ===== 滚动折叠（用户 2026-10-10 对节点 `4050:6387` 的澄清） =====
+   「图中**这块内容滚动后不显示**，其他的固定，**中间要有过渡动画**」
+   ⇒ 只有上面那一块随滚动收起，其余全部不动（不吸顶、不视差、不折叠头图）。
+
+   ⚠️ 过渡只用**可过渡属性**：`height` + `opacity`（外加 `overflow: hidden` 把内容裁干净）。
+      · **不能**用 `display: none` —— 不可过渡，会变成硬切；
+      · **不能**用 `max-height` —— 从一个大值收到 0 的**感知速度是非线性的**
+        （前 80% 动画时间只走很小的视觉变化，看起来"先卡一下再突然收完"）；
+      · 高度取**首帧量到的真实值**（`measureServiceRow` 用 `uni.createSelectorQuery`），
+        量不到就不折叠 —— 不用一个"看起来差不多"的假高度（那是样式里编数据）。
+      · **不切 `position`**：本块自始至终是普通流内元素（`position` 不可过渡，切换必抖，
+        见 `CLAUDE.md` §十二）；页面级滚动由 `onPageScroll` 驱动一个布尔，不换滚动容器。 */
+.shop-service-row { overflow: hidden; transition: height 240ms ease-out, opacity 240ms ease-out; }
+/* 折叠态：高度 0 + 完全透明（真实高度由 `serviceRowStyle` 内联给出，两端都是真实几何）。 */
+.shop-service-row-collapsed { opacity: 0; }
 
 /* ④ 资质条：390×56（108rpx），`#FFF4E8`，**只有上圆角 12**，左右两侧 space-between、垂直居中。 */
 .qualification-bar { display: flex; align-items: center; justify-content: space-between; height: 108rpx; padding: 23rpx 23rpx 46rpx; border-radius: 23rpx 23rpx 0 0; background: #FFF4E8; box-sizing: border-box; }

@@ -5,16 +5,17 @@ import { request } from '@/utils/request'
  * `/api/shop/{shopId}`（S3，2026-10-10 新增）返回的是**同一份** `ShopVO`，因此三个接口共用本类型。
  *
  * ⚠️ 这里**只声明前端真正消费的字段**。管理口径字段（`deposit` / `commissionRate` / `groupId` /
- *    `boundUserCount` …）刻意不声明：尤其 `boundUserCount` 是「已绑定微信人数」，**不是粉丝数** ——
- *    设计稿里的 `3484 粉丝` 在现有契约里**没有**任何对应字段（`ShopVO` 全字段逐条核对过）。
+ *    `boundUserCount` …）刻意不声明：尤其 `boundUserCount` 是「已绑定微信人数」，**不是粉丝数**，
+ *    契约也**没有**任何地方说它可以当粉丝数用 ⇒ 全库禁止拿它顶 `fansCount`（2026-10-10 复核）。
  *
- * ⚠️ **经营资质页（2026-10-10 新增）的数据现实**：`ShopVO` 全字段里与资质相关的**只有**
- *    `name`（店铺名）与 `businessName`（工商名称）。**营业执照 / 食品经营许可证的图片没有**
- *    —— 那些字段只存在于商户**入驻表单**（`MerchantApplyDTO.licenseImage` /
- *    `MerchantApplyVO.licenseImage` / `AdminMerchantApplyVO.licenseImage`，都是 B/C 端商户侧），
- *    以及平台级主题 `ThemeV2VO.companyName / businessLicenseNo`（那是**平台运营方**的公司信息，
- *    按门店展示就是伪造归属 ⇒ 一律不用）。
- *    ⇒ 资质页的证照区块走**诚实空态**，缺口已记 `docs/26/10.10/后端需求-店铺页数据缺口-2026-10-10.md`。
+ * ⚠️ **S4（2026-10-10）之前**本类型只声明了 `name` / `businessName` 两个资质相关字段，
+ *    并注明"营业执照 / 食品经营许可证的图片契约里没有"。**那句话现在不成立了**：
+ *    `ShopVO` 已新增资质的 5 个字段、评分的 3 个、服务表现的 2 个、粉丝数 1 个
+ *    （见下面各字段注释；全量 48 个字段）。
+ *    ⇒ 旧缺口清单（`后端需求-店铺页数据缺口-2026-10-10.md` 的 R4 / R8）里那句
+ *      「契约一个字段都没有」**已作废**，只剩"门店侧大都没录数据"这一条数据现实（运营补录）。
+ *    📄 现行字段与口径 = `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §12.1~§12.5
+ *      （评分是**客观指标合成、非用户评价**；服务表现只有两个可计算项；关注/粉丝是新增能力）。
  */
 export interface EnabledShop {
   id: number
@@ -68,6 +69,57 @@ export interface EnabledShop {
   mainBusiness?: string
   /** 均价（元） */
   avgPrice?: number
+  /**
+   * 营业执照编号（`ShopVO.licenseNo`，契约注释「营业执照编号（资质；C 端店铺页展示）」）。
+   * ⚠️ 与 `licenseImage` **各自独立可空**（`non_null` 序列化 ⇒ 没录就没有这个键）
+   *    ⇒ 消费方（经营资质页）按"有编号没图"也能单独渲染编号处理。
+   */
+  licenseNo?: string
+  /** 营业执照图片 URL（`ShopVO.licenseImage`，契约注释「营业执照图片 URL（资质；C 端店铺页展示）」）。 */
+  licenseImage?: string
+  /** 食品经营许可证编号（`ShopVO.foodPermitNo`）。 */
+  foodPermitNo?: string
+  /** 食品经营许可证图片 URL（`ShopVO.foodPermitImage`）。 */
+  foodPermitImage?: string
+  /**
+   * 食品经营许可证有效期至（`ShopVO.foodPermitExpireDate`，`yyyy-MM-dd`）。
+   * 契约注释：`null` = **未填或长期有效** ⇒ 前端**不得**把它渲染成"已过期"或"无有效期"结论，
+   * 没有值就整行不渲染（不能断言"长期有效"—— 契约把两种含义合并了，前端分不出来）。
+   */
+  foodPermitExpireDate?: string
+  /**
+   * 店铺评分（`ShopVO.rating`）。
+   * ⚠️ **契约原文：由客观指标合成，非用户评价**（完成率 + 无售后率 + 准时送达率加权，每日重算；
+   *    最少订单数默认 5）⇒ 任何 UI 文案**不得**写成"用户评价 / 用户评分 / xx 人评价"。
+   * ⚠️ **样本不足时为 `null`**（契约明写"前端隐藏评分区"）⇒ 判据必须用 `!= null`，**不得**兜底成 0。
+   */
+  rating?: number | null
+  /**
+   * 评分明细 JSON（`ShopVO.ratingDetailJson`，字符串）。
+   * 契约：供**中控自查 / 客服解释**用（`complete` / `noAfterSale` / `onTime` / `avgAcceptSeconds` /
+   * `weights` / 窗口与单量）⇒ C 端**不解析、不展示**（别把内部口径搬到用户面前）。
+   */
+  ratingDetailJson?: string
+  /** 评分最近计算时间（`ShopVO.ratingUpdatedAt`，`null` = 从未计算）。C 端不展示。 */
+  ratingUpdatedAt?: string
+  /**
+   * 准时送达率 0~1（`ShopVO.onTimeRate`，**客观指标**：`delivery_tasks.delivered_at - accepted_at
+   * ≤ estimated_minutes`，每日重算）。
+   * ⚠️ **无配送单时为 `null`** ⇒ 这一格**不渲染**（不补 0、不补「—」）。
+   */
+  onTimeRate?: number | null
+  /**
+   * 平均接单时长（秒，`ShopVO.avgAcceptSeconds`，契约口径 `assigned_at → accepted_at`）。
+   * ⚠️ **无数据时 `null`** ⇒ 不渲染。契约**没有**"客服响应/回复时长"字段
+   * （那项设计文案属 §12.3 未提供项）⇒ 不许拿本字段冒名成"客服响应"。
+   */
+  avgAcceptSeconds?: number | null
+  /**
+   * 粉丝数（`ShopVO.fansCount`）—— 契约明写「关注该门店的用户数；**恒不为 null**，0 表示暂无粉丝」。
+   * ⚠️ 与 `boundUserCount`（已绑定微信人数，且本类型刻意不声明）**是两个不同的数**，
+   *    任何地方都不得互相顶替。
+   */
+  fansCount?: number
 }
 
 /** 查询 C 端可选的启用门店。 */
@@ -120,7 +172,7 @@ function buildSkuIdsQuery(skuIds?: Array<number | string>): string {
  *
  * ⚠️ **2026-10-10 起不再"拉全量再前端过滤"**：此前本函数是 `getEnabledShops()` +
  * `find(id)` 的旁路（后端当时没有 C 端单店接口，缺口记在
- * `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 3 条）—— 那种写法
+ * `docs/26/10.09/前端对接文档-2026-10-10-全集.md` §4.3 第 3 条）—— 那种写法
  * ① 多拉一份全量门店、② 把「门店不存在」与「请求失败」混成同一个空结果。
  * 现在直连接口即可，且**错误语义变得可区分**（见下）。
  *
@@ -134,6 +186,71 @@ export function getShopDetail(shopId: string | number): Promise<EnabledShop> {
   const id = String(shopId ?? '').trim()
   if (!id) return Promise.reject(new Error('缺少门店 ID'))
   return request<EnabledShop>({ url: `/api/shop/${encodeURIComponent(id)}`, method: 'GET' })
+}
+
+/**
+ * 门店**关注状态 + 粉丝数**（`GET /api/shop/{shopId}/follow-status`，2026-10-10 S4 **新增能力**）。
+ *
+ * 契约原文（`api_doc.json` 该 path 的 `description`）：
+ * 「返回当前用户是否已关注该门店 + 该店粉丝数（供店铺页「关注」按钮与粉丝数展示）。」
+ *
+ * ⚠️ **必须登录**：契约明写这三个 follow 接口**不在公开白名单**（白名单只放行
+ *    `/api/shop/all`、`/api/shop/*`、`/api/shop/*/products`）⇒ **无 token 得到 401**
+ *    （后端已实测 ✔）。而且 `utils/request.ts` 的"公开浏览降级重试"白名单**只覆盖 GET 只读接口**，
+ *    本接口也**不在**那份白名单里 —— 是刻意的：未登录直接调只会拿到 401,
+ *    所以调用方**必须先用 {@link isLoggedIn} 判断**，未登录就**不要发这个请求**
+ *    （店铺页对游客只显示 `ShopVO.fansCount`，不显示"已关注"态）。
+ *
+ * ⚠️ 响应是 `ResultMapStringObject`（**契约里没有字段级 schema**，只有 summary/description
+ *    的 `{ followed: bool, fansCount: number }` 文字说明）。按仓库 §十 的教训，这里**只做保守解析**：
+ *    取到才用、取不到就当"未知"（不默认 false、不默认 0）。
+ */
+export interface ShopFollowStatus {
+  /** 当前用户是否已关注该门店；`undefined` = 响应里没有这个键（契约无字段级 schema）。 */
+  followed?: boolean
+  /** 该店粉丝数；`undefined` = 响应里没有这个键（此时不要用 0 顶替）。 */
+  fansCount?: number
+}
+
+/** 关注状态/粉丝数的请求路径（三个 follow 接口共用，避免三处各拼一遍字符串）。 */
+function shopFollowUrl(shopId: string | number, suffix = ''): string {
+  const id = String(shopId ?? '').trim()
+  if (!id) return ''
+  return `/api/shop/${encodeURIComponent(id)}/follow${suffix}`
+}
+
+/**
+ * 关注门店（`POST /api/shop/{shopId}/follow`）。
+ * 契约原文：「关注该门店（**幂等**：已关注再调返回成功）。粉丝数冗余在 `wx_shop.fans_count`
+ * 同步 +1，并由每日任务校准。」⇒ 重复调用**不是错误**，前端不需要先查状态再决定调不调。
+ * ⚠️ 必须登录（未登录 401，见 {@link getShopFollowStatus} 的说明）。
+ */
+export function followShop(shopId: string | number): Promise<boolean> {
+  const url = shopFollowUrl(shopId)
+  if (!url) return Promise.reject(new Error('缺少门店 ID'))
+  return request<boolean>({ url, method: 'POST' })
+}
+
+/**
+ * 取消关注门店（`DELETE /api/shop/{shopId}/follow`）。
+ * 契约原文：「取消关注（**幂等**：未关注再调返回成功）。粉丝数同步 -1（**按实际行数校准**）。」
+ * ⚠️ 必须登录。
+ */
+export function unfollowShop(shopId: string | number): Promise<boolean> {
+  const url = shopFollowUrl(shopId)
+  if (!url) return Promise.reject(new Error('缺少门店 ID'))
+  return request<boolean>({ url, method: 'DELETE' })
+}
+
+/**
+ * 查询当前用户对该门店的关注状态 + 该店粉丝数。
+ * ⚠️ **调用方必须先确认已登录**（见上方三个 follow 接口共用的 401 说明）；
+ *    本函数不做登录判断，也不吞 401 —— 由页面决定"未登录时根本不调"。
+ */
+export function getShopFollowStatus(shopId: string | number): Promise<ShopFollowStatus> {
+  const url = shopFollowUrl(shopId, '-status')
+  if (!url) return Promise.reject(new Error('缺少门店 ID'))
+  return request<ShopFollowStatus>({ url, method: 'GET' })
 }
 
 /**
@@ -159,6 +276,6 @@ export function getShopDetail(shopId: string | number): Promise<EnabledShop> {
  * `subpkg-goods/detail/detail.vue` 一处引用；`getShopById` 只被 `subpkg-goods/shop/index.vue`
  * 一处引用 —— 两者均已改为直读/直连，故一并删除。
  *
- * 📄 缺口与口径来源：`docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3、
+ * 📄 缺口与口径来源：`docs/26/10.09/前端对接文档-2026-10-10-全集.md` §4.3、
  *    `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §3.1。
  */

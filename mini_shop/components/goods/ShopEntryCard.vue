@@ -33,20 +33,27 @@
  * 那张卡是**渐变上的透明卡**（白字 + `#FFFFFF@10%` 半透明指标块 + 渐变「收藏」按钮）；
  * 这张是**白卡**（深色字 + 无底色指标格 + 浅橙纯色「进店」按钮）。两张卡**不共用样式**。
  *
- * ## 数据现实（⚠️ 本组件刻意"有数据才画"）
- * - ✗ **评分**：契约里**没有**店铺评分字段（`MerchantOverviewVO.serviceScore` 是
- *   **恒 null 的占位**，契约注释明写"绝不能兜底成 0/占位值"）⇒ 无数据时**整行不渲染**。
- * - ✗ **粉丝数**：契约里**没有** `fansCount` 字段；`ShopVO.boundUserCount` 是
- *   「已绑定微信人数」，**语义不同、不得代替**。
- * - ✗ **服务表现**（`商品品质 / 平均满意度` 等三格）：契约里**没有**服务指标字段。
- * - 以上三项的缺口清单见 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 4/5/7 条；
- *   **2026-10-10 第三轮又复核了一遍**（本地 `api_doc.json` + dev `/v3/api-docs`，HTTP 200；
- *   两边 `ShopVO` 逐字段一致，37 个字段里没有 `rating` / `fansCount` / 服务指标），
- *   并把这三项按本轮口径写进了需求单 **R8**：
- *   `docs/26/10.10/后端需求-店铺页数据缺口-2026-10-10.md`。
- *   ⚠️ 设计稿里那几项指标的具体填充数值全部是**写死的填充文案**，
- *   **不是数据** ⇒ 一律不得硬编码（仓库硬原则：绝不伪造数据）。
- *   ⇒ 所以本组件**只公开可选 prop**：数据到了由父页面传入即渲染，没到就整块不出现（不留 `0`／`—`）。
+ * ## 数据现实（⚠️ 本组件刻意"有数据才画"；**S4 起数据真的有了**）
+ * - ✅ **评分**：`ShopVO.rating`（2026-10-10 S4 新增）。契约原文「由**客观指标合成，非用户评价**；
+ *    **样本不足时为 null ⇒ 前端隐藏评分区**」⇒ 无值整行不渲染；有值时另起一行渲染
+ *   `RATING_LABEL`（「综合服务分（非用户评价）」）—— 设计只画了「★★★★★ 5.0」，
+ *   不加解释会被读成"用户评分"。
+ *   ⛔ 仍然**不得**用 `MerchantOverviewVO.serviceScore`（恒 null 的占位）顶替。
+ * - ✅ **粉丝数**：`ShopVO.fansCount`（契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）。
+ *   ⛔ 仍然**不得**用 `ShopVO.boundUserCount`（「已绑定微信人数」）顶替 —— 语义不同的两个数。
+ * - ✅ **服务表现**：只有**两个可计算项**有契约字段 —— `onTimeRate`（准时送达率）与
+ *   `avgAcceptSeconds`（平均接单时长）；一律经 `utils/shop-metrics.ts` 生成 ⇒
+ *   缺一项就少一格（**不补空格**）。
+ *   ⛔ 设计稿那三格（`口碑品质`/`发货时效`/`客服响应` 与 `平均满意度97.2%`/`平均12小时发货`/
+ *   `平均14秒回复`）**契约里一个都没有** ⇒ 不编、不硬编码。字段清单与口径见
+ *   `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §12.2 / §12.3。
+ *   ⚠️ 两张卡的设计文案还**互相不一致**（本卡第一格设计写 `商品品质`，店铺页 `4045:5815` 写
+ *   `口碑品质`）—— 因为两项都已不沿用设计填充文案，这个不一致**不影响实现**；
+ *   但它意味着"服务表现三项到底算哪些"在**产品侧仍未有定义**（后端只给了两个客观指标）。
+ * - **数据来源提醒**：本组件的门店来自**商品详情**（只有 `shopId`/`shopName`/`shopImage`，S1），
+ *   **不含**上面这些指标 ⇒ 父页面（`subpkg-goods/detail/detail.vue`）必须**另外**拉一次
+ *   `GET /api/shop/{shopId}`（S3，公开免登录）把 `rating` / `fansCount` / 服务指标传进来。
+ * - ⚠️ 数据没到时**整块不出现**（不留 `0`／`—`／空框）。
  *   ⚠️ **"整块不出现"不等于"看起来像坏了"**：卡片头永远完整（logo 有中性方块兜底、店名、
  *   「进店」按钮），评分行/服务表现行缺席时只是卡片变矮，不会出现错位或空框 —— 这是刻意的：
  *   宁可少一块，也不放 `—`/`0`/假星星（那会被当成真实数据）。
@@ -62,8 +69,10 @@
  */
 import { computed } from 'vue'
 import type { ShopEntry } from '@/api/product'
+// 评分 / 粉丝 / 服务表现的**共用口径**（与店铺页同源；该模块头部逐条对齐契约 §12.2/§12.3）。
+import { RATING_LABEL, fansText, ratingStars, ratingText, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
 
-/** 一条服务指标（名 + 值，值本身已含单位，如「平均满意度97.2%」）。 */
+/** 一条服务指标（名 + 值，值本身已含单位，如「准时送达 97.2%」）。 */
 export interface ShopServiceMetric {
   name: string
   value: string
@@ -85,13 +94,27 @@ export interface ShopNavigationTarget {
 }
 
 const props = withDefaults(defineProps<{
-  /** 已从商品详情读出的门店；**为空则不渲染整张卡**（见头部注释的 fail-closed 约定）。 */
+  /**
+   * 已从商品详情读出的门店（`ProductDetailV2VO.shopId/shopName/shopImage`，S1）；
+   * **为空则不渲染整张卡**（见头部注释的 fail-closed 约定）。
+   * ⚠️ 商品详情**只带门店三件套**，**不带**评分/粉丝（S4 把这三项放在 `ShopVO` 上）
+   *    ⇒ 父页面必须**另外**把门店档案的客观指标通过下面三个 prop 传进来。
+   */
   shop?: ShopNavigationTarget | ShopEntry | null
-  /** 店铺评分（0–5，一位小数）。⚠️ 契约暂无此字段 ⇒ 不传即不渲染评分行。 */
+  /**
+   * 店铺评分（`ShopVO.rating`，客观指标合成、**非用户评价**）。
+   * ⚠️ **样本不足时后端给 null** ⇒ 不传即不渲染评分行（契约明写"前端隐藏评分区"）；
+   *    判据见 `ratingText()`（用 `!= null`，**不得**兜底成 0）。
+   */
   rating?: number | null
-  /** 店铺粉丝数。⚠️ 契约暂无此字段（≠ `boundUserCount`）⇒ 不传即不渲染。 */
+  /** 店铺粉丝数（`ShopVO.fansCount`）。⚠️ 与 `boundUserCount`（已绑定微信人数）**语义不同**，不得互替。 */
   fansCount?: number | null
-  /** 服务表现（最多 3 条）。⚠️ 契约暂无此字段 ⇒ 不传即不渲染整行。 */
+  /**
+   * 服务表现（**只放契约真有的可计算项**，最多 3 条）。
+   * 推荐直接用 `utils/shop-metrics.ts` 的 `shopServiceMetrics(shop)` 生成 ——
+   * 它会自动只保留 `onTimeRate` / `avgAcceptSeconds` 有值的那几项。
+   * ⚠️ 传空数组 = 整行不渲染（不补「—」、不补空格）。
+   */
   serviceMetrics?: ShopServiceMetric[]
 }>(), {
   shop: null,
@@ -114,37 +137,21 @@ const logo = computed(() => String(props.shop?.shopImage || '').trim())
 /** 店名；后端未下发时为空串（设计里店名是必有元素，但"没有就不编"仍是第一原则）。 */
 const shopName = computed(() => String(props.shop?.name || '').trim())
 
-/** 有评分才显示评分行（`0` 是合法值，`0.0` 分也要显示 —— 所以判据是 `!= null` 而不是真值判断）。 */
-const ratingText = computed(() => {
-  const value = props.rating
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return ''
-  return Number(value).toFixed(1)
-})
-
-/** 有粉丝数才显示（0 也是有效值）。 */
-const fansText = computed(() => {
-  const value = props.fansCount
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return ''
-  return `${Number(value)} 粉丝`
-})
+/**
+ * 评分的展示值 / 星串 / 粉丝文案 / 服务表现 —— 全部走 `utils/shop-metrics.ts` 的**共用口径**
+ * （与店铺页同源：同一批字段、同一套"缺就不渲染"判据、同一套单位）。
+ * ⚠️ 2026-10-10 S4 起这三个 prop 有了真实来源（`ShopVO`），此前它们只能由父页面传 undefined。
+ */
+const rating = computed(() => ratingText(props.rating))
+const stars = computed(() => ratingStars(props.rating))
+const fans = computed(() => fansText(props.fansCount))
 
 /**
- * 评分行的**星串**（⚠️ 2026-10-10 第三轮新增：此前这里是写死的 `★★★★★` 常量）。
- *
- * 写死五颗实心星 = 给任何分值的店都显示满分 —— 那是**用视觉伪造数据**（与仓库"绝不伪造数据"
- * 同源：拿不到真实结论时不留假象）。⇒ 改为按 `rating` 真值算：四舍五入到整颗，
- * 满格 `★`、其余 `☆`。
- * ⚠️ 设计稿只画了满分态（`4029:5761` 五颗 10×10 实心星 + `5.0`），**部分星级是前端补的标准做法**，
- * 半星/空心星的样式口径已列入需求单 R8 待产品确认；在确认前不引入新的颜色，空心星与实心星同色。
- * `★`/`☆` 都是全角字身（1em）⇒ 五颗的宽度与设计一致（5×10 + 4×3 = 62px，靠 CSS 的字距实现）。
+ * 服务表现的最终列表。
+ * ⚠️ 父页面若已经用 `shopServiceMetrics()` 生成过，这里再过滤一次是**幂等**的（同一套判据）；
+ *    若父页面自己拼了别的指标，这里**不校验名字**（组件不该假装知道业务口径）——
+ *    口径的唯一来源是 `utils/shop-metrics.ts`，两边都指向它。
  */
-const starText = computed(() => {
-  if (!ratingText.value) return ''
-  const filled = Math.max(0, Math.min(5, Math.round(Number(props.rating))))
-  return '★'.repeat(filled) + '☆'.repeat(5 - filled)
-})
-
-/** 过滤掉没有名字/值的指标（后端只给 0–N 条，不保证非空串）。 */
 const metrics = computed(() => (props.serviceMetrics || [])
   .filter((item) => item && String(item.name || '').trim() && String(item.value || '').trim())
   .slice(0, 3))
@@ -169,24 +176,29 @@ function onEnter(): void {
       <view v-else class="entry-logo" />
       <view class="entry-main">
         <text v-if="shopName" class="entry-name">{{ shopName }}</text>
-        <!-- 评分行：星级 + 分数 + 分隔线 + 粉丝数；三块各自有数据才出现（设计里的数字是填充文案，不硬编码）。 -->
-        <view v-if="ratingText || fansText" class="entry-rating">
-          <view v-if="starText" class="entry-stars">
+        <!-- 评分行：星级 + 分数 + 分隔线 + 粉丝数；三块各自有真实数据才出现
+             （设计里的数字是填充文案，不硬编码；S4 起数据来源 = `ShopVO.rating` / `fansCount`）。 -->
+        <view v-if="rating || fans" class="entry-rating">
+          <view v-if="stars" class="entry-stars">
             <!-- ⚠️ 设计稿里五颗星复用的是一个**名叫 `收藏_填充`** 的组件（`4002:4148`，内部矢量却叫
                  `Star 1 (Stroke)`）—— 名字有误导性，但**这里的星是实心的**（渲染图确认：
                  评分行是实心星、收藏按钮那颗才是空心星）。
                  每个星位 10×10、星星之间 3 ⇒ 整块 62px；`★`/`☆` 的字身都是 1em，
                  故取 20rpx（10.4px）+ 字距 4rpx ⇒ ≈ 62px（旧值 19rpx 裸排只有 49px，整行左移 12px）。
-                 ⚠️ 星串由 `starText` 按**真实分值**算（不写死五颗，见该 computed 的注释）；
-                 用字形而不是切图：单色、可随数据改色、任意 DPR 都锐利，且不增包体积。 -->
-            <text class="entry-star">{{ starText }}</text>
-            <text class="entry-score">{{ ratingText }}</text>
+                 ⚠️ 星串由 `ratingStars()` 按**真实分值**算（不写死五颗）：写死五颗实心 = 把 3.2 分的店
+                 显示成满分（视觉伪造数据）。用字形而不是切图：单色、可随数据改色、任意 DPR 都锐利。 -->
+            <text class="entry-star">{{ stars }}</text>
+            <text class="entry-score">{{ rating }}</text>
           </view>
-          <view v-if="ratingText && fansText" class="entry-divider" />
-          <!-- ⚠️ 粉丝数只渲染**真实值**：`fansText` 在无数据时是空串（契约里根本没有该字段，
-                 设计稿那个数字是填充文案）⇒ 整段不出现，不留 `0`、不留 `—`。 -->
-          <text v-if="fansText" class="entry-fans">{{ fansText }}</text>
+          <view v-if="rating && fans" class="entry-divider" />
+          <!-- ⚠️ 粉丝数只渲染**真实值**（`ShopVO.fansCount`，契约：恒不为 null、0 = 暂无粉丝）
+                 ⇒ 0 也照实显示 `0 粉丝`；字段缺失（老后端）时整段不出现，不留 `0`、不留 `—`。 -->
+          <text v-if="fans" class="entry-fans">{{ fans }}</text>
         </view>
+        <!-- 评分的解释文案：契约明写评分是**客观指标合成、非用户评价**，而设计只画了
+             「★★★★★ 5.0」⇒ 不加这一行会被读成"用户评分"（被动误导）。只在真有评分时出现，
+             不引入新配色（`#86909C`，与粉丝数同一档次要文字色）。 -->
+        <text v-if="rating" class="entry-rating-note">{{ RATING_LABEL }}</text>
       </view>
       <view class="entry-button">
         <text class="entry-button-text">进店</text>
@@ -229,6 +241,10 @@ function onEnter(): void {
 /* 分隔竖线 1×8 `#E6E7EB`，两侧间距 8（15rpx）。 */
 .entry-divider { width: 2rpx; height: 15rpx; margin: 0 15rpx; background: #E6E7EB; }
 .entry-fans { color: #86909C; font-size: 23rpx; line-height: 38rpx; }
+/* 评分的解释文案（`RATING_LABEL`）：契约明写评分是**客观指标合成、非用户评价**，
+   而设计只画了「★★★★★ 5.0」⇒ 不加这一行，用户会把它读成"用户评分"（被动误导）。
+   12px、`#86909C`（与粉丝数同一档次要文字色，不引入新配色），只在真有评分时出现。 */
+.entry-rating-note { color: #86909C; font-size: 23rpx; line-height: 32rpx; }
 /* 「进店」按钮：60×28 圆角 4，纯色 #FFF4E8，内边距 上4/右8/下4/左12，元素间距 2 */
 .entry-button { display: flex; align-items: center; flex: none; height: 54rpx; padding: 8rpx 15rpx 8rpx 23rpx; border-radius: 8rpx; background: #FFF4E8; box-sizing: border-box; }
 .entry-button-text { color: #FF5500; font-size: 23rpx; line-height: 38rpx; }

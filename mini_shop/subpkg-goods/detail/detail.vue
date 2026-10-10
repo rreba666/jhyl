@@ -5,6 +5,9 @@ import { addSkuToCartWithStock } from '@/api/cart'
 import { favoriteProduct, unfavoriteProduct } from '@/api/favorite'
 import { getUserProfile, type UserProfile } from '@/api/user'
 import { getProductDetail, type ProductDetail } from '@/api/product'
+import { getShopDetail, type EnabledShop } from '@/api/shop'
+// 进店卡片的服务表现（S4）：哪些客观指标算数由这个共用模块决定（与店铺页同源，见其头部注释）。
+import { shopServiceMetrics } from '@/utils/shop-metrics'
 import { getAuth, isLoggedIn, isRegisteredUser } from '@/utils/auth'
 import { bindStoredPromotionIfLoggedIn, buildPromotionSharePath, capturePromotionContext } from '@/utils/promotion'
 import { getPromotionCode } from '@/api/promotion'
@@ -250,11 +253,45 @@ const shopEntryShop = computed(() => {
 /** 进店卡片与上方「价格/标题/标签」区之间的间距（自定义组件外边距只能内联传，见模板注释）。 */
 const SHOP_ENTRY_GAP = '20rpx'
 
+/**
+ * 进店卡片的**门店客观指标**（2026-10-10 S4 新增接线）。
+ *
+ * ## 为什么还要多打一个请求
+ * S1 只把门店**三件套**（`shopId`/`shopName`/`shopImage`）随商品详情下发；
+ * S4 把评分 / 粉丝 / 服务表现放在了**门店档案 `ShopVO`** 上（`rating` / `fansCount` /
+ * `onTimeRate` / `avgAcceptSeconds`）⇒ 卡片要显示它们，就必须再取一次
+ * `GET /api/shop/{shopId}`（S3，**公开免登录**，游客也能拿到）。
+ * ⚠️ 这是**唯一**为了这几个展示位发出的请求，且走的是**同一个** `shopId`
+ *    （`shopEntryShop.id`，即后端定义的主在售门店）—— **不重新推断门店**。
+ *
+ * ## fail-closed / 不伪造
+ * - `shopId` 为空 ⇒ 不请求（也没有卡片可显示）；
+ * - 请求失败 / 门店 8000 ⇒ `shopMetrics` 保持 `null` ⇒ 卡片**只少那两行**，
+ *   **不**因此把整页变成错误态，也**不**用商品详情里的别的数字顶替评分/粉丝；
+ * - 组件侧仍各自独立判空（`rating == null` ⇒ 不渲染评分行），与店铺页同一套口径
+ *   （`utils/shop-metrics.ts`）。
+ */
+const shopMetrics = ref<EnabledShop | null>(null)
+
 /** 点「进店」→ 进店铺页；id 由卡片（= 商品详情里那个真实门店）给出，这里再挡一次空值。 */
 function onEnterShop(shopId: string | number): void {
   const id = String(shopId ?? '').trim()
   if (!id) return
   uni.navigateTo({ url: `/subpkg-goods/shop/index?shopId=${encodeURIComponent(id)}` })
+}
+
+/**
+ * 拉门店档案（只为进店卡片的客观指标；见 `shopMetrics` 注释）。
+ * ⚠️ **失败静默**：卡片少两行是"如实没有"，弹一个错误提示反而像页面坏了（页面主体照常可用）。
+ */
+async function loadShopMetrics(): Promise<void> {
+  const id = shopEntryShop.value?.id
+  if (!id) return
+  try {
+    shopMetrics.value = await getShopDetail(id)
+  } catch {
+    shopMetrics.value = null
+  }
 }
 
 /** 读取页面参数并加载商品详情。 */
@@ -274,8 +311,11 @@ onLoad(async (options) => {
   try {
     product.value = await productRequest
     favorite.value = Boolean(product.value.favorite)
-    // ⚠️ 进店卡片**不再需要单独取数**：门店随商品详情一起到（S1），`shopEntryShop` 是
+    // ⚠️ 进店卡片的**门店归属**不再需要单独取数：门店随商品详情一起到（S1），`shopEntryShop` 是
     //    computed，`product` 一赋值就已就绪 —— 既不阻塞首屏，也不多打一个请求。
+    //    ⚠️ 但 S4 的**客观指标**（评分/粉丝/服务表现）只在门店档案上 ⇒ 另起一个**不阻塞**的请求
+    //    （`void`：卡片先按"没有那两行"渲染，数据回来再补上，与店铺页的"有才渲染"同义）。
+    void loadShopMetrics()
     user.value = await profileRequest
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '商品详情加载失败'
@@ -581,9 +621,19 @@ onShow(() => {
              ⇒ 这里放在「价格/标题/标签」区之后、售后保障之前（主流电商的位置，也是本页最贴近
                「店铺归属」语义的落点）。
              ⚠️ `shopEntryShop` 为 null（商品没有在售门店 / 后端未下发 `shopId`）时组件**整块不渲染**；
+             ⚠️ 评分 / 粉丝 / 服务表现来自**另一次**门店档案请求（S4，见 `shopMetrics` 注释）：
+                没到 / 失败 / 这家店没这些数据 ⇒ 组件内部各自判空、**只少那两块**（不补 0、不补「—」）；
+                服务表现的"哪些项算数"由 `utils/shop-metrics.ts` 统一决定（与店铺页同源）。
              ⚠️ 给自定义组件加外边距必须用**内联 `:style`**（小程序 `styleIsolation: isolated`，
                父页面的 class 规则作用不到子组件根节点）。 -->
-        <ShopEntryCard :shop="shopEntryShop" :style="{ marginTop: SHOP_ENTRY_GAP }" @enter="onEnterShop" />
+        <ShopEntryCard
+          :shop="shopEntryShop"
+          :rating="shopMetrics?.rating ?? null"
+          :fans-count="shopMetrics?.fansCount ?? null"
+          :service-metrics="shopServiceMetrics(shopMetrics)"
+          :style="{ marginTop: SHOP_ENTRY_GAP }"
+          @enter="onEnterShop"
+        />
 
         <!-- 售后保障（2026-10-08 Step3 新增，依据《前端对接-Step3》§二 + 《前端对接-Step2》§三；
              2026-10-10 §四 仅改物流那一行的锚点文案，本块结构未变）：

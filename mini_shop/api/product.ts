@@ -216,6 +216,19 @@ export type ShopProductSort = 'sold_desc' | 'price_asc' | 'price_desc' | 'new_de
 export function getShopProducts(params: {
   shopId: string | number
   sortBy?: ShopProductSort
+  /**
+   * 只看**推荐商品**（`isRecommended=1` 的在售商品）—— 店铺页「口碑优品」栏位用
+   * （2026-10-10 S4 §12.5 **新增参数**，契约原文：
+   * 「是否只看推荐商品（店铺页「口碑优品」栏位用）：true ⇒ isRecommended=1 的在售商品」）。
+   *
+   * ⚠️ 这里**不是** `sortBy` 的新枚举，而是**独立的布尔筛选** ——
+   *    旧的 `reputation_desc` 需求（`后端需求-店铺页数据缺口-2026-10-10.md` §4-5 / §8-5）
+   *    被后端**以复用"推荐"标记的方式**满足了 ⇒ 「口碑优品」= `recommended=true`，
+   *    排序仍沿用同一 `sortBy`（契约：「排序与分页与不带该参数一致」）。
+   * ⚠️ **只在 `true` 时才拼该参数**：不传 = 后端默认（不筛选），
+   *    而 `recommended=false` 是"显式不过滤"——多写一个 `false` 只会让 URL 变长、语义不变。
+   */
+  recommended?: boolean
   page?: number
   pageSize?: number
 }): Promise<ProductPageResult> {
@@ -224,6 +237,7 @@ export function getShopProducts(params: {
     `pageSize=${encodeURIComponent(String(params.pageSize || 10))}`,
   ]
   if (params.sortBy) query.push(`sortBy=${encodeURIComponent(params.sortBy)}`)
+  if (params.recommended === true) query.push('recommended=true')
   return request<ProductPageResult>({
     url: `/api/shop/${encodeURIComponent(String(params.shopId))}/products?${query.join('&')}`,
     method: 'GET',
