@@ -39,6 +39,12 @@ export interface StaffAccount {
   canLoginH5?: boolean
   boundUserId?: number | null
   boundNickname?: string
+  /**
+   * 绑定用户的**脱敏 openid**（出参回显用）。
+   * ⚠️ 2026-10-10：`openid` 作为**入参**已从 `StaffAccountCreateDTO` / `StaffBindWechatDTO` 删除，
+   * 但本字段是**出参**，对接说明 §五 明写它「仍是回显字段、**未删除**」⇒ **不要**顺手删掉它
+   * （它只是"展示绑定人是谁"，与"用什么 key 绑定"无关）。
+   */
   boundOpenidMasked?: string
   /**
    * 绑定用户的微信号（人工登记值，**未登记为 null**）。
@@ -68,23 +74,17 @@ export interface StaffAccountSaveDTO {
   password?: string
   phone?: string
   /**
-   * 绑定微信用户 ID。
+   * 绑定微信用户 ID（**身份权威**）。
    * 契约 `StaffAccountCreateDTO.userId` 描述原文：「**微信用户ID（店长/骑手必填）**」。
-   * 三个微信标识 key 的优先级见 `@/utils/staffWechat`（契约原文：优先 userId > 微信号 > openid）。
+   * 两个 key 的口径与"填了就发"的规则见 `@/utils/staffWechat`。
    */
   userId?: number | string
   /**
-   * 绑定微信 openid。
-   * 契约 `StaffAccountCreateDTO.openid` 描述原文：「**微信 openid（与 userId 二选一）**」。
-   * ⚠️ 这里**只接受 openid 本身**，**不得**把微信号塞进这个 key —— 2026-10-10 的
-   * 「微信标识不匹配」事故就是这么来的（微信号被当成 openid 提交）。
-   */
-  openid?: string
-  /**
-   * 绑定微信号（**人工登记值**，不是 openid）。
+   * 绑定微信号（**人工登记值**）。
    * 契约 `StaffAccountCreateDTO.wechatId` 描述原文：「**微信号（人工登记值，服务端反查；
-   * 与 userId/openid 三选一，优先 userId）**」；绑定接口的描述进一步写明：
-   * 「微信号是人工登记值（小程序拿不到微信号），**需先在「用户管理」里登记，否则报 2000 并提示去登记**」。
+   * 与 userId 二选一，优先 userId）**」。
+   * ⚠️ 2026-10-10：`openid` **已从本 DTO 删除**（传了会被后端忽略 = 等于没填）⇒ 微信号**只能**走这个 key。
+   * ⚠️ 单填它时需先在「用户管理」登记过（否则报 2000）；**与 `userId` 同填**则由后端自动登记（§三）。
    */
   wechatId?: string
   gender?: number
@@ -140,20 +140,21 @@ export interface StaffIdentityUpdateDTO {
 }
 
 /**
- * 绑定微信入参（D4b `POST /api/admin/staff/{id}/bind` / C5 商家 PC 同形）。
+ * 绑定微信入参（D4b `POST /api/admin/staff/{id}/bind` / 商家 PC 同形）。
  *
- * ⚠️ 契约 `StaffBindWechatDTO` 是**三个各自独立的 key**（逐字原文）：
+ * ⚠️ 契约 `StaffBindWechatDTO` 是**两个各自独立的 key**（逐字原文）：
  * - `userId`：「**C端用户ID（wx_user.id）**」；
- * - `wechatId`：「**微信号（人工登记值，服务端据此反查 userId；与 userId/openid 三选一，优先 userId）**」；
- * - `openid`：「**微信 openid（没有 userId 时可只给 openid，服务端反查）**」。
+ * - `wechatId`：「**微信号（人工登记值；与 userId 二选一，优先 userId）**」。
  *
- * 接口描述给出的**完整优先级**（原文）：「微信标识三选一，**优先 userId > 微信号 > openid**；
- * 微信号是人工登记值（小程序拿不到微信号），需先在「用户管理」里登记，否则报 2000 并提示去登记。」
- * ⇒ 前端**必须**按 key 分派，不能让一个输入框兼着三个 key 用（见 `@/utils/staffWechat`）。
+ * `openid` **已从契约删除**（2026-10-10，对接说明 §二：传了会被忽略）⇒ 本类型**没有**它，
+ * 前端也**不得**再把微信号塞进 `openid`（那正是 2026-10-10「微信号不匹配」报障的成因）。
+ *
+ * 口径（§三）：`userId` 是**身份权威**；**两个都填**时后端按 `userId` 绑定，
+ * 并在该用户微信号未登记时**顺手登记** ⇒ 「同时填」是**推荐**做法，不是"二选一"。
+ * 前端**填了就发**（两个都填就两个都发），详见 `@/utils/staffWechat`。
  */
 export interface StaffBindDTO {
   userId?: number | string
-  openid?: string
   wechatId?: string
 }
 
