@@ -74,18 +74,56 @@ export type ProductCommissionRateParse =
   | { kind: 'value'; value: number }
 
 /**
+ * 归一化输入文本 —— 把「用户表达的**意图**」和「机器能读的**写法**」对齐（2026-10-10 新增）。
+ *
+ * 起因（商家真机反馈）：输入 `3%` 会被判成越界，弹的正是上面那句区间提示（`RANGE_TEXT`），
+ * 看起来像"根本改不了"。
+ * 根因是 `Number('3%')` = `NaN` ⇒ 把一个**表达了合法意图**的输入当成非法值判了越界。
+ * 同一类坑还有两个（都在真机上很容易发生、但看代码时想不到）：
+ * - **全角数字**（中文输入法全角状态下的 `３`）：`Number('３')` 同样是 `NaN`，
+ *   而它在输入框里和半角 `3` 几乎看不出区别 ⇒ 用户会坚称"我就输了个 3"；
+ * - **零宽 / 不可见字符**（从别处粘贴带进来的 `\u200B` 等）：肉眼不可见，但会让 `Number()` 变 `NaN`。
+ *
+ * 处理（**只做无损归一，不放宽任何口径**）：
+ * 1. `trim()` 首尾空白（已覆盖全角空格 U+3000、不换行空格 U+00A0）；
+ * 2. 去掉零宽字符（U+200B~U+200D / U+FEFF）；
+ * 3. 去掉**末尾一个** `%` / 全角 `％`（`3 %` ⇒ `3`；写 `3%` 表达的就是 3 个百分点）；
+ * 4. 全角数字与全角小数点 ⇒ 半角（`３` ⇒ `3`、`５．５` ⇒ `5.5`）。
+ *
+ * ⚠️ 归一化只解决「**写法**」，不解决「**数值**」：`0.5` / `2.99` / `21` 归一化后照样越界被拒。
+ * ⚠️ 本函数是**纯函数、无副作用**，导出是为了单测能直接钉住这几条归一规则
+ *    （口径只有一处，别在页面里再写一份"去掉百分号"）。
+ */
+export function normalizeCommissionRateInput(text: string | number | null | undefined): string {
+  return String(text ?? '')
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[%％]\s*$/, '')
+    .replace(/[\uFF10-\uFF19]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xFEE0))
+    .replace(/\uFF0E/g, '.')
+    .trim()
+}
+
+/**
  * 解析输入框文本。
  *
  * - 空白（`''` / `null` / `undefined`）⇒ `unset` —— 调用方据此**省略** `commissionRate` 字段；
  * - 非数字 / 越界（< 3 或 > 20）⇒ `invalid`；
  * - 否则 ⇒ `value`（按两位小数取整，避免 `2.999999` 这类浮点噪音被判越界）。
+ *
+ * ⚠️ 判数值前先过 {@link normalizeCommissionRateInput}（`3%` / `３` / 零宽字符都算**合法写法**）。
+ * ⚠️ 但「**有输入、归一化后什么都不剩**」（例如只输了一个 `%`）判 `invalid`，**不是** `unset`：
+ *    `unset` 的语义是"留空 ⇒ 不提交这个字段"，把 `%` 吞成 `unset` 会让用户敲进去的东西**静默消失**
+ *    （在商品编辑/入驻页那条路径上就等于"没改"，用户却以为改了）。
  */
 export function parseProductCommissionRateInput(
   text: string | number | null | undefined,
 ): ProductCommissionRateParse {
   const raw = String(text ?? '').trim()
   if (!raw) return { kind: 'unset' }
-  const value = Number(raw)
+  const normalized = normalizeCommissionRateInput(raw)
+  if (!normalized) return { kind: 'invalid' }
+  const value = Number(normalized)
   if (!Number.isFinite(value)) return { kind: 'invalid' }
   const rounded = Math.round(value * 100) / 100
   if (rounded < PRODUCT_COMMISSION_RATE_MIN || rounded > PRODUCT_COMMISSION_RATE_MAX) {
@@ -216,12 +254,29 @@ export function validateMerchantCommissionRate(text: string | number | null | un
 export const MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT = '自助调整'
 
 /**
- * 自助修改弹窗的输入框占位。
+ * 自助修改弹层输入框的**占位** —— 按用户要求**只写区间**「3~20」。
  *
+ * ⚠️ 2026-10-10（真机反馈）**改短**：原来是「3~20，如 5.5；留空 = 本次不修改」。
+ *    采集方式也从 `uni.showModal({ editable: true })` 换成了自建弹层
+ *    （`components/CommissionRateSheet.vue`）—— 原生弹窗的输入框**既控制不了聚焦、
+ *    占位怎么显示也由原生实现说了算**，更没有小数键盘（`type="digit"`）；
+ *    用户看不到区间就只能猜，随手写「3%」还会被判越界 ⇒ 体验上等于"改不了"。
  * ⛔ **不得**写成入驻申请那句「留空按平台默认」—— 本端点的「不传」是「**不修改**」，
  *    两者是本批最容易搞混的一处（见本节表格）。
+ * ⚠️ 「留空 = 本次不修改」这条语义**不能省**，只是不放在占位里（占位只放区间）：
+ *    弹层内一行短说明见 {@link MERCHANT_COMMISSION_RATE_EDIT_SHEET_NOTE}，
+ *    页面卡片上的完整说明见 {@link MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE}。
  */
-export const MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER = '3~20，如 5.5；留空 = 本次不修改'
+export const MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER = '3~20'
+
+/**
+ * 自助修改弹层里的**一行**短说明：只讲「留空 = 本次不修改」。
+ *
+ * 为什么不直接复用 {@link MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE}：那一句是给**页面卡片**看的
+ * （要讲清"不会清成 0，也不会回到平台默认"），塞进弹层就是用户明确说不要的"冗余提示"。
+ * ⚠️ 但它**必须**说「不修改」而非「平台默认」—— 本端点的「不传」语义与入驻申请不同。
+ */
+export const MERCHANT_COMMISSION_RATE_EDIT_SHEET_NOTE = '留空 = 本次不修改'
 
 /** 自助修改的说明：必须让商家知道「留空 = 什么都不改」，**不是**掉回平台默认。 */
 export const MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE =

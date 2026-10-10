@@ -53,7 +53,6 @@ import {
   MERCHANT_COMMISSION_RATE_EDIT_BLANK_TOAST,
   MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT,
   MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE,
-  MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER,
   MERCHANT_COMMISSION_RATE_EDIT_SUCCESS_TEXT,
   MERCHANT_COMMISSION_RATE_ERROR_CODE,
   MERCHANT_COMMISSION_RATE_RANGE_TEXT,
@@ -62,6 +61,10 @@ import {
 } from '@/utils/product-commission'
 // ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
 import WithdrawRulesSheet from '@/components/WithdrawRulesSheet.vue'
+// ⚠️ 2026-10-10（真机反馈）：品牌级比例的**自助调整**从原生可编辑弹窗（`uni.showModal`）换成自建输入弹层
+//    —— 原生弹窗的输入框控不了聚焦、也没有可控的占位（用户要求占位只写「3~20」），
+//    还没有小数键盘（`type="digit"`）。弹层只负责采集**原文**，校验/提交全在本页（口径只有一处）。
+import CommissionRateSheet from '@/components/CommissionRateSheet.vue'
 // ⚠️ 2026-10-08 Step2：同城资金释放口径改为「送达次日 0 点起，普通 +7 天 / 生鲜 +3 天」，并**按档位分叉**。
 //    文案取自 `utils/timing-category`（与 C 端「售后窗口」同一份口径来源，避免两处漂移）。
 import { SETTLEMENT_RELEASE_TEXT_SAME_CITY } from '@/utils/timing-category'
@@ -253,11 +256,20 @@ async function refreshData(): Promise<void> {
 
 // ===== 让利比例（**品牌级**）自助修改（2026-10-09 W16）=====
 
-/** 自助修改提交中（防连点 + 入口置灰）。 */
+/** 自助修改提交中（防连点 + 入口置灰 + 弹层禁关闭）。 */
 const commissionSubmitting = ref(false)
 
+/** 自助调整弹层显隐（2026-10-10：由自建弹层采集输入，见 `components/CommissionRateSheet.vue`）。 */
+const commissionSheetVisible = ref(false)
+
+/** 打开自助调整弹层（提交中不响应）。 */
+function openCommissionRateEdit(): void {
+  if (commissionSubmitting.value) return
+  commissionSheetVisible.value = true
+}
+
 /**
- * 自助修改**品牌（商户）级**让利比例。
+ * 自助调整弹层的「确认」：校验 → 提交 → 成功后关弹层并刷新卡片。
  *
  * 契约：`PUT /api/merchant/business/commission-rate?commissionRate=5.5`
  * （**query 参数、无请求体**；身份由服务端从登录态解析 —— ⛔ 页面**不得**带 `merchantId`，
@@ -269,33 +281,23 @@ const commissionSubmitting = ref(false)
  *    ⇒ 文案只用 `MERCHANT_COMMISSION_RATE_EDIT_*`；⛔ 不得搬入驻页那组（那句写的是"留空按平台默认"）。
  * 2. 区间 **3~20** 与越界文案**复用** `utils/product-commission`（同一个后端码 `13018`），
  *    本页**不重写**任何字面量；后端仍报 `13018` 时用同一句话兜底。
+ *    ⚠️ 归一化（`3%` / `３` / 零宽字符 ⇒ 当 3 处理）也在那个共享函数里，**本页不写第二份**。
  * 3. 成功后**重新拉账户**（`loadAccount()`）—— 卡片显示的必须是最新值，**不信本地缓存**。
  *
+ * ⚠️ 弹层**不在这里关**（成功那次除外）：留空/越界/提交失败都让弹层开着，用户改一下就能重试，
+ *    输入不丢；成功才关。`commissionSubmitting` 一律在 `finally` 复位，弹层在提交中也不可关闭
+ *    ⇒ 不会出现"弹层关了、`commissionSubmitting` 还卡在 true"。
  * ⚠️ 生效口径：只影响之后**新下**的订单（下单快照），在途/历史订单不变。
  */
-async function editCommissionRate(): Promise<void> {
+async function editCommissionRate(text: string): Promise<void> {
   if (commissionSubmitting.value) return
-  // 当前值只作为弹窗里的"现状"展示；⛔ 不当默认输入值（否则"没改"与"改成同值"分不清）
-  const currentRateText = commissionRateText.value
-  const input = await new Promise<{ confirm?: boolean; content?: string }>((resolve) => {
-    uni.showModal({
-      title: MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT,
-      content: `当前品牌级比例：${currentRateText}`,
-      editable: true,
-      placeholderText: MERCHANT_COMMISSION_RATE_EDIT_PLACEHOLDER,
-      success: (result: { confirm?: boolean; content?: string }) => resolve(result || {}),
-      fail: () => resolve({}),
-    })
-  })
-  // 用户取消 = 什么都不做
-  if (!input.confirm) return
-  const text = String(input.content ?? '').trim()
   // ⚠️ 留空 = **不修改**（本端点语义）：**不发请求**，也**不**谎报"已更新"
-  if (!text) {
+  if (!String(text ?? '').trim()) {
+    commissionSheetVisible.value = false
     uni.showToast({ title: MERCHANT_COMMISSION_RATE_EDIT_BLANK_TOAST, icon: 'none' })
     return
   }
-  // 本地硬校验 3~20（越界用后端 13018 同一句话）
+  // 本地硬校验 3~20（越界用后端 13018 同一句话）；弹层保持打开，用户改一下即可重试
   const commissionError = validateMerchantCommissionRate(text)
   if (commissionError) {
     uni.showToast({ title: commissionError, icon: 'none' })
@@ -311,6 +313,8 @@ async function editCommissionRate(): Promise<void> {
     await updateMerchantBusinessCommissionRate(commissionParsed.value)
     // 成功即刷新卡片（后端写的是**品牌级** `wx_merchant.commission_rate`）
     await loadAccount()
+    // 只有成功才关弹层（失败/越界保持打开，见函数头注释）
+    commissionSheetVisible.value = false
     uni.showToast({ title: MERCHANT_COMMISSION_RATE_EDIT_SUCCESS_TEXT, icon: 'success' })
   } catch (error) {
     // 13018（越界）：本地已拦一遍，这里是后端兜底 —— 用同一句话
@@ -702,8 +706,10 @@ function goBack(): void {
             <text v-else class="rate-value">{{ commissionRateText }}</text>
             <!-- ⚠️ 2026-10-09（W16）：品牌级比例的**自助调整**入口。
                  ⚠️ 本入口的「留空 = 不修改」与**入驻申请**的「留空 = 平台默认」**是两个端点的两种语义**，
-                    文案单一出口在 `utils/product-commission.ts` 且按端点分开命名，**不得互相搬运**。 -->
-            <view class="rate-edit-entry" :class="{ 'is-disabled': commissionSubmitting }" @click="editCommissionRate">
+                    文案单一出口在 `utils/product-commission.ts` 且按端点分开命名，**不得互相搬运**。
+                 ⚠️ 2026-10-10：点击**只打开弹层**（`openCommissionRateEdit`），提交由弹层的「确认」走
+                    `editCommissionRate` —— 原来是原生 `uni.showModal`，输入框控不了聚焦与占位。 -->
+            <view class="rate-edit-entry" :class="{ 'is-disabled': commissionSubmitting }" @click="openCommissionRateEdit">
               <text class="rate-edit-text">{{ MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT }}</text>
             </view>
           </view>
@@ -833,6 +839,17 @@ function goBack(): void {
       :invoice-image-max="imageMax"
       :has-active-withdraw="!!rules.hasActiveWithdraw"
       :block-reason="rules.blockReason || null"
+    />
+
+    <!-- ⚠️ 2026-10-10：品牌级比例「自助调整」输入弹层（替代原生可编辑弹窗）。
+         同样放在 scroll-view **之外**（fixed 全屏遮罩，脱离滚动容器更稳）。
+         ⚠️ 现状值传的是**卡片上那个** `commissionRateText`（同一个 computed，不另算一份）；
+         ⚠️ `@confirm` 抛的是**输入原文**，校验/提交仍在 `editCommissionRate` 里（口径只有一处）。 -->
+    <CommissionRateSheet
+      v-model="commissionSheetVisible"
+      :current-rate-text="commissionRateText"
+      :submitting="commissionSubmitting"
+      @confirm="editCommissionRate"
     />
   </view>
 </template>
