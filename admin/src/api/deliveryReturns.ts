@@ -1,5 +1,6 @@
 import { request } from './request'
 import type {
+  AcceptReturnByPlatformBody,
   DeliveryReturnPage,
   DeliveryReturnPageResult,
   DeliveryReturnQuery,
@@ -8,19 +9,22 @@ import type {
 } from '@/types/deliveryReturns'
 
 /**
- * 退款返货台账（中控 · **只读**）接口层。
+ * 退款返货台账（中控）接口层。
  *
  * | 方法 | 路径 | 说明 |
  * |---|---|---|
  * | GET | `/api/admin/delivery/returns` | `merchantId`（**不传 = 全平台**）/ `returnStatus`（**不传 = 未收口**）/ `page`（default 1）/ `pageSize`（default 20） |
+ * | POST | `/api/admin/delivery/returns/{taskId}/accept` | 平台人工验收（**2026-10-10 新增**；超管 + 客服，财务不含） |
  *
- * ## ⛔ 没有写接口（不要在这里"补"一个）
- * 契约里该 path **只有 `get`**；唯一的「验收」写接口是**商家侧**
- * `POST /api/merchant/delivery/tasks/{taskId}/accept-return`（`accept=true` 确认收货 /
- * `accept=false` 拒收并落 `damageClaimStatus=RECORDED`）。
- * ⚠️ 平台账号未绑商户、契约也没写平台角色可否调用 ⇒ **前端不代调**，
- * 中控的「人工放行」**待后端补 admin 侧写接口**（需求已提：
- * `docs/26/10.09/后端需求-返货验收放行与契约口径-2026-10-09.md` §一 R1）。
+ * ## ✅ 2026-10-10 更正（本条曾写「没有写接口、不要在这里补一个」，**现已作废**）
+ * 平台侧写接口**已经上线**：`POST /api/admin/delivery/returns/{taskId}/accept`
+ * （operationId `PlatformDeliveryController_acceptReturnByPlatform`，
+ * summary「中控人工验收（确认收货 / 拒收记录货损）」）。
+ * - body **可整体不传** ⇒ 等价 `accept=true`（确认收货 ⇒ `return_status → ACCEPTED`）；
+ * - `accept=false` ⇒ `REJECTED_CLAIM` + `damageClaimStatus=RECORDED`（**不自动赔付**，须人工判定）；
+ * - **幂等**：已是 `ACCEPTED`（含 2 小时超时自动确认）时重复调用**返回成功**，不报错、不覆盖既有结论。
+ * ⚠️ 商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return` 仍**不代调**
+ * （平台账号未绑商户）—— 与本页的人工验收是两条不同的入口。
  *
  * ## 字段名：契约**有**明细，但**未拿到真实响应**（如实说明）
  * 200 schema = `ResultPageResultDeliveryTaskEntity` → `PageResultDeliveryTaskEntity{total,list,page,pageSize}`
@@ -136,7 +140,7 @@ export function normalizeDeliveryReturnRow(value: unknown): DeliveryReturnRow {
 }
 
 /**
- * 读：退款返货台账（只读）。
+ * 读：退款返货台账（**本函数只读**；同页的写接口见文件头的 `acceptReturnByPlatform`）。
  *
  * ⚠️ 三条"不猜"的口径：
  * 1. **参数不传就是"不传"**：`merchantId` 不传 = 全平台、`returnStatus` 不传 = 后端默认（未收口）
@@ -169,4 +173,40 @@ export async function getDeliveryReturns(
     page,
     pageSize,
   }
+}
+
+/**
+ * 写：平台人工验收（`POST /api/admin/delivery/returns/{taskId}/accept`）。
+ *
+ * 契约（`api_doc.json`，operationId `PlatformDeliveryController_acceptReturnByPlatform`）：
+ * - path `taskId`（int64，**返货任务 ID** —— 就是列表行里识别出的 `id`）；
+ * - `requestBody` **可整体不传**，不传 ≡ `accept=true`（确认收货）；
+ * - `accept=true` ⇒ `return_status → ACCEPTED` ⇒ 该售后单可继续质检通过并退款；
+ * - `accept=false` ⇒ `REJECTED_CLAIM` + `damageClaimStatus=RECORDED`（**不自动赔付**，须人工判定）；
+ * - **幂等**：已 `ACCEPTED`（含 2 小时超时自动确认）时重复调用**返回成功**（不报错、不覆盖既有结论）；
+ *   已确认后改口拒收 ⇒ 报错（同样不覆盖）。
+ *
+ * ⚠️ 三条"不发明语义"的口径：
+ * 1. **不替后端写默认值**：调用方没给 `accept` 时**真的不发 body**（契约把"不传"定义成默认 `true`，
+ *    在客户端补一个 `true` 会让这个契约语义消失）。
+ * 2. **空 `remark` / 未选 `returnFeeBearer` 一律不传该字段**（不送空串、不发明枚举以外的值）。
+ * 3. **不本地判定"是否幂等成功"**：后端两种情况都返回 `code=0` ⇒ 前端一律按成功处理并**刷新列表**
+ *    让行上的 `returnStatus` 自己说话（不去猜"这次是不是重复调用"）。
+ */
+export async function acceptReturnByPlatform(
+  taskId: number,
+  body: AcceptReturnByPlatformBody = {},
+): Promise<void> {
+  const payload: AcceptReturnByPlatformBody = {}
+  if (body.accept !== undefined) payload.accept = body.accept
+  const remark = typeof body.remark === 'string' ? body.remark.trim() : ''
+  if (remark !== '') payload.remark = remark
+  if (body.returnFeeBearer !== undefined) payload.returnFeeBearer = body.returnFeeBearer
+  // ⚠️ 一个字段都没有 = "不传 body"（契约语义：等价 accept=true），**不补 accepted:true**
+  const hasBody = Object.keys(payload).length > 0
+  const response = await request.post<DeliveryReturnResponse<null>>(
+    `/api/admin/delivery/returns/${taskId}/accept`,
+    hasBody ? payload : undefined,
+  )
+  ensureSuccess(response.data, '平台人工验收失败')
 }

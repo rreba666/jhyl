@@ -269,11 +269,11 @@ onUnmounted(() => {
           <el-icon><Search /></el-icon>
           <template #title>订单异常巡检</template>
         </el-menu-item>
-        <!-- 退款返货台账（2026-10-10 新增，**只读**）：后端待办 `DELIVERY_RETURN_ACCEPT`（返货待验收）
+        <!-- 退款返货台账（2026-10-10 新增）：后端待办 `DELIVERY_RETURN_ACCEPT`（返货待验收）
              的 route 就是 `/delivery/returns?returnStatus=RETURNED`，此前**没有落点**（铃铛点了没反应）。
              超管 / 客服 / 商户管理员可见（与 `/after-sale`、`/delivery/ghost` 同口径；财务的待办里没有本项）。
-             ⚠️ 契约里该 path 只有 GET ⇒ 中控没有「确认收货 / 人工放行」写接口，
-                页面里只如实写明"人工放行待后端接口"，不提供任何行内动作。 -->
+             ⚠️ 2026-10-10 同日更正：后端已补 `POST /api/admin/delivery/returns/{taskId}/accept`
+                （中控人工验收，超管 + 客服）⇒ 本页**不再是只读页**，对 `returnStatus=RETURNED` 的行有「人工验收」。 -->
         <el-menu-item v-if="canVisit('/delivery/returns')" index="/delivery/returns">
           <el-icon><RefreshLeft /></el-icon>
           <template #title>退款返货台账</template>

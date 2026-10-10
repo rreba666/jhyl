@@ -21,6 +21,7 @@ import type {
   StaffBindDTO,
   StaffIdentityUpdateDTO,
   StaffIssueAccountDTO,
+  StaffIssueResult,
   StaffPasswordLog,
   StaffPasswordView,
 } from '@/types/staff'
@@ -77,12 +78,19 @@ export const useStaffStore = defineStore('staff', () => {
     }
   }
 
-  /** D1b 发号。 */
-  async function issue(id: number | string, payload: StaffIssueAccountDTO): Promise<void> {
+  /**
+   * D1b 发号。
+   * ⚠️ 2026-10-10（B1）：返回发号结果 `IssueResult{password, passwordSource, mustChangePassword}`
+   * （`null` = 后端没返回结果，例如旧版后端）⇒ **原样回给调用方**，由页面决定怎么展示；
+   * 这里**不加工、不兜底**（不把 `null` 变成 `{password: ''}`）。
+   * 发号后照旧刷新列表（工号/账号状态会变）。
+   */
+  async function issue(id: number | string, payload: StaffIssueAccountDTO): Promise<StaffIssueResult | null> {
     saving.value = true
     try {
-      await issueStaffAccount(id, payload)
+      const result = await issueStaffAccount(id, payload)
       await fetchList()
+      return result
     } finally {
       saving.value = false
     }

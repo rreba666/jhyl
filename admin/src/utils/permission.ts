@@ -35,7 +35,7 @@ export const ALL_ADMIN_ROLES: AdminRole[] = ['SUPER_ADMIN', 'ADMIN', 'CUSTOMER_S
  * 菜单项也用 `canAccess` 判断，避免出现「菜单能点、路由却拦截」的不一致
  * （历史 bug：`ADMIN` 菜单里有普通订单/自提订单/地址变更审核/商品管理，但路由 roles 漏了 `ADMIN` → 点击后被打回商户业务台）。
  *
- * ## 2026-10-10 新增 `/delivery/returns`（退款返货台账，只读）的角色取舍
+ * ## 2026-10-10 新增 `/delivery/returns`（退款返货台账）的角色取舍
  * 接口 `GET /api/admin/delivery/returns`（`merchantId` 不传 = 全平台）在契约里**没有写角色**，
  * 故按两条既有证据取**最窄可辩护**的集合 —— **超管 + 客服 + 商户管理员（不给财务）**：
  * 1. **待办可见性（契约 `GET /api/admin/todo/summary` 的「角色可见性」一节，权威）**：
@@ -45,13 +45,17 @@ export const ALL_ADMIN_ROLES: AdminRole[] = ['SUPER_ADMIN', 'ADMIN', 'CUSTOMER_S
  *    契约示例响应里可见）。**商户管理员（ADMIN）也会收到这条待办** ⇒ 矩阵里不给 ADMIN，
  *    商户点自己的待办就会被路由守卫打回「商户业务台」—— 这正是当年 `/delivery/ghost` 补 ADMIN 的原因。
  * 3. **与同域页面同口径**：`/after-sale`（退款/售后域）与 `/delivery/ghost` 都是「超管 + 客服 + 商户管理员」，
- *    而 `/delivery`（同城配送管理）只给「超管 + 客服」；本页是**只读台账**且以「按门店排查返货」为目的，
+ *    而 `/delivery`（同城配送管理）只给「超管 + 客服」；本页以「按门店排查返货」为目的，
  *    取与 `/after-sale` / `/delivery/ghost` 一致的三角色集合最贴合既有惯例。
  * 4. ⚠️ **ADMIN 的数据范围需后端确认**（与 `/delivery/ghost` 的遗留待确认项同性质）：
  *    本页**不代传 `merchantId`**（`merchantId` 在本项目里既有"品牌ID"也有"门店ID"两种历史语义，
  *    前端猜错会让商户看到"空台账"这种假阴性）⇒ 依赖后端按绑定商户强制过滤（`CLAUDE.md` §五 的一般口径）。
- * 5. 页面本身**只读**：契约里该 path 只有 `get`，中控没有「确认收货 / 人工放行」写接口
- *    （唯一验收接口是商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return`，前端不代调）。
+ * 5. ⚠️ **2026-10-10 同日更正（本条此前写"页面本身只读"）**：后端已补平台侧写接口
+ *    `POST /api/admin/delivery/returns/{taskId}/accept`（中控人工验收：确认收货 / 拒收记录货损），
+ *    **权限 = 超管 + 客服**（契约 description 原文；财务不含，非授权 `1004`）⇒ 本页**不再是只读页**。
+ *    ⚠️ 该写权限**比本菜单的可见集合更窄**（菜单给到 ADMIN，写只给超管 / 客服）：
+ *    故对 ADMIN **不渲染「人工验收」按钮**（只留一句文字说明），真拦截仍在后端。
+ *    商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return` 仍**不代调**。
  */
 const ROLE_ROUTES: Record<AdminRole, string[]> = {
   SUPER_ADMIN: [
@@ -156,8 +160,9 @@ const ROUTE_LABELS: Record<string, string> = {
   // ⚠️ 2026-10-02：菜单名从「幽灵单巡检」改为「**订单异常巡检**」——
   //    「幽灵单」是后端内部叫法，入驻商家看不懂（用户实测反馈）；路径仍为 `/delivery/ghost`（后端 4 个待办类型的 route 深链依赖它）。
   '/delivery/ghost': '订单异常巡检',
-  // 2026-10-10 新增：退款返货台账（只读）—— 后端待办 `DELIVERY_RETURN_ACCEPT` 的 route
+  // 2026-10-10 新增：退款返货台账 —— 后端待办 `DELIVERY_RETURN_ACCEPT` 的 route
   // `/delivery/returns?returnStatus=RETURNED` 此前**没有落点**（admin/src 里 0 处 `delivery/returns`）。
+  // ⚠️ 同日：后端补了平台侧人工验收写接口 ⇒ 本页不再是只读页（见文件头第 5 条：写权限比菜单更窄）。
   '/delivery/returns': '退款返货台账',
   '/shop-console': '店铺运营',
   '/shop-delivery': '配送工作台',

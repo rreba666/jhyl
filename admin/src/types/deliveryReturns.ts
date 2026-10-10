@@ -1,5 +1,5 @@
 /**
- * 退款返货台账（中控 · 只读）类型定义。
+ * 退款返货台账（中控）类型定义 —— 读接口 + **平台人工验收写接口**（2026-10-10 新增）。
  *
  * 依据：契约（仓库根 `api_doc.json`）的
  *   `GET /api/admin/delivery/returns?merchantId=&returnStatus=&page=&pageSize=`
@@ -11,11 +11,18 @@
  * **`/delivery/returns?returnStatus=RETURNED`**，而此前 `admin/src` 里**没有任何** `delivery/returns`
  * 引用 ⇒ 铃铛点进去 = 路由不存在（待办形同虚设）。本页就是那个落点。
  *
- * ## ⛔ 只读（不要加写操作）
- * 该 path 在契约里**只有 `get`**；唯一的「验收」写接口是**商家侧**
- * `POST /api/merchant/delivery/tasks/{taskId}/accept-return`
+ * ## ✅ 2026-10-10 更正：admin 侧写接口**已补上**，「只读 / 等后端补写接口」的说法**已作废**
+ * 契约新增 `POST /api/admin/delivery/returns/{taskId}/accept`
+ * （operationId `PlatformDeliveryController_acceptReturnByPlatform`，
+ * summary「中控人工验收（确认收货 / 拒收记录货损）」）—— 平台（**超管 + 客服**，财务不含）
+ * 对 `returnStatus=RETURNED`（骑手已返货到店、待商家验收）的任务人工验收：
+ * - body **可整体不传**（≡ `accept=true` 确认收货 ⇒ `return_status → ACCEPTED`，
+ *   此后该售后单可继续质检通过并退款）；
+ * - `accept=false` 拒收 ⇒ `return_status → REJECTED_CLAIM` + `damageClaimStatus=RECORDED`
+ *   （**不自动赔付**，须人工判定）；
+ * - **幂等**：任务已是 `ACCEPTED`（含 2 小时超时自动确认）时重复调用**返回成功**、不覆盖既有结论。
+ * ⚠️ 商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return` 与本页**无关**
  * （平台账号未绑商户，前端**不代调**、也不伪造）。
- * ⇒ 中控的「人工放行（确认收货）」**待后端补 admin 侧写接口**，本页不提供任何行内动作。
  *
  * ## ✅ 字段名：本接口**有**契约明细（与 `dividend-clawback` 那种空 schema 不同）
  * 200 schema = `ResultPageResultDeliveryTaskEntity`
@@ -182,4 +189,32 @@ export interface DeliveryReturnPageResult {
   page: number | null
   /** 后端回显的每页条数；没给时 `null`。 */
   pageSize: number | null
+}
+
+/* ==================================================================== *
+ * 写：平台人工验收（2026-10-10 后端新增，本页由此**不再是只读页**）
+ * ==================================================================== */
+
+/** 返货运费责任方（body 里的取值域 = 契约 enum，与 {@link RETURN_FEE_BEARER_VALUES} 同一份）。 */
+export type ReturnFeeBearer = (typeof RETURN_FEE_BEARER_VALUES)[number]
+
+/**
+ * `POST /api/admin/delivery/returns/{taskId}/accept` 的请求体（`AcceptReturnByPlatformBody`）。
+ *
+ * ⚠️ **整个 body 可以不传**：契约 `requestBody.description` 原文
+ * 「验收请求体；不传等价于 accept=true（确认收货）」—— 所以 `accept` 缺省**不等于**前端可以
+ * 编一个 `true` 发过去；调用方不指定时应当**真的不发 body**（由后端按契约取默认值）。
+ *
+ * 三个字段的契约原文（`components.schemas.AcceptReturnByPlatformBody`）：
+ * - `accept`：「true=确认收货（默认，此后不可申请货损）；false=拒绝收货（记录货损，等人工判定）」；
+ * - `remark`：「验收备注（拒绝收货时请说明破损/缺失情况）」；
+ * - `returnFeeBearer`：「返货费责任方（可选，只记录不自动计费）」，enum `MERCHANT|USER|RIDER|UNKNOWN`。
+ */
+export interface AcceptReturnByPlatformBody {
+  /** `true` = 确认收货（放行退款）；`false` = 拒收并记录货损（**不自动赔付**）。**不传 = 契约默认 accept=true**。 */
+  accept?: boolean
+  /** 验收备注；**空 = 不传这个字段**（不拿空串顶替，也不编默认备注）。 */
+  remark?: string
+  /** 返货运费责任方；**不选 = 不传这个字段**（前端不发明枚举以外的值，也不替后端选一个）。 */
+  returnFeeBearer?: ReturnFeeBearer
 }

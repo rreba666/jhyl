@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 退款返货台账（中控 · **只读**，2026-10-10 新增）。
+ * 退款返货台账（中控；2026-10-10 新增，同日补上**平台人工验收**写接口 —— 此前是只读页）。
  *
  * ## 为什么建这一页
  * 后端待办 `DELIVERY_RETURN_ACCEPT`（返货待验收，`level=DANGER`）下发的 `route` 是
@@ -12,12 +12,23 @@
  * —— `merchantId`（**不传 = 全平台**）/ `returnStatus`（**不传 = 未收口**）/ `page` / `pageSize`。
  * 契约 description 明写：本接口 `?returnStatus=RETURNED` 的条数 == 待办 `DELIVERY_RETURN_ACCEPT`。
  *
- * ## ⛔⛔ 只读：不要加"确认收货 / 人工放行"按钮
- * 契约里该 path **只有 `get`**，admin 侧**没有**验收写接口；唯一的写接口是商家侧
- * `POST /api/merchant/delivery/tasks/{taskId}/accept-return`（平台账号未绑商户，前端**不代调**）。
- * ⇒ 本页**不给任何行内动作**，也不放一个"灰着的、看起来将来会有"的按钮
- *   —— 只在页头/口径说明里**如实写明「人工放行待后端补 admin 侧写接口」**，
- *   并写明当前的唯一出路：**商家验收**，或**返货到店满 2 小时**由 `DeliveryReturnAcceptJob` 自动确认收货。
+ * ## ✅ 2026-10-10 更正：写接口已上线，本页**不再是只读页**
+ * （本条此前写「⛔⛔ 只读：不要加"确认收货 / 人工放行"按钮 …… 待后端补 admin 侧写接口」，
+ *  **后端已于 2026-10-10 补上** ⇒ 该说法**已作废**，此处按新契约改写。）
+ *
+ * 新增写接口：`POST /api/admin/delivery/returns/{taskId}/accept`
+ * （operationId `PlatformDeliveryController_acceptReturnByPlatform`，
+ * summary「中控人工验收（确认收货 / 拒收记录货损）」）：
+ * - **权限：超管 + 客服**（契约 description 原文；财务不含，非授权角色返回 `1004`）⇒ 行内按钮按角色收敛；
+ * - body **可整体不传**（≡ `accept=true`）；`accept=true` 确认收货 ⇒ `return_status → ACCEPTED`，
+ *   此后该售后单**可继续质检通过并退款**（这正是本接口存在的目的）；
+ * - `accept=false` 拒收 ⇒ `REJECTED_CLAIM` + `damageClaimStatus=RECORDED`
+ *   （**不自动赔付**，须人工判定 —— 界面上必须写明，否则运营会以为钱动了）；
+ * - **幂等**：已 `ACCEPTED`（含返货到店满 2 小时由 `DeliveryReturnAcceptJob` 自动确认）时
+ *   重复调用**返回成功**、不覆盖既有结论 ⇒ 前端按成功处理并**刷新列表**，不弹"重复操作"的红报错；
+ * - 留痕：写配送事件（操作方 `SYSTEM`，描述含「平台人工验收」与操作人）。
+ * ⚠️ 商家侧 `POST /api/merchant/delivery/tasks/{taskId}/accept-return` 与本页**无关**
+ *   （平台账号未绑商户，前端**不代调**）—— 两条入口不互替。
  *
  * ## ✅ 字段名：契约**有**明细（不是 `dividend-clawback` 那种空 schema）
  * `ResultPageResultDeliveryTaskEntity` → `{ total, list[], page, pageSize }`，
@@ -31,20 +42,24 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getDeliveryReturns } from '@/api/deliveryReturns'
+import { acceptReturnByPlatform, getDeliveryReturns } from '@/api/deliveryReturns'
 import { assignmentTypeLabel, taskStatusLabel } from '@/utils/deliveryStatus'
 import { sanitizeBonusText } from '@/utils/textSafe'
+import { useAuthStore } from '@/stores/auth'
 import { useTodoStore } from '@/stores/todo'
 import {
   DAMAGE_CLAIM_STATUS_RECORDED,
   DELIVERY_RETURNS_DEFAULT_PAGE_SIZE,
+  RETURN_FEE_BEARER_VALUES,
   RETURN_STATUS_VALUES,
   type DeliveryReturnRow,
+  type ReturnFeeBearer,
   type ReturnStatus,
 } from '@/types/deliveryReturns'
 
 const route = useRoute()
 const todoStore = useTodoStore()
+const authStore = useAuthStore()
 
 /**
  * 返货状态中文（**逐条来自契约 description 的取值表**，不是我们自己起的名）：
@@ -166,11 +181,129 @@ function rowJson(row: DeliveryReturnRow): string {
 /** 整段原始数据（本页 `list` 的原始对象合集，原样、不加工）。 */
 const rawJson = computed(() => JSON.stringify(rows.value.map((row) => row.raw), null, 2))
 
+/* ==================================================================== *
+ * 平台人工验收（2026-10-10 新增写接口；本页由此不再是只读页）
+ * POST /api/admin/delivery/returns/{taskId}/accept
+ * ==================================================================== */
+
+/**
+ * 谁能点「人工验收」——**镜像后端的角色口径**（契约 description 原文：
+ * 「权限：**超管 + 客服**（财务不含；非授权角色返回 1004）」）。
+ *
+ * 复用 auth store 已有的角色判据（与 `views/staff/index.vue` / `views/invoices/index.vue` 同一套，
+ * **不在这页另写角色字符串**）——前端这道只是**展示层收敛**，真正的拦截在后端（`1004`）。
+ * ⚠️ 本页路由矩阵里还有 `ADMIN`（商户管理员，待办深链要用它，见 `utils/permission.ts`）：
+ * 他没有这个写权限 ⇒ **该行的按钮根本不渲染**（只留一句文字说明"当前角色仅可查看"），
+ * 免得运营看到一个自己点不动的控件、或以为"这条坏了"。
+ */
+const canManualAccept = computed(() => authStore.isPlatformAdmin || authStore.isCustomerService)
+
+/**
+ * 该行能不能人工验收：**两个条件缺一不可**
+ * 1. `returnStatus === 'RETURNED'`（骑手已返货到店、待商家验收）—— 契约 description 明写本接口
+ *    就是给这一档用的（其它档调用语义未定义，前端**不放行**）；
+ * 2. 任务 ID 识别出来了（`id !== null`）—— 认不出 ID 就无法构造 path，**不猜一个 ID 去调**。
+ */
+function canAcceptRow(row: DeliveryReturnRow): boolean {
+  return row.returnStatus === 'RETURNED' && row.id !== null
+}
+
+/** 验收弹窗开关。 */
+const acceptVisible = ref(false)
+/** 提交中（防重复点击）。 */
+const acceptSubmitting = ref(false)
+/** 当前正在验收的行。 */
+const acceptRow = ref<DeliveryReturnRow | null>(null)
+/** 验收结论：`true` = 确认收货（契约默认）、`false` = 拒收并记录货损。 */
+const acceptDecision = ref(true)
+/** 返货运费责任方；`''` = **不传这个字段**（由后端决定，前端不替它选一个）。 */
+const acceptFeeBearer = ref<ReturnFeeBearer | ''>('')
+/** 验收备注（拒收时建议写清破损/缺失；契约**没有**把它设为必填 ⇒ 前端也不强制）。 */
+const acceptRemark = ref('')
+/** 弹窗内的失败提示（失败**保留已填内容**，让运营改完重提；不清空、不自动重试）。 */
+const acceptError = ref('')
+
+/**
+ * 返货运费责任方下拉项：第一项是"不传"，其余逐条来自契约 enum（原值 + 中文说明，**不发明取值**）。
+ * ⚠️ 契约同时写明「只记录不自动计费」⇒ 这一项**不参与任何金额计算**，界面上也照写。
+ */
+const ACCEPT_FEE_BEARER_OPTIONS: Array<{ value: ReturnFeeBearer | ''; label: string }> = [
+  { value: '', label: '不传（后端默认；前端不替它选一个）' },
+  ...RETURN_FEE_BEARER_VALUES.map((value) => ({
+    value,
+    label: `${value}（${RETURN_FEE_BEARER_LABELS[value]}）`,
+  })),
+]
+
+/** 打开验收弹窗：默认「确认收货」（= 契约默认）、**不预选**运费责任方、备注清空。 */
+function openAccept(row: DeliveryReturnRow): void {
+  if (!canManualAccept.value) {
+    ElMessage.warning('当前角色不能人工验收（仅超管 / 客服；后端返回 1004）')
+    return
+  }
+  if (!canAcceptRow(row)) {
+    ElMessage.warning('只有「已返货到店·待验收」（RETURNED）且任务 ID 可识别的记录可以人工验收')
+    return
+  }
+  acceptRow.value = row
+  acceptDecision.value = true
+  acceptFeeBearer.value = ''
+  acceptRemark.value = ''
+  acceptError.value = ''
+  acceptVisible.value = true
+}
+
+/**
+ * 提交人工验收。
+ *
+ * ⚠️ **幂等怎么处理**：后端对"任务已是 `ACCEPTED`（含 2 小时超时自动确认）时重复确认收货"
+ * 也返回 `code=0` ⇒ 前端**无法（也不该）区分"这次是不是重复调用"**，因此：
+ * - 一律**按成功处理**（不弹"该任务已验收"这类红报错 —— 那会把正常幂等路径报成失败）；
+ * - 成功后**刷新当前页列表**，让行上的 `returnStatus` / `acceptResult` / `acceptAuto` 自己说话
+ *   （重复调用的结果就是"行没变"，这正是契约承诺的行为）；
+ * - "已确认后改口拒收"是后端真正会报错的分支 ⇒ 按普通失败就地显示（不覆盖既有结论）。
+ */
+async function submitAccept(): Promise<void> {
+  const row = acceptRow.value
+  if (!row || row.id === null) return
+  acceptSubmitting.value = true
+  acceptError.value = ''
+  try {
+    await acceptReturnByPlatform(row.id, {
+      accept: acceptDecision.value,
+      remark: acceptRemark.value,
+      // `''` = 不传（api 层会把空串 / 未选一律丢掉，不发明 enum 以外的值，也不送空串）
+      returnFeeBearer: acceptFeeBearer.value === '' ? undefined : acceptFeeBearer.value,
+    })
+    acceptVisible.value = false
+    ElMessage.success(
+      acceptDecision.value
+        ? '已确认收货：返货状态转为已验收通过，该售后单可继续质检通过并退款（重复提交同样返回成功，不会覆盖既有结论）'
+        : '已拒收并记录货损：请人工判定赔付（本步不自动赔付）；重复提交不会覆盖既有结论',
+    )
+    // 行上的状态会变（RETURNED → ACCEPTED / REJECTED_CLAIM）⇒ 必须刷新列表
+    await load()
+  } catch (error) {
+    acceptError.value = error instanceof Error ? error.message : '平台人工验收失败'
+  } finally {
+    acceptSubmitting.value = false
+  }
+}
+
+/** 弹窗关闭 ⇒ 清掉本次操作的临时状态（不在响应式状态里留着上一行的结论）。 */
+watch(acceptVisible, (visible) => {
+  if (visible) return
+  acceptRow.value = null
+  acceptDecision.value = true
+  acceptFeeBearer.value = ''
+  acceptRemark.value = ''
+  acceptError.value = ''
+})
+
 /**
  * 把 `merchantId` 输入框解析成数字。
  * 空 ⇒ `null`（= 不传 = 全平台）；非法 ⇒ `undefined`（调用方据此**拦下查询并提示**，不静默丢掉）。
- */
-function parseMerchantId(): number | null | undefined {
+ */function parseMerchantId(): number | null | undefined {
   const raw = merchantIdText.value.trim()
   if (raw === '') return null
   if (!/^\d+$/.test(raw)) return undefined
@@ -311,7 +444,7 @@ onMounted(() => {
   <section class="page-container page-enter">
     <div class="page-heading">
       <div>
-        <h1>退款返货台账<el-tag type="info" size="small" class="readonly-tag">只读</el-tag></h1>
+        <h1>退款返货台账<el-tag v-if="canManualAccept" type="success" size="small" class="accept-tag">平台可人工验收</el-tag></h1>
         <p>
           订单退款后「钱退了、货要回店」的收尾台账：谁在返货、货到店没有、商家验收了没有、有没有货损。
           与商家端「返货列表」是<strong>同一份数据、同一口径</strong>，差别只在数据范围：
@@ -324,19 +457,25 @@ onMounted(() => {
     </div>
 
     <el-alert type="warning" :closable="false" show-icon class="block">
-      <template #title>本页只读：中控没有「确认收货 / 人工放行」入口</template>
+      <template #title>平台可人工验收（2026-10-10 后端已补写接口）</template>
       <p class="hint">
-        契约里 <code>GET /api/admin/delivery/returns</code> <strong>只有 GET</strong>，
-        admin 侧<strong>没有</strong>验收写接口；唯一的验收接口是商家侧
-        <code>POST /api/merchant/delivery/tasks/{taskId}/accept-return</code>
-        （平台账号未绑商户，前端<strong>不代为调用</strong>）。
-        ⇒ <strong>人工放行（平台手动确认收货）待后端补 admin 侧写接口</strong>，本页因此<strong>不提供任何行内动作</strong>。
+        新增 <code>POST /api/admin/delivery/returns/{taskId}/accept</code>
+        （「中控人工验收（确认收货 / 拒收记录货损）」）：对
+        <code>returnStatus=RETURNED</code>（骑手已返货到店、待商家验收）的记录由平台人工验收。
+        <strong>权限：超管 + 客服</strong>（契约原文；财务不含，非授权角色返回 <code>1004</code>）——
+        不是这两个角色时按钮为禁用态，真正的拦截在后端。
+        此前页面里「人工放行待后端补 admin 侧写接口」的说法<strong>已作废</strong>。
       </p>
       <p class="hint">
-        当前 <code>RETURNED</code>（已返货到店·待验收）只有两条出路：
-        ① <strong>商家验收</strong>（商家端 / 中控「配送-返货」确认收货 —— 后者<strong>接口尚未提供</strong>）；
-        ② 返货到店满 <strong>2 小时</strong>由 <code>DeliveryReturnAcceptJob</code> <strong>自动确认收货</strong>
-        （此时 <code>acceptAuto</code> 为真）。同城退货的退款闸门要等验收通过（或自动验收）后才放行。
+        两条结论的语义（照契约写，别自行引申）：<strong>确认收货</strong> ⇒ 返货状态转
+        <code>ACCEPTED</code>，此后该售后单<strong>可继续质检通过并退款</strong>（本接口的目的）；
+        <strong>拒收</strong> ⇒ <code>REJECTED_CLAIM</code> + 货损 <code>damageClaimStatus=RECORDED</code>，
+        <strong>不自动赔付</strong>（钱不会因为这一步而动，赔付须人工判定后另走流程）。
+      </p>
+      <p class="hint">
+        <strong>幂等</strong>：记录已是 <code>ACCEPTED</code>（含返货到店满 2 小时由
+        <code>DeliveryReturnAcceptJob</code> 自动确认收货）时，重复确认收货<strong>返回成功</strong>、
+        不报错也不覆盖既有结论（此时页面表现为"提交成功、行没变"）；已确认后改口拒收才会报错。
       </p>
       <p class="hint">
         另两条与本项目口径有关的边界：返货<strong>不自动计费</strong>
@@ -521,11 +660,109 @@ onMounted(() => {
             <small class="sub">{{ text(row.updateTime) }}</small>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="200" fixed="right">
+          <template #default="{ row }">
+            <!-- 只有 RETURNED（骑手已返货到店·待验收）才有验收动作；其它档位后端语义未定义 ⇒ 不放行。
+                 ⚠️ 写权限限「超管 + 客服」⇒ **按钮只对这两个角色渲染**（不是渲染成灰的）；
+                 有行没有按钮时用一句文字说明原因，免得运营以为"这条坏了"。 -->
+            <el-button
+              v-if="canAcceptRow(row) && canManualAccept"
+              size="small"
+              type="primary"
+              :loading="acceptSubmitting && acceptRow?.id === row.id"
+              @click="openAccept(row)"
+            >
+              人工验收
+            </el-button>
+            <span v-else-if="canAcceptRow(row)" class="hint inline">
+              待平台验收（当前角色仅可查看；人工验收限超管 / 客服）
+            </span>
+            <span v-else class="hint inline">—</span>
+          </template>
+        </el-table-column>
         <template #empty>
           <el-empty :description="loadError ? '本次结果不可用（见上方错误提示）' : '暂无返货记录'" />
         </template>
       </el-table>
     </el-card>
+
+    <!-- 平台人工验收：确认收货 / 拒收记录货损（写接口 2026-10-10 上线） -->
+    <el-dialog
+      v-model="acceptVisible"
+      title="平台人工验收（写配送事件留痕）"
+      width="640px"
+      append-to-body
+    >
+      <template v-if="acceptRow">
+        <el-descriptions :column="1" border size="small" class="accept-meta">
+          <el-descriptions-item label="返货任务">
+            {{ text(acceptRow.taskNo) }}
+            <small class="sub">任务 ID：{{ acceptRow.id }}</small>
+          </el-descriptions-item>
+          <el-descriptions-item label="订单号">{{ text(acceptRow.orderNo) }}</el-descriptions-item>
+          <el-descriptions-item label="返货到店时刻">{{ text(acceptRow.returnedAt) }}</el-descriptions-item>
+          <el-descriptions-item label="当前返货状态">{{ returnStatusLabel(acceptRow) }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-form label-width="130px">
+          <el-form-item label="验收结论">
+            <el-radio-group v-model="acceptDecision">
+              <el-radio :value="true">确认收货</el-radio>
+              <el-radio :value="false">拒收（记录货损）</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="返货运费责任方">
+            <el-select v-model="acceptFeeBearer" style="width: 100%">
+              <el-option
+                v-for="option in ACCEPT_FEE_BEARER_OPTIONS"
+                :key="option.value || 'none'"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="验收备注">
+            <el-input
+              v-model="acceptRemark"
+              type="textarea"
+              :rows="3"
+              placeholder="拒收时请说明破损 / 缺失情况（契约未设为必填，前端也不强制）"
+            />
+          </el-form-item>
+        </el-form>
+
+        <el-alert type="info" :closable="false" show-icon>
+          <p v-if="acceptDecision" class="hint">
+            确认收货 ⇒ 返货状态转 <code>ACCEPTED</code>，此后该售后单<strong>可继续质检通过并退款</strong>（本接口的目的）。
+          </p>
+          <p v-else class="hint">
+            拒收 ⇒ 返货状态转 <code>REJECTED_CLAIM</code>、货损落 <code>damageClaimStatus=RECORDED</code>。
+            <strong>不自动赔付</strong>：这一步<strong>不会打钱</strong>，赔付须人工判定后另走流程。
+          </p>
+          <p class="hint">
+            返货运费责任方<strong>只记录、不自动计费</strong>（没有骑手返货运价，不产生任何扣款）。
+          </p>
+          <p class="hint">
+            <strong>幂等</strong>：记录已是「已验收通过」（含返货到店满 2 小时的系统自动确认）时，
+            重复确认收货<strong>返回成功</strong>、不覆盖既有结论（页面会刷新列表，行没变就是重复调用的正常结果）；
+            已确认后改口拒收会报错。
+          </p>
+        </el-alert>
+
+        <el-alert v-if="acceptError" type="error" :closable="false" show-icon class="accept-error">
+          <template #title>验收失败，本次结论未生效</template>
+          <p class="hint">{{ acceptError }}</p>
+          <p class="hint">
+            若提示无权限，说明当前角色不能人工验收（仅超管 / 客服；后端返回 <code>1004</code>）——
+            请换有权限的账号，或让商家端自行验收。已填内容保留在表单里，可修改后重试。
+          </p>
+        </el-alert>
+      </template>
+      <template #footer>
+        <el-button @click="acceptVisible = false">取消</el-button>
+        <el-button type="primary" :loading="acceptSubmitting" @click="submitAccept">提交验收</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 原始数据：字段名与预期不符时的唯一真相（不做任何加工） -->
     <el-card shadow="never" class="block">
@@ -546,7 +783,9 @@ onMounted(() => {
 <style scoped>
 .block { margin-bottom: 16px; }
 .filter-card { margin-bottom: 16px; }
-.readonly-tag { margin-left: 8px; vertical-align: middle; }
+.accept-tag { margin-left: 8px; vertical-align: middle; }
+.accept-meta { margin-bottom: 14px; }
+.accept-error { margin-top: 12px; }
 .hint { margin: 6px 0 0; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.7; }
 .hint.inline { margin: 0; }
 .danger-text { color: var(--el-color-danger); }

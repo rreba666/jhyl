@@ -10,6 +10,7 @@ import type {
   StaffAccount,
   StaffAccountSaveDTO,
   StaffIdentityOption,
+  StaffIssueResult,
   StaffPasswordLog,
   StaffPasswordView,
 } from '@/types/staff'
@@ -177,20 +178,158 @@ async function submitForm(): Promise<void> {
   }
 }
 
-// ===== 发号（D1b） =====
-async function issueAccount(row: StaffAccount): Promise<void> {
-  try {
-    const result = await ElMessageBox.prompt('请输入工号与密码，用英文逗号分隔（如 mgr-90103,mgr123456）', '发号', {
-      inputPattern: /^\S+\s*,\s*\S{6,}$/,
-      inputErrorMessage: '格式：工号,密码（密码至少 6 位）',
-    })
-    const [username, password] = result.value.split(',').map((item) => item.trim())
-    await store.issue(row.id, { username, password })
-    ElMessage.success('已发号，该人员 C 端身份即时生效')
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '发号失败')
+// ===== 发号（D1b，2026-10-10 B1：密码改为可选 + 展示发号结果）=====
+/**
+ * 发号结果弹窗（**不是** `ElMessageBox.prompt` 拼 "工号,密码" 字符串了）。
+ *
+ * ## 为什么要改
+ * 旧实现强制运营输入「工号,密码」两段（`split(',')` + 正则要求密码 ≥6 位）⇒ 后端新上线的默认密码规则
+ * （`手机号后 4 位 + 身份证后 4 位`）**永远用不到**。契约 `IssueBody` 的 `required` **只有 `username`**，
+ * `password` 的描述原文：「不传则由后端按「手机号后4位+身份证后4位」生成，且要求首登强制改密；
+ * 传则 6~32 位」⇒ 前端改为**密码可留空（留空 = 不传该字段）**。
+ *
+ * ## 结果怎么展示
+ * 响应 `data = IssueResult{ password, passwordSource, mustChangePassword }`（契约里**三个字段都没有
+ * description**，`passwordSource` **连 enum 都没有**）⇒
+ * - `password`：**复用本页已有的明文门禁机制**（默认遮罩 → 点击揭示 → 30 秒自动隐藏 → 关闭即清），
+ *   **不直接渲染**；
+ * - `passwordSource`：**原样显示后端返回的字符串**，遇到不认识的值也不会翻译成中文标签
+ *   —— 契约没定义取值域，翻译就是猜（本项目硬原则：不伪造、不猜测）；
+ * - `mustChangePassword`：`true`/`false` 原义呈现，缺失就写「未下发」。
+ */
+const issueVisible = ref(false)
+const issueSubmitting = ref(false)
+/** 正在发号的人员（用于回显姓名 / 门店）。 */
+const issueRow = ref<StaffAccount | null>(null)
+/** 工号（必填，同旧实现）。 */
+const issueUsername = ref('')
+/** 自选密码（**可留空** = 不传该字段 = 走后端默认规则）。 */
+const issuePassword = ref('')
+/** 发号结果；`null` = 还没成功 / 后端没返回结果（**不编空壳对象**）。 */
+const issueResult = ref<StaffIssueResult | null>(null)
+/** 是否已经提交成功（决定弹窗显示"表单"还是"结果"）。 */
+const issueFinished = ref(false)
+/** 发号失败提示（失败保留表单内容，可改完重提）。 */
+const issueError = ref('')
+
+/**
+ * 发号结果的揭示门禁。
+ *
+ * ⚠️ **为什么不直接复用 `canRevealPlaintext`（仅超管）**：两者读的东西性质不同 ——
+ * - D2 `GET /{id}/login-password` 读的是**别人的历史明文留档**（契约：「仅中控/客服可用，调用即写审计」）
+ *   ⇒ 前端在矩阵之外**再收窄一道**到超管；
+ * - 这里的密码是**本次发号调用自己刚拿到的返回值**（对接文档 §一：「必须展示给客服并转告商家」）
+ *   ⇒ 没有"多读一份秘密"的动作，门禁 = **能进本页并使用发号的角色**（`utils/permission.ts` 里
+ *   本页就是超管 + 商户管理员）。若也收窄成"仅超管"，商户管理员发号后将拿不到要转告商家的密码，
+ *   B1 的目的（让默认密码规则用得上）就落空了。
+ * 角色判据同样取自 auth store（**不在这页写死角色字符串**），机制与 D2 完全同形：
+ * 默认遮罩 → 显式点击揭示 → 30 秒自动隐藏 → 关闭 / 卸载即清。
+ */
+const canRevealIssuedPassword = computed(() => authStore.isPlatformAdmin || authStore.isMerchantAdmin)
+/** 发号结果密码的遮罩 / 倒计时状态。 */
+const issueRevealed = ref(false)
+const issueCountdown = ref(0)
+let issueTimer: ReturnType<typeof setInterval> | null = null
+/** 结果里**确实拿到了**密码（缺失 / null / 空串都算"没拿到" —— 不拿空串冒充密码）。 */
+const issuePasswordText = computed<string>(() =>
+  typeof issueResult.value?.password === 'string' ? issueResult.value.password : '',
+)
+const hasIssuePassword = computed(() => issuePasswordText.value.length > 0)
+/** 非授权角色的提示（本页只有超管 / 商户管理员，故文案按本页口径写）。 */
+const ISSUE_NO_PERMISSION_HINT = '无权查看（本页仅超管 / 商户管理员可发号）'
+
+/** 隐藏发号结果的明文（超时 / 关闭弹窗 / 卸载都会走这里）。 */
+function hideIssuePassword(): void {
+  issueRevealed.value = false
+  issueCountdown.value = 0
+  if (issueTimer !== null) {
+    clearInterval(issueTimer)
+    issueTimer = null
   }
 }
+/** 揭示发号结果的明文（仅授权角色 + 确实拿到了密码）；30 秒后自动隐藏。 */
+function revealIssuePassword(): void {
+  if (!canRevealIssuedPassword.value || !hasIssuePassword.value) return
+  hideIssuePassword()
+  issueRevealed.value = true
+  issueCountdown.value = REVEAL_TIMEOUT_SECONDS
+  issueTimer = setInterval(() => {
+    issueCountdown.value -= 1
+    if (issueCountdown.value <= 0) hideIssuePassword()
+  }, 1000)
+}
+
+/** 打开发号弹窗（表单态：工号必填、密码可空）。 */
+function openIssue(row: StaffAccount): void {
+  issueRow.value = row
+  issueUsername.value = row.username || ''
+  issuePassword.value = ''
+  issueResult.value = null
+  issueFinished.value = false
+  issueError.value = ''
+  hideIssuePassword()
+  issueVisible.value = true
+}
+
+/** 提交发号（成功后**就地切换到结果态**，不再弹一个"已发号"的空提示）。 */
+async function submitIssue(): Promise<void> {
+  const row = issueRow.value
+  if (!row) return
+  const username = issueUsername.value.trim()
+  if (username === '') {
+    issueError.value = '请填写工号'
+    return
+  }
+  const password = issuePassword.value
+  if (password !== '' && (password.length < 6 || password.length > 32)) {
+    issueError.value = '自选密码须 6~32 位（契约 minLength 6 / maxLength 32）；留空则由后端按默认规则生成'
+    return
+  }
+  issueSubmitting.value = true
+  issueError.value = ''
+  try {
+    // ⚠️ 密码留空 = **不传该字段**（契约语义：后端按「手机号后4位+身份证后4位」生成 + 要求首登改密）。
+    //    绝不送空串：空串既不是"不传"，也会直接撞上 minLength 6。
+    const result = await store.issue(row.id, password === '' ? { username } : { username, password })
+    issueResult.value = result
+    issueFinished.value = true
+    // 明文只留在"结果态"这一份，表单里立刻清掉（不在两处各留一份）
+    issuePassword.value = ''
+    if (result === null) {
+      ElMessage.warning('已发号（后端返回成功），但本次响应未返回发号结果（password 等字段）')
+    }
+  } catch (error) {
+    issueError.value = error instanceof Error ? error.message : '发号失败'
+  } finally {
+    issueSubmitting.value = false
+  }
+}
+
+/**
+ * 密码来源 `passwordSource`：**原样返回后端给的字符串**。
+ * ⚠️ 契约里该字段**无 description、无 enum**（取值域未定义）⇒ 这里**绝不做中文映射**：
+ * 不认识就把它本身显示出来（对接文档 §一 提到的 `DEFAULT` / `SELF` 只是文档口径，不是契约 enum）。
+ */
+function passwordSourceText(value: string | null | undefined): string {
+  return typeof value === 'string' && value.trim() !== '' ? value : '未下发'
+}
+
+/** 首登强制改密：`true`/`false` 原义呈现；缺失 / 非布尔 ⇒ 「未下发」（不猜）。 */
+function mustChangePasswordLabel(value: boolean | null | undefined): string {
+  if (value === true) return '是（首次登录会强制改密）'
+  if (value === false) return '否'
+  return '未下发（后端没给该字段，不猜测）'
+}
+
+/** 关闭发号弹窗 ⇒ 立刻撤掉结果里的明文与结果对象。 */
+watch(issueVisible, (visible) => {
+  if (visible) return
+  hideIssuePassword()
+  issueResult.value = null
+  issueFinished.value = false
+  issueError.value = ''
+  issuePassword.value = ''
+})
 
 // ===== 明文门禁（D2 登录密码 / D3b 改密留痕，2026-10-10 加固）=====
 /**
@@ -357,8 +496,11 @@ watch(() => route.fullPath, () => {
 onBeforeUnmount(() => {
   passwordVisible.value = false
   historyVisible.value = false
+  // 发号结果里也有明文 ⇒ 卸载时同样立刻清掉（watch 会顺手清空结果对象）
+  issueVisible.value = false
   hidePasswordPlaintext()
   hideHistoryPlaintext()
+  hideIssuePassword()
 })
 
 // ===== 绑定 / 解绑微信（D4b / D4c）=====
@@ -615,7 +757,7 @@ watch(() => route.query.shopId, (value) => {
               </template>
               <template v-else>
                 <el-button size="small" type="primary" @click="openEditIdentity(row)"><el-icon><Edit /></el-icon>改身份</el-button>
-                <el-button v-if="rowNeedsAccount(row) && !row.accountIssued" size="small" type="warning" plain @click="issueAccount(row)">发号</el-button>
+                <el-button v-if="rowNeedsAccount(row) && !row.accountIssued" size="small" type="warning" plain @click="openIssue(row)">发号</el-button>
                 <el-dropdown trigger="click" @command="(cmd: string) => { if (cmd === 'password') viewPassword(row); else if (cmd === 'history') viewHistory(row); else if (cmd === 'bind') bindWechat(row); else if (cmd === 'unbind') unbindWechat(row); else if (cmd === 'reset') resetPassword(row); else if (cmd === 'delete') removeRow(row) }">
                   <el-button size="small">更多<el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
@@ -678,6 +820,99 @@ watch(() => route.query.shopId, (value) => {
         </el-form-item>
       </el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving || store.actionLoading" @click="submitForm">保存</el-button></template>
+    </el-dialog>
+
+    <!-- 发号（D1b，2026-10-10 B1）：密码**可留空**（后端按「手机号后4位+身份证后4位」生成并要求首登改密）；
+         成功后**就地切换成结果态**展示 IssueResult（明文走门禁，passwordSource 原样显示） -->
+    <el-dialog v-model="issueVisible" title="发号（给未发号的账号发工号与密码）" width="580px" append-to-body>
+      <template v-if="!issueFinished">
+        <el-descriptions :column="1" border size="small" class="issue-meta">
+          <el-descriptions-item label="人员">{{ issueRow?.name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="所属门店">{{ issueRow?.shopName || '—' }}</el-descriptions-item>
+        </el-descriptions>
+        <el-form label-width="110px">
+          <el-form-item label="工号" required>
+            <el-input v-model="issueUsername" placeholder="H5 核销页 / PC 控制台登录工号（全局唯一）" />
+          </el-form-item>
+          <el-form-item label="密码（可不填）">
+            <el-input
+              v-model="issuePassword"
+              type="password"
+              show-password
+              placeholder="留空 = 不传该字段，由后端按默认规则生成"
+            />
+          </el-form-item>
+        </el-form>
+        <el-alert type="info" :closable="false" show-icon>
+          <p class="muted">
+            <strong>密码留空</strong>即"不传该字段"：后端按「<strong>手机号后 4 位 + 身份证后 4 位</strong>」生成，
+            并要求<strong>首次登录强制改密</strong>；该员工<strong>缺手机号或缺身份证</strong>时后端会报错并提示
+            "请手工指定密码"（不会生成半个密码）。自选密码须 <strong>6~32 位</strong>。
+          </p>
+          <p class="muted">已发号的账号不会被自动覆盖。发号后还需「绑定微信」，该人员的 C 端入口才会变成可点。</p>
+        </el-alert>
+        <el-alert v-if="issueError" type="error" :closable="false" show-icon class="issue-error">
+          <template #title>发号失败，本次未生效</template>
+          <p class="muted">{{ issueError }}</p>
+        </el-alert>
+      </template>
+
+      <template v-else>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="人员">
+            {{ issueRow?.name || '—' }}（工号 {{ issueUsername || '—' }}）
+          </el-descriptions-item>
+          <el-descriptions-item label="本次实际生效的密码">
+            <!-- ① 后端没返回结果（data 为 null，例如旧版后端）：如实说"没拿到"，**不编空密码** -->
+            <span v-if="issueResult === null" class="danger-text">
+              后端未返回发号结果（本次响应 data 为 null）—— 没有密码可转告，请与后端确认版本后重试
+            </span>
+            <!-- ② 非授权角色：不渲染明文，也不给揭示控件 -->
+            <span v-else-if="!canRevealIssuedPassword" class="muted">{{ ISSUE_NO_PERMISSION_HINT }}</span>
+            <!-- ③ 字段缺失 / 为 null：不给默认值、不空着 -->
+            <span v-else-if="!hasIssuePassword" class="muted">
+              后端未下发密码（字段缺失或为 null）—— 不给默认值，请与后端核对
+            </span>
+            <!-- ④ 默认遮罩 → 点击揭示 → 30 秒后自动隐藏（与「查看登录密码」同一套机制） -->
+            <template v-else>
+              <span class="plain-pwd" :class="{ 'plain-masked': !issueRevealed }">
+                {{ issueRevealed ? issuePasswordText : MASKED_PLAINTEXT }}
+              </span>
+              <el-button
+                size="small"
+                :type="issueRevealed ? 'info' : 'warning'"
+                plain
+                @click="issueRevealed ? hideIssuePassword() : revealIssuePassword()"
+              >
+                {{ issueRevealed ? '隐藏' : '点击查看' }}
+              </el-button>
+              <span v-if="issueRevealed" class="muted reveal-countdown">{{ issueCountdown }} 秒后自动隐藏</span>
+            </template>
+          </el-descriptions-item>
+          <el-descriptions-item label="密码来源（passwordSource）">
+            <!-- ⚠️ 契约**没有**该字段的 description / enum（取值域未定义）⇒ **原样显示后端返回值**，
+                 绝不翻译成中文标签（不认识的值也照原样显示） -->
+            <span class="plain-pwd">{{ passwordSourceText(issueResult?.passwordSource) }}</span>
+            <span class="muted issue-note">（契约未定义取值域，此处原样显示后端返回值，不做中文翻译）</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="首次登录须改密">
+            {{ mustChangePasswordLabel(issueResult?.mustChangePassword) }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <p class="muted">
+          本次响应返回的是<strong>本次实际生效</strong>的密码：请<strong>立即转告商家</strong>，勿截屏或外传。
+          后端契约<strong>未声明</strong>该密码此后是否还能再次查看（要核对可用「查看登录密码」/「重置密码」，
+          但那两处各有自己的权限与留痕口径）——如需留档请按贵司流程处理。
+        </p>
+      </template>
+
+      <template #footer>
+        <template v-if="!issueFinished">
+          <el-button @click="issueVisible = false">取消</el-button>
+          <el-button type="primary" :loading="issueSubmitting" @click="submitIssue">发号</el-button>
+        </template>
+        <el-button v-else type="primary" @click="issueVisible = false">完成</el-button>
+      </template>
     </el-dialog>
 
     <!-- 查看登录密码（D2，敏感）：**默认遮罩**，必须点击才揭示，30 秒后自动隐藏 -->
@@ -757,4 +992,8 @@ watch(() => route.query.shopId, (value) => {
 /* 身份多选 */
 .identity-tip { margin-left: 10px; font-size: 12px; }
 .identity-hint-box { white-space: pre-line; line-height: 1.7; }
+/* 发号（D1b）弹窗 */
+.issue-meta { margin-bottom: 14px; }
+.issue-error { margin-top: 12px; }
+.issue-note { margin-left: 6px; font-size: 12px; }
 </style>

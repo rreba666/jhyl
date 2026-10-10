@@ -7,6 +7,7 @@ import type {
   StaffBindDTO,
   StaffIdentityUpdateDTO,
   StaffIssueAccountDTO,
+  StaffIssueResult,
   StaffPasswordLog,
   StaffPasswordView,
   StaffResponse,
@@ -62,9 +63,30 @@ export async function createStaffAccount(payload: StaffAccountSaveDTO): Promise<
   return Number(data ?? 0)
 }
 
-/** D1b 发号（激活"审核通过但未发号"的商家/店长账号）。 */
-export async function issueStaffAccount(id: number | string, payload: StaffIssueAccountDTO): Promise<void> {
-  unwrap(await request.post<StaffResponse<null>>(`/api/admin/staff/${id}/issue-account`, payload), '账号发号失败')
+/**
+ * D1b 发号（激活"审核通过但未发号"的商家/店长账号）。
+ *
+ * ⚠️ 2026-10-10（B1）响应**不再是 `null`**：契约 200 schema = `ResultIssueResult`
+ * ⇒ `data = IssueResult{ password, passwordSource, mustChangePassword }`。
+ * - `password` = **本次实际生效的密码**（`password` 不传时由后端按「手机号后4位+身份证后4位」生成）；
+ * - `passwordSource` = 密码来源（**契约无 description / 无 enum ⇒ 取值域未定义**，本函数**原样**透传，
+ *   不做任何映射 —— 页面按"不认识就显示原值"处理）；
+ * - `mustChangePassword` = 是否要求首登强制改密。
+ *
+ * ⚠️ `data` 仍**可能为 `null`**（`ResultIssueResult.data` 的契约描述：「响应数据；无数据时为 null
+ * （字段始终存在）」）—— 若后端还没上这一版，拿到的就是 `null`。
+ * ⇒ 返回 `StaffIssueResult | null`，由页面**如实**区分「后端返回了发号结果」与「后端没返回结果」，
+ *   **不编造** `{ password: '', ... }` 之类的空壳（那会让"没有密码可转告"看起来像"密码是空串"）。
+ */
+export async function issueStaffAccount(
+  id: number | string,
+  payload: StaffIssueAccountDTO,
+): Promise<StaffIssueResult | null> {
+  const data = unwrap(
+    await request.post<StaffResponse<StaffIssueResult | null>>(`/api/admin/staff/${id}/issue-account`, payload),
+    '账号发号失败',
+  )
+  return data ?? null
 }
 
 /** D5 账号详情（无密码字段，用于排查"为什么他没身份"）。 */

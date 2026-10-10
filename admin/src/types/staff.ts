@@ -68,10 +68,45 @@ export interface StaffAccountSaveDTO {
   idCard?: string
 }
 
-/** 发号入参（D1b：把"审核通过但未发号"的账号激活）。 */
+/**
+ * 发号入参（D1b：把"审核通过但未发号"的账号激活）。
+ *
+ * ⚠️ 2026-10-10（B1）**`password` 改为可选**：契约 `IssueBody.password` 的描述原文是
+ * 「登录密码（**不传**则由后端按「手机号后4位+身份证后4位」生成，且要求首登强制改密；传则 6~32 位）」，
+ * `required` 里**只有 `username`** ⇒ 前端弹窗**不得再强制填写密码**（否则默认规则永远用不到）。
+ * - 不传 ⇒ 走后端默认规则（`手机号后 4 位 + 身份证后 4 位`，缺手机号或缺身份证时后端报 `1000`
+ *   并提示"请手工指定密码"，**不会生成半个密码**）；
+ * - 传 ⇒ 必须 6~32 位（契约 `minLength: 6` / `maxLength: 32`）；
+ * - 已发号的账号不会被自动覆盖。
+ */
 export interface StaffIssueAccountDTO {
   username: string
-  password: string
+  /** **可选**：留空 = 不传该字段 = 由后端按默认规则生成（并要求首登强制改密）。 */
+  password?: string
+}
+
+/**
+ * 发号响应 `data`（`IssueResult`，2026-10-10 新增）。
+ *
+ * ⚠️⚠️ **契约里这三个字段**（`components.schemas.IssueResult`）**一个 description 都没有**：
+ * 既没有字段说明、也没有 enum / example ⇒ **`passwordSource` 的取值域在契约里未定义**。
+ * 因此本类型：
+ * 1. 三个字段**全部可选 + 可空**（后端没下发时前端必须能表达"没给"，不能编默认值）；
+ * 2. `passwordSource` 按**字符串原样**处理（页面**原样显示**，**绝不**翻译成自以为的中文标签 ——
+ *    遇到不认识的值就显示原值，这是本项目"不伪造数据"硬原则在 UI 上的直接体现）；
+ * 3. 语义只以**对接文档**为参考（`docs/26/10.10/前端对接文档-2026-10-10-全集.md` §一：
+ *    `DEFAULT`=后端按规则生成 / `SELF`=人工指定），**但前端不据此做映射**（文档口径不等于契约 enum）。
+ */
+export interface StaffIssueResult {
+  /** **本次实际生效的密码**（对接文档 §一：必须展示给客服并转告商家；走默认规则时为 8 位）。 */
+  password?: string | null
+  /**
+   * 密码来源。⚠️ **契约无 description、无 enum ⇒ 取值域未定义**：页面**原样显示**该字符串，
+   * 不做任何中文翻译 / 归类（下拉、角标都不要）。
+   */
+  passwordSource?: string | null
+  /** 是否要求首次登录强制改密（对接文档 §一：走默认规则时为 `true`）。`null`/缺失 = 后端没给。 */
+  mustChangePassword?: boolean | null
 }
 
 /** 改身份入参（D4；username/password 可选 = 支持"升店长同时发号"一步式）。 */
