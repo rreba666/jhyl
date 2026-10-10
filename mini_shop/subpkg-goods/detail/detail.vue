@@ -653,26 +653,15 @@ onShow(() => {
           @enter="onEnterShop"
         />
 
-        <!-- 售后保障（2026-10-08 Step3 新增，依据《前端对接-Step3》§二 + 《前端对接-Step2》§三；
-             2026-10-10 §四 仅改物流那一行的锚点文案，本块结构未变）：
-             按该商品**支持的配送方式**逐条列出售后窗口；同城那条再按生鲜/普通档位分叉。
-             ⚠️ 物流与自提**永远不出现**"48 小时""生鲜"这类**同城生鲜档位专属**口径 —— 这一点由
-                `afterSaleTextsForProduct` 的结构保证（档位只在同城分支被读取），不靠模板自觉。
-                （⚠️ 别把"次日 0 点"也列进来：2026-10-08 W8 §5 起**物流也**用"次日 0 点"起算，
-                  它早已不是同城专属措辞 —— `timing-category-window.contract.ps1` 的反向断言
-                  就为此在当天松过一次。） -->
-        <view v-if="afterSaleRules.length" class="after-sale-card">
-          <view class="after-sale-head">
-            <text class="after-sale-title">售后保障</text>
-            <text v-if="isFreshProduct" class="after-sale-fresh-tag">生鲜 · 鲜活易腐</text>
-          </view>
-          <view v-for="rule in afterSaleRules" :key="rule.label" class="after-sale-row">
-            <text class="after-sale-label">{{ rule.label }}</text>
-            <text class="after-sale-text">{{ rule.text }}</text>
-          </view>
-          <text v-if="isFreshProduct" class="after-sale-note">生鲜·鲜活易腐商品不适用「七日无理由退货」；若存在质量问题，不受上述时限限制，请联系客服处理。</text>
-          <text v-else class="after-sale-note">不同配送方式的售后时限不同，以您下单时选择的配送方式为准。</text>
-        </view>
+        <!-- ⚠️ 2026-10-10 用户要求：**商品详情页不显示「售后保障」块** ⇒ 模板整块移除。
+             历史：该块是 2026-10-08 Step3 新增（依据《前端对接-Step3》§二 + 《前端对接-Step2》§三），
+             按商品支持的配送方式逐条列出售后窗口（同城那条再按生鲜/普通档位分叉）。
+             ⚠️ 移除是**产品决定**；`afterSaleRules` computed 与 `.after-sale-*` 样式**暂留**（未被使用），
+                如需恢复：把原先那个 `after-sale-card` 容器整段接回原处即可
+                （⚠️ 契约 `timing-category-window.contract.ps1` §3 已**反转**为"不得再渲染该块"，
+                  恢复时记得把那三条反向断言改回正向）。
+             ⚠️ 提醒后人：售后时限属**法定披露**信息 —— 若详情页不展示，应确认**下单/结算页仍有等价披露**，
+                不要两边都没有。 -->
 
         <!-- 详情图（2026-09-22 加固）：没有详情图时**不渲染这一整块**（避免留灰板）；
              单张加载失败只标记该张并提示，用户可点图用原生预览看原图 -->
