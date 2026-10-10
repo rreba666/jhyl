@@ -44,8 +44,8 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "shop card stops reading the real rating field",
-        "find": "const rating = computed(() => ratingText(shop.value?.rating))",
-        "replace": "const rating = computed(() => ratingText(shop.value?.businessName))"
+        "find": "const rating = computed(() => ratingText(previewValue(shop.value?.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))",
+        "replace": "const rating = computed(() => ratingText(previewValue(shop.value?.businessName, SHOP_DESIGN_PREVIEW_METRICS.rating)))"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -141,7 +141,7 @@
     {
         "file": "mini_shop/components/goods/ShopEntryCard.vue",
         "desc": "entry rating slot stops using the shared guarded helper",
-        "find": "const rating = computed(() => ratingText(props.rating))",
+        "find": "const rating = computed(() => ratingText(previewValue(props.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))",
         "replace": "const rating = computed(() => String(props.rating))"
     },
     {
@@ -819,14 +819,81 @@
     ,
     {
         "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the design-preview switch is forced OFF (the placeholders the user asked for silently stop rendering)",
+        "find": "const SHOP_DESIGN_PREVIEW_ENABLED = true",
+        "replace": "const SHOP_DESIGN_PREVIEW_ENABLED = false"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the word-of-mouth placeholder loses its real-value-first guard (the placeholder would overwrite REAL data)",
+        "find": "return SHOP_DESIGN_PREVIEW_ENABLED ? preview : actual",
+        "replace": "return preview"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the wrapper stops returning the real value (real data would be replaced by the placeholder)",
+        "find": "if (actual === null || actual === undefined) {",
+        "replace": "if (true) {"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: a preview value is attached to the customer-service cell (the user said, verbatim, never mind customer service)",
+        "find": "list.push({ name: '客服响应', value: '--', designSlot: true })",
+        "replace": "list.push({ name: '客服响应', value: reviewScoreText(previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)), designSlot: true })"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the shipping-speed placeholder is changed to 12 (the design's own filler value, which the contract bans)",
+        "find": "shipAvgHours: 24",
+        "replace": "shipAvgHours: 12"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the word-of-mouth placeholder is changed to 4.6 (the design's own filler value, which the contract bans)",
+        "find": "reviewAvgScore: 9.2",
+        "replace": "reviewAvgScore: 4.6"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the rating placeholder is changed to 5.0 (the design's own filler value, which the contract bans)",
+        "find": "rating: 4.8,",
+        "replace": "rating: 5.0,"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
+        "desc": "section 17: the release instruction (must be false before release) is deleted from the switch documentation",
+        "find": "上线前必须改为",
+        "replace": "开关说明",
+        "all": true
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "section 17: the shop page drops the design-preview switch and reads the raw rating field again (the placeholder silently disappears)",
+        "find": "const stars = computed(() => ratingStars(previewValue(shop.value?.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))",
+        "replace": "const stars = computed(() => ratingStars(shop.value?.rating))"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 17: the entry card drops the design-preview switch (the two cards drift - the card shows a dash where the page shows 4.8)",
+        "find": "const stars = computed(() => ratingStars(previewValue(props.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))",
+        "replace": "const stars = computed(() => ratingStars(props.rating))"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "section 17: the entry card hardcodes the five-solid-star literal the preview makes tempting (a fake five-star claim)",
+        "find": "<text v-if=\"stars\" class=\"entry-star\">{{ stars }}</text>",
+        "replace": "<text v-if=\"stars\" class=\"entry-star\">★★★★★</text>"
+    },
+    {
+        "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 16: the word-of-mouth cell is reverted to the hardcoded dash (the newly shipped reviewAvgScore is ignored)",
-        "find": "list.push({ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })",
+        "find": "list.push({ name: '口碑品质', value: reviewScoreText(previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)), designSlot: true })",
         "replace": "list.push({ name: '口碑品质', value: '--', designSlot: true })"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 15: the shipping-speed cell is reverted to the hardcoded dash (the newly shipped shipAvgHours is ignored)",
-        "find": "list.push({ name: '发货时效', value: shipHoursText(shop?.shipAvgHours), designSlot: true })",
+        "find": "list.push({ name: '发货时效', value: shipHoursText(previewValue(shop?.shipAvgHours, SHOP_DESIGN_PREVIEW_METRICS.shipAvgHours)), designSlot: true })",
         "replace": "list.push({ name: '发货时效', value: '--', designSlot: true })"
     },
     {
@@ -838,14 +905,14 @@
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 16.3-3: the word-of-mouth cell reads the OBJECTIVE composite (rating) instead of the user score (reviewAvgScore)",
-        "find": "value: reviewScoreText(shop?.reviewAvgScore), designSlot: true }",
-        "replace": "value: reviewScoreText(shop?.rating), designSlot: true }"
+        "find": "previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)",
+        "replace": "previewValue(shop?.rating, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "N3 section 16: the word-of-mouth cell is renamed to the design's product-quality label (no such field exists - a rename would fake the metric)",
-        "find": "list.push({ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })",
-        "replace": "list.push({ name: '商品品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })"
+        "find": "list.push({ name: '口碑品质', value: reviewScoreText(previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)), designSlot: true })",
+        "replace": "list.push({ name: '商品品质', value: reviewScoreText(previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)), designSlot: true })"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",
@@ -1013,8 +1080,8 @@
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "section 18: a design slot loses its designSlot flag (the entry card can no longer tell it apart)",
-        "find": "value: reviewScoreText(shop?.reviewAvgScore), designSlot: true }",
-        "replace": "value: reviewScoreText(shop?.reviewAvgScore) }"
+        "find": "previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)), designSlot: true }",
+        "replace": "previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)) }"
     },
     {
         "file": "mini_shop/utils/shop-metrics.ts",

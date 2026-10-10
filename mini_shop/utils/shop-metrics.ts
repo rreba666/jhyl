@@ -99,6 +99,92 @@ export const SHOP_SECTION_QUALIFICATION = 8
 export const SHOP_SECTIONS_FALLBACK = 15
 
 /**
+ * ============================================================================
+ * ⛔⛔⛔ 演示占位开关（FAKE / DEMO DATA）—— 上线前必须改为 `false` ⛔⛔⛔
+ * ============================================================================
+ *
+ * | 项 | 值 |
+ * |---|---|
+ * | 名字 | `SHOP_DESIGN_PREVIEW_METRICS` |
+ * | 文件 | 本文件 `mini_shop/utils/shop-metrics.ts`（这两张卡的**唯一**口径来源） |
+ * | 当前默认 | **`true` = 打开**（用户要求"先看到效果"） |
+ * | 引入日期 | **2026-10-10** |
+ * | 关闭方式 | 把下面这一行改成 `= false`（**唯一的一行**，别的地方不用动） |
+ *
+ * ## 这是什么（以及**不是**什么）
+ * 用户 2026-10-10 的原话（逐字）：
+ * 「图中这些 `--` **先用假值替换**，评分 **4.8** 星星，口碑品质 **9.2** 分，
+ *   发货时效 **24** 小时，客服响应不管」
+ * —— 目的是**看版式**（"先用假值"，即临时的、只为评估排版）。
+ *
+ * ⇒ 它**只影响渲染**：
+ * - ⛔ **不进任何请求**：不是查询参数、不是请求体字段、不发给任何接口（本文件不 import 任何
+ *   请求层；两张卡也只是把它**读**成展示值）；
+ * - ⛔ 不是"后端数据"、不是"兜底默认值"：它**只在真值缺席时**才被用（见 {@link previewValue}），
+ *   后端一旦下发了真实值，**真值永远赢**；
+ * - ⛔ 它**不复活**任何被运营关掉的板块：`showSections` 的位判断在它**之前**
+ *   （位为 0 ⇒ 整格不渲染，占位没有机会出现在那里）。
+ *
+ * ## 为什么要写得这么刺眼
+ * 本仓库的硬原则是「⛔ **绝不伪造数据**」（用户原话：「我们千万不能伪造数据给后端」，
+ * `CLAUDE.md` §十）。这几个数是**为了让用户看版式**而临时造的假值，
+ * ⛔ **绝不允许随着发布上线**：
+ * - ⚠️ **上线前必须改为 `false`**（改动就这一行）；
+ * - ⚠️ 契约 `tests/shop-page.contract.ps1` §17 会在"发布了（`DSH_RELEASE_CUT=1`）
+ *   而开关还开着"时**直接报红**，并且会在开关被悄悄删掉时也报红（见那两段断言）；
+ * - ⚠️ 流程记录（谁、为什么、什么时候关）：
+ *   `docs/26/10.10/待办-上线前关闭店铺页演示占位-2026-10-10.md`；
+ * - ⚠️ **诚实说明**：开关开着时，从**屏幕上看不出**"真实的 4.8"与"占位的 4.8"
+ *   （两者都会渲染成 `4.8`）—— 这正是它必须有一个显式开关、且必须在上线前关掉的原因。
+ *
+ * ## 数值本身**不是**契约字段的合法取值（只是版式占位，别当成"合理默认"）
+ * - `rating = 4.8`：契约范围 0~5（客观合成分的展示是 `x.y`）⇒ 4.8 合法；
+ * - `reviewAvgScore = 9.2`：⚠️ **契约里「口碑品质」是 1~5 分**（`ShopVO.reviewAvgScore`，
+ *   §16）⇒ **9.2 超出该字段的标度**。用户点名要 9.2，这里**照用户的数**渲染
+ *   （目的是看版式），但⛔ **不得**因此把 `reviewScoreText` 的标度改成 10 分制；
+ * - `shipAvgHours = 24`：契约是"小时、1 位小数"⇒ 经 {@link shipHoursText} 渲染成
+ *   **`24.0 小时`**（占位也走真格式化器，才叫"忠实预览"；⛔ 不写死显示字符串）。
+ */
+export const SHOP_DESIGN_PREVIEW_METRICS = {
+  /** 演示用的店铺评分（**假值**，2026-10-10；用户要的 4.8）。 */
+  rating: 4.8,
+  /** 演示用的口碑品质（**假值**，2026-10-10；用户要的 9.2 —— ⚠️ 超出契约的 1~5 标度）。 */
+  reviewAvgScore: 9.2,
+  /** 演示用的发货时效小时数（**假值**，2026-10-10；用户要的 24）。 */
+  shipAvgHours: 24,
+} as const
+
+/**
+ * **演示占位开关的总闸**（true = 用 {@link SHOP_DESIGN_PREVIEW_METRICS} 顶上缺席的真值）。
+ * ⚠️ 上线前必须改为 `false`（见上面那段 ⛔⛔⛔ 说明）；默认 `true` 是为了让用户**立刻看到效果**。
+ */
+const SHOP_DESIGN_PREVIEW_ENABLED = true
+
+/**
+ * 占位开关是否生效（= 总闸打开）。给契约/报告/调用方一个**只读**读数用。
+ * ⛔ 它**不是**给业务逻辑分支用的（业务侧不该有第二个开关：口径只有上面那一处）。
+ */
+export function shopDesignPreviewEnabled(): boolean {
+  return SHOP_DESIGN_PREVIEW_ENABLED
+}
+
+/**
+ * **真值优先**的占位取数：真值缺席（`null` / `undefined`）且开关打开 ⇒ 返回演示值，否则返回真值本身。
+ *
+ * ⚠️ 判据是 `== null`（**不是**真值判断）：契约里 `0` 是**合法真值**
+ *     （`fansCount = 0` = 暂无粉丝、`rating = 0` 也是一种分数声明）⇒ 真值 `0` **必须赢**，
+ *     绝不能被占位顶掉。这也是"绝不伪造数据"在**有真值时**的落点。
+ * ⚠️ 非数值的脏值**不算缺席**：它会照旧走各自的格式化器（脏值渲染 `--`），
+ *     占位**不参与**——否则脏值就会被"假数据"盖住，等于把故障藏起来。
+ */
+export function previewValue<T extends number>(actual: T | null | undefined, preview: number): T | number | null | undefined {
+  if (actual === null || actual === undefined) {
+    return SHOP_DESIGN_PREVIEW_ENABLED ? preview : actual
+  }
+  return actual
+}
+
+/**
  * 取 `showSections` 的有效值：缺席 / `null` / 非数值 ⇒ {@link SHOP_SECTIONS_FALLBACK}。
  * ⚠️ 非数值（脏值）也走兜底而不是当成 0：当成 0 会让**整页板块凭空消失**，
  *    而"看不见的失败"比"多显示一个 `--` 占位"严重得多（两者都不编数字）。
@@ -257,6 +343,11 @@ export function shipHoursText(hours: number | null | undefined): string {
  *      `avgAcceptSeconds`（配送接单时长）**改文案去顶这两格**」）。
  *    ⚠️ ④⑤ 两个**真实**指标仍**另起两格**、用**它们自己的准确标签**（准时送达 / 平均接单），
  *      有值时才出现。⇒ 格子数 3~5，模板用 flex 等分自适应，不会破版。
+ *    ⚠️⚠️ **2026-10-10 第十轮（用户：「先用假值替换…看版式」）**：①②前面各包了一层
+ *      {@link previewValue}（演示占位总闸 {@link SHOP_DESIGN_PREVIEW_METRICS}）——
+ *      **只在真值缺席时**顶上假值，**真值永远赢**；③「客服响应」**不受它影响，恒 `--`**
+ *      （用户逐字：「客服响应不管」）。⛔ 上线前必须把那个开关改成 `false`
+ *      （说明与流程记录见该常量，以及 `docs/26/10.10/待办-上线前关闭店铺页演示占位-2026-10-10.md`）。
  * ⚠️ 返回顺序固定（先三个设计格，再两个真实格）—— 契约没给顺序，写死在这里而不是散在模板里，
  *    两张卡（店铺页 + 进店卡）的顺序才不会分叉。
  *    ⚠️ **进店卡片**（`ShopEntryCard.vue`）的设计只有**三格**（106×46 × 3）⇒ 组件侧只保留
@@ -277,12 +368,14 @@ export function shopServiceMetrics(shop: ShopObjectiveMetrics | null | undefined
   const sections = shopShowSections(shop?.showSections)
   const list: ShopServiceMetric[] = []
   // 设计稿三格之一「口碑品质」：位 2；值 ← `reviewAvgScore`（§16），无评价 ⇒ `--`。
+  // ⚠️ `previewValue` = 2026-10-10 的**演示占位总闸**（仅当该字段缺席时才顶上假值）——
+  //    位为 0 时整格不渲染（占位**没有机会**出现在被运营关掉的板块里，见常量那段说明）。
   if (sections & SHOP_SECTION_REVIEW) {
-    list.push({ name: '口碑品质', value: reviewScoreText(shop?.reviewAvgScore), designSlot: true })
+    list.push({ name: '口碑品质', value: reviewScoreText(previewValue(shop?.reviewAvgScore, SHOP_DESIGN_PREVIEW_METRICS.reviewAvgScore)), designSlot: true })
   }
   // 设计稿三格之二「发货时效」：位 4；值 ← `shipAvgHours`（§15），样本不足 ⇒ `--`。
   if (sections & SHOP_SECTION_SHIP) {
-    list.push({ name: '发货时效', value: shipHoursText(shop?.shipAvgHours), designSlot: true })
+    list.push({ name: '发货时效', value: shipHoursText(previewValue(shop?.shipAvgHours, SHOP_DESIGN_PREVIEW_METRICS.shipAvgHours)), designSlot: true })
   }
   // 设计稿三格之三「客服响应」：**没有位** ⇒ 恒在、恒 `--`（用户决定；契约至今没有该字段）。
   list.push({ name: '客服响应', value: '--', designSlot: true })

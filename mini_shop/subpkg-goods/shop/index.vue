@@ -177,7 +177,7 @@ import { followShop, getShopDetail, getShopFollowStatus, unfollowShop, type Enab
 //    会把"这家店没了"渲染成"这家店没商品"（本仓库最忌的静默失真）。
 import { getShopProducts, type ProductCard } from '@/api/product'
 // 评分 / 粉丝 / 服务表现的**共用口径**（与商品详情页进店卡片同源，见该模块头部注释）。
-import { RATING_LABEL, SHOP_SECTION_QUALIFICATION, SHOP_SECTION_RATING, fansText, ratingStars, ratingText, shopSectionVisible, shopServiceMetrics } from '@/utils/shop-metrics'
+import { RATING_LABEL, SHOP_DESIGN_PREVIEW_METRICS, SHOP_SECTION_QUALIFICATION, SHOP_SECTION_RATING, fansText, previewValue, ratingStars, ratingText, shopSectionVisible, shopServiceMetrics } from '@/utils/shop-metrics'
 // 商品卡「标题 / 卖点」的**共用口径**（与首页 `HomeProductCard` 同源）——
 // ⚠️ 2026-10-10 用户报障「店铺页商品卡展示的字段跟首页不一样」：本页手写卡原先取
 //    `descriptionTitle || name` + `description`，首页组件取 `name` + `descriptionTitle || tag`
@@ -548,10 +548,22 @@ function syncHeadStuck(scrollTop: number): void {
 
 /**
  * 店铺客观指标的展示值（真实字段，口径见 `utils/shop-metrics.ts`）：
- * 评分 / 星串 / 粉丝 / 服务表现，四项**各自独立**地在没有真实值时为空。
+ * 评分 / 星串 / 粉丝 / 服务表现，四项**各自独立**。
+ *
+ * ⚠️⚠️ **2026-10-10 第十轮：评分/星串走的是 `previewValue(真值, 演示值)`**（用户逐字：
+ * 「图中这些 `--` **先用假值替换**，评分 **4.8** 星星…」）—— 演示占位总闸在
+ * `utils/shop-metrics.ts` 的 `SHOP_DESIGN_PREVIEW_METRICS`（⛔ **上线前必须改为 `false`**，
+ * 见该常量；流程记录 `docs/26/10.10/待办-上线前关闭店铺页演示占位-2026-10-10.md`）。
+ * - **真值优先**：`previewValue` 只在真值 `null`/`undefined` 时才返回演示值 ⇒
+ *   后端一旦下发 `rating`，**真实的 4.8 会覆盖占位的 4.8**（判据是 `== null`，不是真值判断
+ *   ⇒ 真值 `0` 也照样赢）；
+ * - 星串**仍由 `ratingStars()` 从同一个分值推导**（⛔ 不写死五颗实心星：那是"任何分数都显示满分"，
+ *   契约 §4x 有反向断言）；
+ * - 分数格**不自己拼字符串**（`ratingText` 负责 `x.y`，模板负责 `|| '--'`）；
+ * - **粉丝不受影响**（用户没提它）：仍然"有真值才显示"，缺席就是 `--`。
  */
-const rating = computed(() => ratingText(shop.value?.rating))
-const stars = computed(() => ratingStars(shop.value?.rating))
+const rating = computed(() => ratingText(previewValue(shop.value?.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))
+const stars = computed(() => ratingStars(previewValue(shop.value?.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))
 const fans = computed(() => fansText(shop.value?.fansCount))
 
 /**
@@ -994,12 +1006,28 @@ function formatAmount(value: number): string {
                    评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
                    解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
                    光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null**
-                   （`shop_rating_min_orders` 默认 5 ⇒ 订单不够就不写评分）⇒ **留版式、分值渲染 `--`**
-                   （用户 2026-10-10 第七轮决定，⛔ 不补 0 —— "0 分"是我们没有的分数声明）；
+                   （`shop_rating_min_orders` 默认 5 ⇒ 订单不够就不写评分）。
+                   ⚠️⚠️ **2026-10-10 第十轮（演示占位）**：真值缺席时评分格现在由
+                   `SHOP_DESIGN_PREVIEW_METRICS`（`utils/shop-metrics.ts`）顶上**假值 4.8**
+                   —— 用户逐字：「图中这些 `--` **先用假值替换**，评分 **4.8** 星星…」。
+                   **真值优先**（有真值就显示真值，占位**不会**覆盖它；判据是 `== null`，
+                   所以真值 `0` 也赢）；⛔ **上线前必须把那个开关改成 `false`**（见该常量的 ⛔ 段）。
+                   ⚠️ 因此本节早先那句「值缺席 ⇒ 渲染 `--`」在**开关开着**时对评分不再成立
+                   （占位顶上去了）；`--` 仍适用于**客服响应**（用户逐字"客服响应不管"）
+                   与**粉丝**（用户没提它 ⇒ 保持原口径）。
+                   "绝不伪造数据"针对的是**后端**：占位**不进任何请求**，也**不复活**
+                   被运营关掉的板块（`showSections` 的位判断在它之前）。
                    粉丝 ← `ShopVO.fansCount`
                    （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染 —— 2026-10-10 实测线上
                    `GET /api/shop/5` 就是 `"fansCount": 0`，而 `rating` / `onTimeRate` /
-                   `avgAcceptSeconds` **三个键后端一个都不下发** ⇒ 那几格按"没有数据"如实渲染 `--`）。
+                   `avgAcceptSeconds` **三个键后端一个都不下发**）。
+                    ⚠️⚠️ **2026-10-10 第十轮（演示占位总闸）**：上面「口碑品质 / 发货时效」两格
+                    与卡片里的评分格，在**真值缺席**时由 `utils/shop-metrics.ts` 的
+                    `SHOP_DESIGN_PREVIEW_METRICS` 顶上**假值**（用户逐字：「先用假值替换，评分 4.8
+                    星星，口碑品质 9.2 分，发货时效 24 小时，客服响应不管」）——
+                    取数、单位、缺省**仍然只在该模块**，本页与进店卡片读同一份；
+                    ⛔ **上线前必须把那个开关改成 `false`**（见该常量的 ⛔ 段与
+                    `docs/26/10.10/待办-上线前关闭店铺页演示占位-2026-10-10.md`）。
                    ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
                       `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
               <view
@@ -1021,9 +1049,13 @@ function formatAmount(value: number): string {
                 <view class="shop-metrics-row">
                   <!-- ⚠️ **评分星级**（`showSections` 位 1，§18.3）：
                        位为 0 ⇒ 运营主动关掉了这一格 ⇒ **整格不渲染**（连同下面那条分隔竖线，
-                       免得留一条悬空竖线）；位为 1 时**即使没有评分也留着**并渲染 `--` ——
-                       `shop_rating_min_orders`（默认 5）意味着评分可以**合法缺席**，
-                       而用户 2026-10-10 明确「要留着那里，用 `--` 代替都行」（见脚本里的说明）。 -->
+                       免得留一条悬空竖线）；位为 1 时**即使没有评分也留着**版式。
+                       ⚠️ **2026-10-10 第十轮（演示占位）**：这一格现在显示的是
+                       `previewValue(真值, SHOP_DESIGN_PREVIEW_METRICS.rating)` ——
+                       真值缺席时是**假值 4.8**，真值在时是真值（真值优先）；
+                       ⛔ **上线前必须把演示总闸改成 `false`**，届时才回到"没有值就渲染 `--`"的老口径
+                       （`shop_rating_min_orders` 默认 5 ⇒ 评分可以**合法缺席**；
+                       用户 2026-10-10 明确「要留着那里，用 `--` 代替都行」）。 -->
                   <view v-if="showRatingSection" class="shop-rating">
                     <text v-if="stars" class="shop-stars">{{ stars }}</text>
                     <text class="shop-score">{{ rating || '--' }}</text>

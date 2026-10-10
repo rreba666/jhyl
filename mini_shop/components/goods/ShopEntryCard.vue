@@ -40,6 +40,10 @@
  *   代替都行」，与 §18.4 不一致，见 `showRatingSection` 的注释）：现在**分值格留着渲染 `--`**，
  *   有真值时才另起一行渲染 `RATING_LABEL`（「综合服务分（非用户评价）」）——
  *   设计只画了「★★★★★ 5.0」，不加解释会被读成"用户评分"。
+ *   ⚠️⚠️ **2026-10-10 第十轮（演示占位）**：真值缺席且演示总闸开着时，分值格不再渲染 `--` 而是
+ *   **假值 4.8**（用户逐字：「先用假值替换，评分 4.8 星星」）—— 见 `previewValue` /
+ *   `SHOP_DESIGN_PREVIEW_METRICS`（`utils/shop-metrics.ts`），⛔ **上线前必须把那个开关改成 `false`**；
+ *   **真值优先**（后端一下发真值，占位就不再参与）。
  *   ⛔ 仍然**不得**用 `MerchantOverviewVO.serviceScore`（恒 null 的占位）顶替。
  * - ✅ **粉丝数**：`ShopVO.fansCount`（契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）。
  *   ⛔ 仍然**不得**用 `ShopVO.boundUserCount`（「已绑定微信人数」）顶替 —— 语义不同的两个数。
@@ -84,7 +88,7 @@
 import { computed } from 'vue'
 import type { ShopEntry } from '@/api/product'
 // 评分 / 粉丝 / 服务表现的**共用口径**（与店铺页同源；该模块头部逐条对齐契约 §12.2/§12.3）。
-import { RATING_LABEL, SHOP_METRIC_LIMIT, SHOP_SECTION_RATING, fansText, ratingStars, ratingText, shopSectionVisible, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
+import { RATING_LABEL, SHOP_DESIGN_PREVIEW_METRICS, SHOP_METRIC_LIMIT, SHOP_SECTION_RATING, fansText, previewValue, ratingStars, ratingText, shopSectionVisible, shopServiceMetrics, type ShopObjectiveMetrics } from '@/utils/shop-metrics'
 
 /** 一条服务指标（名 + 值，值本身已含单位，如「准时送达 97.2%」）。 */
 export interface ShopServiceMetric {
@@ -174,9 +178,20 @@ const shopName = computed(() => String(props.shop?.name || '').trim())
  * 评分的展示值 / 星串 / 粉丝文案 / 服务表现 —— 全部走 `utils/shop-metrics.ts` 的**共用口径**
  * （与店铺页同源：同一批字段、同一套"缺就不渲染"判据、同一套单位）。
  * ⚠️ 2026-10-10 S4 起这三个 prop 有了真实来源（`ShopVO`），此前它们只能由父页面传 undefined。
+ *
+ * ⚠️⚠️ **2026-10-10 第十轮（演示占位总闸）**：评分与星串前面包了一层
+ * `previewValue(真值, 演示值)` —— 用户逐字：「图中这些 `--` **先用假值替换**，评分 **4.8**
+ * 星星…」；总闸 = `SHOP_DESIGN_PREVIEW_METRICS`（`utils/shop-metrics.ts`，
+ * ⛔ **上线前必须改为 `false`**，流程记录 `docs/26/10.10/待办-上线前关闭店铺页演示占位-2026-10-10.md`）。
+ * - **真值优先**：只在真值 `null`/`undefined` 时才用演示值（判据 `== null` ⇒ 真值 `0` 也赢）；
+ * - 星串**仍由 `ratingStars()` 从同一个分值推导**（⛔ 不写死五颗实心，契约 §4x 有反向断言）；
+ * - **与店铺页逐字同构**（两张卡不得分叉）：那边同样用 `previewValue` 包了同一批字段；
+ * - **粉丝不受影响**（用户没提它）：照旧"有真值才显示"，缺席 `--`；
+ * - 组件**自己不持有**这些假值：它只是把父页面（已走同一条口径）传来的值格式化，
+ *   所以"演示值只在一处定义"这条约束没有被打破。
  */
-const rating = computed(() => ratingText(props.rating))
-const stars = computed(() => ratingStars(props.rating))
+const rating = computed(() => ratingText(previewValue(props.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))
+const stars = computed(() => ratingStars(previewValue(props.rating, SHOP_DESIGN_PREVIEW_METRICS.rating)))
 const fans = computed(() => fansText(props.fansCount))
 
 /**
@@ -261,8 +276,13 @@ function onEnter(): void {
                  评分行是实心星、收藏按钮那颗才是空心星）。
                  每个星位 10×10、星星之间 3 ⇒ 整块 62px；`★`/`☆` 的字身都是 1em，
                  故取 20rpx（10.4px）+ 字距 4rpx ⇒ ≈ 62px（旧值 19rpx 裸排只有 49px，整行左移 12px）。
-                 ⚠️ 星串由 `ratingStars()` 按**真实分值**算（不写死五颗）：写死五颗实心 = 把 3.2 分的店
-                 显示成满分（视觉伪造数据）。用字形而不是切图：单色、可随数据改色、任意 DPR 都锐利。
+                 ⚠️ 星串由 `ratingStars(previewValue(真值, …))` 按**生效分值**算（不写死五颗实心：
+                 写死五颗实心 = 把 3.2 分的店显示成满分，视觉伪造数据）。⇒ 演示总闸开着、
+                 真值缺席时，星串是 `4.8` 推导出的 **★★★★★**（`Math.round(4.8)` = 5 颗实心）；
+                 ⛔ 那**不是**写死的五星字面量，而是**同一个 helper 从数值推导**出来的
+                 （契约 §4x 严禁写死五星；见 `SHOP_DESIGN_PREVIEW_METRICS` 的 ⛔ 段 ——
+                 上线前必须把那个开关改成 `false`，届时无评分就只剩 `--`、一颗星都不画）。
+                 用字形而不是切图：单色、可随数据改色、任意 DPR 都锐利。
                  ⛔ 无评分时这里**什么都不画**（不补 ☆☆☆☆☆：「零星」也是一个我们没有的分数声明）。 -->
             <text v-if="stars" class="entry-star">{{ stars }}</text>
             <text class="entry-score">{{ rating || '--' }}</text>
