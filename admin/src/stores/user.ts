@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
-import { deleteUser, getUserDetail, getUsers, restoreUser, updateUserBanStatus, updateUserWallet } from '@/api/user'
+import { deleteUser, getUserDetail, getUsers, registerUserWechatId, restoreUser, updateUserBanStatus, updateUserWallet } from '@/api/user'
 import type { AdminWalletUpsertDTO, User, UserBanStatus, UserDetail, UserFilters, UserPageResult } from '@/types/user'
 import { runBatch } from '@/utils/runBatch'
 
@@ -100,10 +100,26 @@ export const useUserStore = defineStore('user', () => {
     try { await restoreUser(userId); await fetchList() } finally { actionLoading.value = false }
   }
 
+  /**
+   * 登记 / 清空用户微信号并刷新列表（`wechatId` 传空串 = 清空）。
+   *
+   * ⚠️ 它是人员「微信号」绑定的**前置条件**（契约：未登记时绑定会报 2000 并提示去登记）⇒
+   * 刷新列表是必需的：列表的「微信号」列要立刻反映出登记结果。
+   */
+  async function registerWechatId(userId: string, wechatId: string): Promise<void> {
+    actionLoading.value = true
+    try {
+      await registerUserWechatId(userId, wechatId)
+      await fetchList()
+    } finally {
+      actionLoading.value = false
+    }
+  }
+
   function resetFilters(): void {
     Object.assign(filters, { keyword: '', phone: '', banStatus: '' })
     page.value = 1
   }
 
-  return { list, total, loading, actionLoading, detail, detailLoading, walletLoading, page, pageSize, filters, fetchList, fetchDetail, updateWallet, updateBanStatus, updateBanStatuses, removeUser, removeUsers, restoreOne, resetFilters }
+  return { list, total, loading, actionLoading, detail, detailLoading, walletLoading, page, pageSize, filters, fetchList, fetchDetail, updateWallet, updateBanStatus, updateBanStatuses, removeUser, removeUsers, restoreOne, registerWechatId, resetFilters }
 })
