@@ -930,16 +930,22 @@ function formatAmount(value: number): string {
               >
                 <!-- ⚠️ 2026-10-10 第七轮（用户决定）：本行**不再整行消失** —— 用户要
                      「**要留着那里**」，没有值就用 `--`（明确表示"无此数据"，不是伪造）。
-                     取不到值时：分数显示 `--`、粉丝显示 `--`；星星与竖线仍只在有真值时才画
-                     （空星串 + 一根悬空竖线反而更像坏了）。 -->
+                     取不到值时：分数显示 `--`、粉丝显示 `--`；星串仍只在有真值时才画
+                     （⭐ **不画空星**：五颗空心星会被读成"0 分/零星"，那是**我们没有的评分**，
+                     属伪造一种"分数声明"，见契约 §4y 的同类红线）。
+                     ⚠️ 2026-10-10 第八轮（用户反馈「零数据时 `--` 像粘在粉丝数上的杂物」）：
+                     **分隔竖线改为无条件渲染** —— 两个格子（分值 / 粉丝）现在恒有内容
+                     （真值或 `--`），所以永远不会有"悬空的竖线"；竖线把 `--` 明确锚定为
+                     **左边的独立一格**，零数据时读作「`--` ｜ `0 粉丝`」而不是「`-- 0 粉丝`」。
+                     这是"字段化"处理，**不新增任何文字标签**、不暗示分数。 -->
                 <view class="shop-metrics-row">
                   <view class="shop-rating">
                     <text v-if="stars" class="shop-stars">{{ stars }}</text>
                     <text class="shop-score">{{ rating || '--' }}</text>
                   </view>
-                  <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）；
-                       只有两边都有值时才画（单边时不出现一根悬空的竖线）。 -->
-                  <view v-if="rating && fans" class="shop-divider" />
+                  <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）。
+                       ⚠️ 无条件画（两格恒有内容 ⇒ 不会悬空），见上面第八轮的说明。 -->
+                  <view class="shop-divider" />
                   <text class="shop-fans">{{ fans || '--' }}</text>
                 </view>
                 <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>

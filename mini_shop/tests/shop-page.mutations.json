@@ -13,6 +13,36 @@
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "the shop card's divider is gated again (with zero data the dash glues onto the fans count again)",
+        "find": "<view class=\"shop-divider\" />",
+        "replace": "<view v-if=\"rating && fans\" class=\"shop-divider\" />"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "the entry card's divider is gated again (with zero data the dash glues onto the fans count again)",
+        "find": "<view class=\"entry-divider\" />",
+        "replace": "<view v-if=\"rating && fans\" class=\"entry-divider\" />"
+    },
+    {
+        "file": "mini_shop/components/goods/ShopEntryCard.vue",
+        "desc": "the entry card wraps its value cell back inside the star-run guard (no rating => no dash, just a dangling divider)",
+        "find": "<view class=\"entry-stars\">",
+        "replace": "<view v-if=\"stars\" class=\"entry-stars\">"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "the shop card wraps its value cell inside a star-run guard (no rating => the dash disappears)",
+        "find": "<view class=\"shop-rating\">",
+        "replace": "<view v-if=\"stars\" class=\"shop-rating\">"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
+        "desc": "the shop card hardcodes a five-hollow-star placeholder (five empty stars read as a rating of zero)",
+        "find": "<text class=\"shop-score\">{{ rating || '--' }}</text>",
+        "replace": "<text class=\"shop-score\">{{ rating || '☆☆☆☆☆' }}</text>"
+    },
+    {
+        "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "shop card stops reading the real rating field",
         "find": "const rating = computed(() => ratingText(shop.value?.rating))",
         "replace": "const rating = computed(() => ratingText(shop.value?.businessName))"
@@ -105,8 +135,8 @@
     {
         "file": "mini_shop/utils/shop-metrics.ts",
         "desc": "the star run is hardcoded to five solid stars again (ANY rating shows 5)",
-        "find": "  return '\u2605'.repeat(filled) + '\u2606'.repeat(5 - filled)",
-        "replace": "  return '\u2605\u2605\u2605\u2605\u2605'"
+        "find": "  return '★'.repeat(filled) + '☆'.repeat(5 - filled)",
+        "replace": "  return '★★★★★'"
     },
     {
         "file": "mini_shop/components/goods/ShopEntryCard.vue",
@@ -165,8 +195,8 @@
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc": "honest 'images not published' state replaced by a generic label",
-        "find": "<text class=\"qual-empty-text\">\u8bc1\u7167\u56fe\u7247\u6682\u672a\u516c\u793a</text>",
-        "replace": "<text class=\"qual-empty-text\">\u6682\u65e0</text>"
+        "find": "<text class=\"qual-empty-text\">证照图片暂未公示</text>",
+        "replace": "<text class=\"qual-empty-text\">暂无</text>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -256,13 +286,13 @@
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the label artwork is replaced by TEXT (the designer-supplied vector is what must ship)",
         "find": "<image class=\"qualification-label-img\" src=\"/subpkg-goods/static/shop/qual-label.png\" mode=\"aspectFit\" />",
-        "replace": "<text class=\"qualification-label-img\">\u5e97\u94fa\u8d44\u8d28</text>"
+        "replace": "<text class=\"qualification-label-img\">店铺资质</text>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "cert badge back to the hand-made CSS circle + check glyph (design is an exported scalloped seal)",
         "find": "<image class=\"cert-badge\" src=\"/subpkg-goods/static/shop/cert-badge.png\" mode=\"aspectFit\" />",
-        "replace": "<view class=\"cert-badge\"><text class=\"cert-check\">\u2713</text></view>"
+        "replace": "<view class=\"cert-badge\"><text class=\"cert-check\">✓</text></view>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -280,7 +310,7 @@
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the label image points at the SVG source (a real device renders SVG as nothing)",
         "find": "src=\"/subpkg-goods/static/shop/qual-label.png\"",
-        "replace": "src=\"/static/shop/\u5e97\u94fa\u8d44\u8d28.svg\""
+        "replace": "src=\"/static/shop/店铺资质.svg\""
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -351,14 +381,14 @@
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc": "honest empty state copy replaced",
-        "find": "<text class=\"qual-empty-text\">\u8d44\u8d28\u4fe1\u606f\u6682\u672a\u516c\u793a</text>",
-        "replace": "<text class=\"qual-empty-text\">\u6682\u65e0</text>"
+        "find": "<text class=\"qual-empty-text\">资质信息暂未公示</text>",
+        "replace": "<text class=\"qual-empty-text\">暂无</text>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc": "shop-name row label replaced",
-        "find": "<text class=\"qual-row-label\">\u5546\u5bb6\u5e97\u94fa\u540d\u79f0</text>",
-        "replace": "<text class=\"qual-row-label\">\u5e97\u94fa\u540d\u79f0</text>"
+        "find": "<text class=\"qual-row-label\">商家店铺名称</text>",
+        "replace": "<text class=\"qual-row-label\">店铺名称</text>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
@@ -369,7 +399,7 @@
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc": "empty merchant entity renders blank instead of \"not published\"",
-        "find": ">{{ businessName || '\u672a\u516c\u793a' }}<",
+        "find": ">{{ businessName || '未公示' }}<",
         "replace": ">{{ businessName }}<"
     },
     {
@@ -381,8 +411,8 @@
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc": "shop-gone state stops rendering the documented copy",
-        "find": "<text>\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528</text>",
-        "replace": "<text>\u52a0\u8f7d\u5931\u8d25</text>"
+        "find": "<text>店铺不存在或已停用</text>",
+        "replace": "<text>加载失败</text>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/qualification.vue",
@@ -471,14 +501,14 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the 4th chip is appended AFTER the reputation chip (design order is between them)",
-        "find": "            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'new' }\" @click=\"selectSort('new')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'new' }\">\u65b0\u54c1</text>\r\n            </view>\r\n            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'reputation' }\" @click=\"selectSort('reputation')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'reputation' }\">\u53e3\u7891\u4f18\u54c1</text>\r\n            </view>",
-        "replace": "            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'new' }\" @click=\"selectSort('new')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'new' }\">\u53e3\u7891\u4f18\u54c1</text>\r\n            </view>\r\n            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'reputation' }\" @click=\"selectSort('reputation')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'reputation' }\">\u65b0\u54c1</text>\r\n            </view>"
+        "find": "            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'new' }\" @click=\"selectSort('new')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'new' }\">新品</text>\r\n            </view>\r\n            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'reputation' }\" @click=\"selectSort('reputation')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'reputation' }\">口碑优品</text>\r\n            </view>",
+        "replace": "            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'new' }\" @click=\"selectSort('new')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'new' }\">口碑优品</text>\r\n            </view>\r\n            <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'reputation' }\" @click=\"selectSort('reputation')\">\r\n              <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'reputation' }\">新品</text>\r\n            </view>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the sticky band loses its closing tag (the grid ends up INSIDE the band => it can never stick)",
-        "find": "        </view>\r\n      </view>\r\n      <!-- \u5546\u54c1\u7f51\u683c\u533a",
-        "replace": "        </view>\r\n      <!-- \u5546\u54c1\u7f51\u683c\u533a"
+        "find": "        </view>\r\n      </view>\r\n      <!-- 商品网格区",
+        "replace": "        </view>\r\n      <!-- 商品网格区"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -513,20 +543,20 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the 8000 status line loses its own branch (state silently falls through)",
-        "find": "<view v-else-if=\"shopUnavailable\" class=\"shop-status\"><text>\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528</text></view>",
-        "replace": "<view v-if=\"false\" class=\"shop-status\"><text>\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528</text></view>"
+        "find": "<view v-else-if=\"shopUnavailable\" class=\"shop-status\"><text>店铺不存在或已停用</text></view>",
+        "replace": "<view v-if=\"false\" class=\"shop-status\"><text>店铺不存在或已停用</text></view>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the loading status line is replaced by a bare ellipsis (state no longer stated)",
-        "find": "<view v-if=\"loading\" class=\"shop-status\"><text>\u5e97\u94fa\u4fe1\u606f\u52a0\u8f7d\u4e2d\u2026</text></view>",
-        "replace": "<view v-if=\"loading\" class=\"shop-status\"><text>\u2026</text></view>"
+        "find": "<view v-if=\"loading\" class=\"shop-status\"><text>店铺信息加载中…</text></view>",
+        "replace": "<view v-if=\"loading\" class=\"shop-status\"><text>…</text></view>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the failure retry stops re-running the archive load",
-        "find": "<text class=\"shop-status-retry\" @click=\"loadShop\">\u91cd\u8bd5</text>",
-        "replace": "<text class=\"shop-status-retry\">\u91cd\u8bd5</text>"
+        "find": "<text class=\"shop-status-retry\" @click=\"loadShop\">重试</text>",
+        "replace": "<text class=\"shop-status-retry\">重试</text>"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -561,7 +591,7 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "nav title constant stops being the fixed page title",
-        "find": "const NAV_TITLE = '\u5e97\u94fa'",
+        "find": "const NAV_TITLE = '店铺'",
         "replace": "const NAV_TITLE = shopNameText.value"
     },
     {
@@ -694,7 +724,7 @@
         "file": "mini_shop/components/home/HomeProductCard.vue",
         "desc": "the home card fabricates selling-point copy again for a missing field (that placeholder rendered on every live product)",
         "find": "const description = computed(() => productCardSellingPoint(props.product))",
-        "replace": "const description = computed(() => productCardSellingPoint(props.product) || '\u7cbe\u9009\u597d\u7269\uff0c\u5b89\u5fc3\u54c1\u8d28')"
+        "replace": "const description = computed(() => productCardSellingPoint(props.product) || '精选好物，安心品质')"
     },
     {
         "file": "mini_shop/components/home/HomeProductCard.vue",
@@ -747,8 +777,8 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "the white grid slice loses its opaque background (the band gradient shows through below it)",
-        "find": ".shop-grid-area { padding-bottom: 77rpx; background: #FFFFFF; }",
-        "replace": ".shop-grid-area { padding-bottom: 77rpx; }"
+        "find": ".shop-grid-area { padding-top: 23rpx; padding-bottom: 77rpx; background: #FFFFFF; }",
+        "replace": ".shop-grid-area { padding-top: 23rpx; padding-bottom: 77rpx; }"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
@@ -771,8 +801,8 @@
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",
         "desc": "a SECOND position: sticky is introduced on the scrolling slice (state-independent jitter)",
-        "find": ".shop-grid-area { padding-bottom: 77rpx;",
-        "replace": ".shop-grid-area { position: sticky; padding-bottom: 77rpx;"
+        "find": ".shop-grid-area { padding-top: 23rpx; padding-bottom: 77rpx;",
+        "replace": ".shop-grid-area { position: sticky; padding-top: 23rpx; padding-bottom: 77rpx;"
     },
     {
         "file": "mini_shop/subpkg-goods/shop/index.vue",

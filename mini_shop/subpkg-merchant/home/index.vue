@@ -14,13 +14,19 @@ import { computed, ref } from 'vue'
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   countMerchantProducts,
-  getMerchantOverview, getMerchantShopList, getMerchantUnread,
+  getMerchantOverview, getMerchantShopList, getMerchantUnread, getMyMerchantApply,
   updateMerchantShopImage,
-  type MerchantOverviewVO, type MerchantShopDetail,
+  type MerchantApplyVO, type MerchantOverviewVO, type MerchantShopDetail,
 } from '@/api/merchant'
 import { getIdentity, switchIdentity, type IdentitySwitchVO, type IdentityVO } from '@/api/identity'
 import { uploadFile } from '@/utils/request'
 import { preloadMerchantSubscribeConfig, requestMerchantSubscribe } from '@/utils/subscribe'
+// 电脑端后台（PC 控制台）的地址与文案：**唯一来源**（地址只在该模块里写一次；见其头部注释）。
+import {
+  MERCHANT_CONSOLE_ENTRY_SUB, MERCHANT_CONSOLE_ENTRY_TITLE, MERCHANT_CONSOLE_PASSWORD_NOTE,
+  MERCHANT_CONSOLE_PASSWORD_RULE, MERCHANT_CONSOLE_SHEET_SUB, MERCHANT_CONSOLE_SHEET_TITLE,
+  MERCHANT_CONSOLE_URL, merchantConsoleAccount,
+} from '@/utils/merchant-console'
 
 const statusBarHeight = ref(0)
 const shopName = ref('')
@@ -210,6 +216,80 @@ const isMerchantOwner = computed(() => {
 /** 进「结算与提现」：账户卡片 + 提现申请表单 + 账户流水/提现记录入口。 */
 function goSettlement(): void {
   uni.navigateTo({ url: '/subpkg-merchant/settlement/index' })
+}
+
+// ===== 电脑端后台（PC 控制台）登录说明弹层（2026-10-10 新增，用户选了方案 B）=====
+/**
+ * 入口 + 弹层。为什么放在**工作台**而不是入驻页（`subpkg-merchant/apply/apply.vue`）：
+ * 入驻页确实已经有「商家工号」行与「工号用于登录 PC 控制台」的提示（`apply.vue` L344 / L100-L101 / L362），
+ * **但那一页在拿到商家身份之后就点不到了** —— `pages/mine/mine.vue` 的菜单过滤是
+ * `if (item.key === 'merchant-apply' && identity.value?.hasBusinessIdentity) return false`
+ * （契约 `merchant-entry-module.contract.ps1` 还专门把这个隐藏行为钉住），
+ * 而 `/subpkg-merchant/apply/apply` 全仓**只**有那一个 `navigateTo`（grep 核实）。
+ * ⇒ 把按钮放入驻页 = 真正需要它的人（已发号的商家）永远看不到。
+ * 工作台是商家拿到身份后的常驻页面（「我的 → 我的身份 → 门店管理」）⇒ 入口放这里。
+ * ⚠️ 没有在入驻页再放一个"同款入口"：逻辑与文案全部共用上面的模块，重复的是入口而不是真相源。
+ *
+ * 数据：`GET /api/merchant/apply/my`（C 端 token，契约原文「返回**最近一次**申请」，
+ * 且 `data=null` = 从未申请过，**不是报错**）⇒ 只拿 `accountUsername` / `backendAccountIssued`。
+ * ⛔ 不调 `/api/admin/staff/{id}/login-password`（契约：**仅中控/客服可用**）⇒ 小程序里**没有密码**。
+ */
+const consoleVisible = ref(false)
+/** 弹层里的账号信息：**打开时才拉**（工作台首屏已经打了 4~5 个接口，不为一个弹层加首屏成本）。 */
+const consoleLoading = ref(false)
+/** 拉取失败（网络/接口异常）——与"查不到申请单"是**两件事**，不能混成一句话。 */
+const consoleError = ref(false)
+/** 已成功拿到过一次就缓存（同一页面停留期间不重复请求；失败不缓存，重开可重试）。 */
+const consoleLoaded = ref(false)
+const consoleApply = ref<MerchantApplyVO | null>(null)
+
+/**
+ * 弹层里「登录账号」那一格的取值：
+ * 加载中 / 拉取失败 / 拿到数据后按 `merchantConsoleAccount()` 的四态（已发号 / 已发号但工号未返回 /
+ * 未发号 / 未查到申请）如实显示。⛔ 任何分支都不编工号、不显示密码。
+ */
+const consoleAccount = computed<{ state: string; username: string; value: string; note: string }>(() => {
+  if (consoleLoading.value) return { state: 'loading', username: '', value: '查询中…', note: '' }
+  if (consoleError.value) {
+    return {
+      state: 'error',
+      username: '',
+      value: '账号信息查询失败',
+      note: '可稍后重新打开本弹层再试；下方后台地址与密码说明不受影响。',
+    }
+  }
+  return merchantConsoleAccount(consoleApply.value)
+})
+
+/** 打开弹层：第一次打开才拉申请状态（失败可重试）。 */
+async function openConsoleGuide(): Promise<void> {
+  consoleVisible.value = true
+  if (consoleLoaded.value || consoleLoading.value) return
+  consoleLoading.value = true
+  consoleError.value = false
+  try {
+    consoleApply.value = await getMyMerchantApply()
+    consoleLoaded.value = true
+  } catch {
+    // 拿不到就**如实说拿不到**：静态部分（地址 / 密码规则）照常显示，账号格不猜。
+    consoleApply.value = null
+    consoleError.value = true
+  } finally {
+    consoleLoading.value = false
+  }
+}
+
+function closeConsoleGuide(): void {
+  consoleVisible.value = false
+}
+
+/** 复制后台地址（长域名手输几乎必错；复制失败就如实提示手抄）。 */
+function copyConsoleUrl(): void {
+  uni.setClipboardData({
+    data: MERCHANT_CONSOLE_URL,
+    success: () => uni.showToast({ title: '后台地址已复制', icon: 'none' }),
+    fail: () => uni.showToast({ title: '复制失败，请手动记录地址', icon: 'none' }),
+  })
 }
 
 // ===== 门店头像（2026-10-09）：来源 `GET /api/merchant/shop/list`（`ShopVO`，含 `shopImage`）=====
@@ -601,6 +681,20 @@ function goBack(): void {
         </view>
         <view class="settle-arrow">›</view>
       </view>
+
+      <!-- 电脑端后台（PC 控制台）登录说明入口（2026-10-10 新增，用户选了方案 B：加按钮弹窗）。
+           ⚠️ 只对**品牌主体**（`MERCHANT_OWNER`）显示：契约 `StaffAccountVO.canLoginPc`
+              「是否可登录 PC 商户控制台」，而店长/核销店员走的是 **H5 核销页**（另一个地址、
+              另一个客户端 `client=H5`）⇒ 对他们显示"PC 控制台登录说明"是**点了必然用不上**的入口。
+           ⚠️ 与「结算与提现」同一个判断口径（`identities` 全集，不是只看 `staffRole`）。
+           地址/文案全部来自 `utils/merchant-console.ts`（单一来源，本文件不写域名）。 -->
+      <view v-if="isMerchantOwner" class="console-entry" @click="openConsoleGuide">
+        <view class="console-text">
+          <text class="console-title">{{ MERCHANT_CONSOLE_ENTRY_TITLE }}</text>
+          <text class="console-sub">{{ MERCHANT_CONSOLE_ENTRY_SUB }}</text>
+        </view>
+        <view class="console-arrow">›</view>
+      </view>
     </scroll-view>
 
     <!-- 身份切换弹层（设计稿：选择你要进入的角色） -->
@@ -632,6 +726,44 @@ function goBack(): void {
           </view>
         </view>
         <view class="role-submit" :class="{ 'is-loading': roleSwitching }" @click="confirmSwitch">确定切换</view>
+      </view>
+    </view>
+
+    <!-- 电脑端后台登录说明弹层（2026-10-10，用户方案 B）。
+         ⚠️ 静态两块（**后台地址** / **初始密码说明**）**无条件渲染** —— 账号查不到、查询失败、
+            还没发号时，地址与规则仍然要给（商家此刻最需要的就是"去哪登录"）。
+            只有「登录账号」那一格随状态变化（`consoleAccount`）。
+         ⛔ 这里**不显示任何密码**（小程序拿不到密码：`IssueResult.password` 由中控发号接口返回，
+            `GET /api/admin/staff/{id}/login-password` 契约原文「仅中控/客服可用」）⇒ 只讲规则。 -->
+    <view v-if="consoleVisible" class="console-mask" @click="closeConsoleGuide">
+      <view class="console-sheet" @click.stop>
+        <view class="console-sheet-head">
+          <view class="console-sheet-titles">
+            <text class="console-sheet-title">{{ MERCHANT_CONSOLE_SHEET_TITLE }}</text>
+            <text class="console-sheet-sub">{{ MERCHANT_CONSOLE_SHEET_SUB }}</text>
+          </view>
+          <text class="console-sheet-close" @click="closeConsoleGuide">×</text>
+        </view>
+
+        <view class="console-row">
+          <text class="console-label">后台地址</text>
+          <text class="console-url">{{ MERCHANT_CONSOLE_URL }}</text>
+          <text class="console-copy" @click="copyConsoleUrl">复制</text>
+        </view>
+
+        <view class="console-row">
+          <text class="console-label">登录账号</text>
+          <text class="console-value">{{ consoleAccount.value }}</text>
+        </view>
+
+        <view class="console-block">
+          <text class="console-block-title">初始密码</text>
+          <text class="console-block-text">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text>
+          <text class="console-block-text">{{ MERCHANT_CONSOLE_PASSWORD_NOTE }}</text>
+        </view>
+
+        <!-- 状态说明：未发号 / 工号未返回 / 未查到申请 / 查询失败时各说各的话（不混用）。 -->
+        <text v-if="consoleAccount.note" class="console-note">{{ consoleAccount.note }}</text>
       </view>
     </view>
   </view>
@@ -1099,5 +1231,139 @@ function goBack(): void {
   color: #c9cdd4;
   font-size: 34rpx;
   line-height: 1;
+}
+
+/* ===== 电脑端后台（PC 控制台）登录说明（2026-10-10） =====
+   入口行沿用「结算与提现」那张白卡的排版（同一页面上两个同类入口不该长得不一样）。 */
+.console-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 23rpx;
+  padding: 31rpx;
+  border-radius: 23rpx;
+  background: #ffffff;
+}
+.console-text { flex: 1; min-width: 0; }
+.console-title {
+  display: block;
+  color: #1d2129;
+  font-size: 31rpx;
+  font-weight: 600;
+}
+.console-sub {
+  display: block;
+  margin-top: 8rpx;
+  color: #86909c;
+  font-size: 23rpx;
+}
+.console-arrow {
+  flex: none;
+  margin-left: 15rpx;
+  color: #c9cdd4;
+  font-size: 34rpx;
+  line-height: 1;
+}
+/* 弹层：底部上滑的白卡（与身份弹层同一套层级/遮罩口径，z-index 100 = 页面内最高）。 */
+.console-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+}
+.console-sheet {
+  padding: 31rpx 31rpx 46rpx;
+  border-radius: 23rpx 23rpx 0 0;
+  background: #ffffff;
+}
+.console-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 23rpx;
+}
+.console-sheet-titles { flex: 1; min-width: 0; }
+.console-sheet-title {
+  display: block;
+  color: #1d2129;
+  font-size: 35rpx;
+  font-weight: 600;
+  line-height: 50rpx;
+}
+.console-sheet-sub {
+  display: block;
+  margin-top: 4rpx;
+  color: #86909c;
+  font-size: 25rpx;
+  line-height: 42rpx;
+}
+.console-sheet-close {
+  flex: none;
+  margin-left: 16rpx;
+  color: #1d2129;
+  font-size: 44rpx;
+  line-height: 44rpx;
+}
+.console-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f2f4f7;
+}
+.console-label {
+  flex: none;
+  width: 130rpx;
+  color: #86909c;
+  font-size: 26rpx;
+}
+/* 地址是长域名 ⇒ 允许换行（不省略号截断，截断后商家抄都抄不全）。 */
+.console-url {
+  flex: 1;
+  min-width: 0;
+  color: #1d2129;
+  font-size: 26rpx;
+  line-height: 40rpx;
+  word-break: break-all;
+}
+.console-copy {
+  flex: none;
+  margin-left: 16rpx;
+  padding: 6rpx 18rpx;
+  border-radius: 8rpx;
+  color: #ff5500;
+  background: #fff4e8;
+  font-size: 24rpx;
+}
+.console-value {
+  flex: 1;
+  min-width: 0;
+  color: #1d2129;
+  font-size: 28rpx;
+  line-height: 40rpx;
+}
+/* 密码说明：只讲**规则**，不显示任何密码值。 */
+.console-block { margin-top: 23rpx; padding: 23rpx; border-radius: 16rpx; background: #f6f7f9; }
+.console-block-title {
+  display: block;
+  color: #1d2129;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+.console-block-text {
+  display: block;
+  margin-top: 8rpx;
+  color: #4e5969;
+  font-size: 24rpx;
+  line-height: 38rpx;
+}
+.console-note {
+  display: block;
+  margin-top: 23rpx;
+  color: #86909c;
+  font-size: 24rpx;
+  line-height: 38rpx;
 }
 </style>
