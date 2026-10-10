@@ -100,9 +100,12 @@
  * `docs/26/10.10/店铺页滚动形态-4050-6387-推断与实现-2026-10-10.md`。
  *
  * 用户 2026-10-10 对三条开放问题的答复 = 本节的口径：
- * 1. **吸顶（答「2. 吸顶」）**：设计没给吸顶标记，但用户要吸顶 ⇒ 吸的是**内容区的控制带**
- *    （Tab 栏 + 筛选行，模板里的 `.shop-head`）。顶层导航栏本来就是 `position: fixed`
- *    （返回 + 标题一直可点）⇒ 该吸的就只剩这一条；偏移量与取舍见 `headStuck` 与 `.shop-head`。
+ * 1. **吸顶**：设计没给吸顶标记，但用户要吸顶。第四轮先只吸了**内容区的控制带**（Tab + 筛选）；
+ *    ⚠️ **第八轮用户把范围扩了**（逐字：「吸顶有点问题，**是除了红框之内的，其他吸顶**，就跟图二
+ *    设计稿一致」，红框 = 服务表现三格；被追问时**明确选 A**）⇒ 现在吸顶带 = **店铺卡 + 资质条 +
+ *    Tab 行 + 筛选行**四块，**服务表现三格仍只收起**。顶层导航栏本来就是 `position: fixed`
+ *    （返回 + 标题一直可点）⇒ 它不在 sticky 里。偏移量、白字压白底的解法与判据见 `headStuck`、
+ *    `headStyle` 与样式表 `.shop-head`（**透明卡 + 白字**是这一轮唯一必须新解决的硬问题）。
  * 2. **筛选行第 4 个 chip「新品」（答「3. 加」）**：按节点几何插在「价格」与「口碑优品」
  *    **之间**（不是追加到末尾），映射 `sortBy=new_desc`。
  * 3. 服务表现三项的后端需求另立文档：`docs/26/10.10/后端需求-店铺服务表现三项-2026-10-10.md`。
@@ -129,8 +132,22 @@
  *        收起块，**现按这次更正收窄成"只收服务表现"**，与设计稿**滚动帧**（`4050:6387`：保留
  *        `Frame 117` = 评分/粉丝行，只删「服务表现」）**完全一致** —— 也就是"设计稿的读法"
  *        这次被用户**确认**了。见 `COLLAPSE_BLOCK_IDS`。
+ *
+ * ## 2026-10-10 第八轮（用户决定 A：**吸顶范围扩到整条头部**）
+ * 用户逐字：「**吸顶有点问题，是除了红框之内的，其他吸顶**，就跟图二设计稿一致」（红框 = 服务表现
+ * 三格）；被追问范围后**明确选 A**：**店铺卡 + 资质条 + Tab 行 + 筛选行 全部吸顶**，
+ * **服务表现三格仍收起**（用户也接受了"固定区约 377px、占掉半屏"的代价）。
+ * 这一轮三件事，逐条对应下面的实现：
+ * 1. **范围**：模板里四块包进**一个** `.shop-head`（吸顶对象只能有一个：几个兄弟各自 sticky 会在
+ *    同一个 `top` 上互相重叠）；商品网格留在带子**外面**（否则带子比视口高 ⇒ sticky 永远不吸）。
+ * 2. **透明卡 + 白字**：带子自己画**与页面同一条、同尺度**的渐变底（设计端点 `#704138 → #9A674D`，
+ *    不引入新配色），锚点 = 卡片的自然页面位置（`headStyle.backgroundPosition`）⇒ 未滚动时与背后
+ *    页面渐变逐像素相同、滚动后卡片区恒压在渐变上。**卡片本身仍是透明卡**（产品决策不变）。
+ * 3. **判据**：带子的自然顶边 = 导航栏下沿 ⇒ 它**从第一帧起就吸住**，折叠只在带子**内部**改变高度
+ *    ⇒ 旧实现里"量带子页面坐标 + 补偿折叠量"那套**已删除**（它只对"带子在折叠块下方"的旧结构成立），
+ *    现在"是否吸住"= 页面滚过了（见 `syncHeadStuck` / `HEAD_STUCK_SCROLL_FLOOR`）。
  */
-import { computed, nextTick, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { onLoad, onPageScroll, onReachBottom } from '@dcloudio/uni-app'
 import { followShop, getShopDetail, getShopFollowStatus, unfollowShop, type EnabledShop } from '@/api/shop'
 // ⚠️ 用 `getShopProducts`（= `GET /api/shop/{shopId}/products`，S2b）而**不是**
@@ -335,13 +352,15 @@ const recommendedParam = computed(() => activeSort.value === 'reputation')
 const serviceMetrics = computed(() => shopServiceMetrics(shop.value))
 
 /**
- * ===== 随滚动收起的一块（用户 2026-10-10 第四条 + 第六轮更正）=====
+ * ===== 随滚动收起的一块（用户 2026-10-10 第四条 + 第六轮更正 + 第八轮范围确认）=====
  *
  * 用户逐字：「**吸顶是除了星级评分，粉丝，口碑配置，发货时效，客服响应这块，卡片之前其他的都显示**」
  * ⚠️⚠️ 但用户随后另行明确「**吸顶的话店铺卡片是不收的**」⇒ 店铺卡片（含其中的**评分/粉丝行**）
  *    **整体保留**；收起只剩**服务表现格**一块；其余一律不动：
- *   导航栏 / logo + 店名 / 评分粉丝行 / 收藏 / 「店铺资质 · 经营资质」条 / Tab 栏 / 筛选行
- *   （后两者是吸顶带）/ 商品网格。
+ *   导航栏 / logo + 店名 / 评分粉丝行 / 收藏 / 「店铺资质 · 经营资质」条 / Tab 栏 / 筛选行 / 商品网格。
+ * ⚠️ **第八轮起，本块在吸顶带（`.shop-head`）内部**（服务表现格是店铺卡里的一行）：
+ *    收起只改变带子的**高度**、不改变它的**页面坐标** ⇒ `syncHeadStuck` 里**没有**折叠量补偿项
+ *    （旧实现有，那是因为带子当时在折叠块**下方**）。收起后网格整体上移 = 用户要的"让位"。
  *
  * ⚠️ **块 id 必须与模板里的 `id="…"` 逐字一致**（`uni.createSelectorQuery` 按 id 量高；
  *    契约 `shop-page.contract.ps1` §11e 会把两边的字面量都钉住，改一处不改另一处会红）。
@@ -387,89 +406,71 @@ const COLLAPSE_MEASURE_MAX_TRIES = 5
 const collapseTries: Record<string, number> = {}
 
 /**
- * ===== 吸顶（用户 2026-10-10 答复「2. 吸顶」）=====
+ * ===== 吸顶（用户 2026-10-10 答复「2. 吸顶」；**第八轮把范围扩到整条头部**）=====
  *
- * ## 吸什么、为什么不吸别的
- * - **吸顶对象 = 内容区的控制带**：Tab 栏（首页 / 商品）+ 筛选行（销量 / 价格 / 新品 / 口碑优品），
- *   模板里包成 `.shop-head`。它是本页**唯一的控制面** —— 往下滚之后还要能换 Tab、换筛选，
- *   否则只能滚回顶部才能操作（"吸顶"要解决的正是这件事）。
- * - **顶层导航栏不在这里做**：它本来就是 `position: fixed`（见 `.nav`），返回与标题**一直可点**；
- *   再叠一层 sticky 只会和 fixed 打架。
- * - **不吸店铺卡 / 资质条**：设计那一帧里店铺卡是被**裁到 72** 的（服务表现整块不在帧内）
- *   ⇒ 头部本来就该随滚动让位；把 143 高的卡常驻会在 667px 屏上吃掉约 22% 的高度。
+ * ## 吸什么（用户 2026-10-10 第八轮明确选 A）
+ * 用户原话：「**吸顶有点问题，是除了红框之内的，其他吸顶**，就跟图二设计稿一致」——
+ * 红框 = 店铺卡里的**服务表现三格**；被追问范围时用户选了 **A**：
+ * **店铺卡 + 资质条 + Tab 行 + 筛选行 全部吸顶**，服务表现三格**仍然只收起**。
+ * ⇒ 模板里这四块包进**一个** `.shop-head`（恒 `position: sticky`，`top` = 导航栏真实下沿）。
+ * ✅ 这与设计稿**滚动帧**（节点 `4050:6387`）的读法一致：那一帧里店铺卡就在导航栏正下方
+ *    （y=92、高 72 = 少了服务表现那一行），资质条 y=164、白内容区 y=208、Tab y=208、
+ *    筛选行 y=250 —— 也就是"卡片贴着导航栏、其余依次接上"。
+ * ⚠️ 代价（用户已知并接受）：固定区 ≈ 289 设计 px，加导航栏 ≈ 377px，800px 高的屏上占掉近一半。
+ *    真机可调的是折叠阈值与卡内间距，**不是**把吸顶范围缩回去。
  *
- * ## 与"收起"为什么不打架（三条硬约束）
- * 1. **偏移量只有一个来源 `navBarHeight`**（模板里绑成 `top`）：折叠块在吸顶带的**上方**，
- *    它收起只会把吸顶带**更早**顶到吸住位置，**不改变吸住后的位置**
- *    （`top` 是相对滚动视口的常量 ⇒ 折叠前后吸住位置逐像素相同）。
- * 2. **不切 `position`**：`.shop-head` 恒为 `sticky`，滚动只切阴影（可过渡）——
- *    `relative ↔ sticky` 切换会重算位置并抖动（见 `CLAUDE.md` §十二）。
- * 3. **判据同步折叠量**：折叠块的累计高度是**量出来的**（`collapseHeights`），它只把
- *    "什么时候算吸住"的判据上移同样的像素数（见 `syncHeadStuck`），**不参与布局、不写回样式**。
+ * ## 透明卡 + 白字 ⇒ 吸顶后必须有不透明底（第八轮必须解决的那一条）
+ * 店铺卡是**透明卡**（产品决策：白字直接压在渐变头图上）⇒ 一旦吸顶，它会从**白色**的
+ * 白内容区 / 商品网格上面滑过去 ⇒ 白字压白底 = 看不见。
+ * ⇒ 吸顶带自己画一条**与页面同一条、同尺度**的渐变底（设计色 `#704138 → #9A674D`，
+ *    与 `.nav` / `.shop-page` / `.hero-gradient` 同值，**不引入任何新配色**）：
+ *    卡片区永远压在渐变上（白字恒可读），资质条与白内容区各自的不透明底盖住其余部分。
+ *    见样式表 `.shop-head` 与下面的 `headStyle`（渐变的锚点 = 卡片的**自然**页面位置 `navHeight`）。
  *
+ * ## 为什么"是否吸住"不再量页面坐标（第八轮的判据变更）
+ * 带子的自然顶边 = 内容起点 = 导航栏下沿（店铺卡本来就在最上面）⇒ 它**从第一帧起就是吸住的**。
+ * 旧实现那套「量 `#shop-head` 的页面坐标顶边 + 按折叠量把阈值上移」（`headTopPx` /
+ * `measureHeadTop` / `collapsedShiftPx`）是给**较小的**吸顶元素（Tab + 筛选行，位于卡片和资质条
+ * **之下**）写的，现在**不再成立**：折叠块（服务表现格）在带子**内部**，收起只改带子的**高度**、
+ * 不改它的页面坐标 ⇒ 那个补偿项必须去掉（否则阴影会在折叠前后无谓地提前/滞后）。
+ * 现在唯一还成立的事实是：**页面滚过了 ⇒ 商品网格开始从带子下面滑过去 ⇒ 给阴影**。
+ * ⚠️ 顺带让 `onPageScroll` **更便宜**：不再有"量带子位置"的那次查询（见 `onPageScroll`）。
  * ⚠️ **偏移量必须是"真实状态栏高 + 44"**（`navBarHeight`）：固定导航栏盖住的正是这一段，
- *    写死一个"看起来差不多"的值 ⇒ 刘海屏 / 不同状态栏高度下 Tab 被压在导航栏底下（**点不到**）。
+ *    写死一个"看起来差不多"的值 ⇒ 刘海屏 / 不同状态栏高度下卡片与 Tab 被压在导航栏底下（**点不到**）。
  */
 
-/** 吸顶带的**页面坐标**顶边（px）；`0` = 还没量到（量不到就不显示"已吸住"的阴影，绝不猜一个阈值）。 */
-const headTopPx = ref(0)
-/** 是否已吸在导航栏下方 —— **只驱动阴影**，不参与定位（定位恒由 `sticky` + `top` 决定）。 */
+/**
+ * "页面已经滚过"的死区（px）：iOS 回弹时 `scrollTop` 会到负数、手指微抖时会在 0 附近来回，
+ * 死区让阴影在回弹/抖动时不闪。**真机可调值**（0 = 一滚就给阴影）。
+ */
+const HEAD_STUCK_SCROLL_FLOOR = 1
+
+/** 是否已吸住 —— **只驱动阴影**，不参与定位（定位恒由 `sticky` + `top` 决定）。 */
 const headStuck = ref(false)
-/**
- * 吸顶带 `top` 的内联样式：**固定导航栏的真实下沿**（`navBarHeight`，含那 1 个设备像素的重叠）。
- * ⚠️ 这里**不能**用 `navHeight`（内容让位高度）：它比导航栏下沿少 1 个设备像素 ⇒
- *    吸住时 Tab 栏顶部那一丝会被导航栏盖住，看起来像"吸顶带上方又有一条深色缝"。
- */
-const headStyle = computed(() => ({ top: `${navBarHeight.value}px` }))
-/** 量吸顶带位置的重试上限（`onLoad` 时模板可能还没渲染完；量到就停）。 */
-const HEAD_MEASURE_MAX_TRIES = 5
-let headMeasureTries = 0
-/** 最近一次 `onPageScroll` 的纵向滚动量（px）—— 视口坐标换算成页面坐标要靠它。 */
-let lastScrollTop = 0
 
 /**
- * 量一次吸顶带的**页面坐标**顶边（量到就缓存，之后**零开销**）。
+ * 吸顶带的内联样式：
+ * - `top` = 固定导航栏的**真实下沿**（`navBarHeight` = 内容让位高度 + 1 个设备像素的重叠）；
+ *   ⚠️ 不能用 `navHeight`：它比导航栏下沿少 1 个设备像素 ⇒ 吸住时带子顶部那一丝被导航栏盖住。
+ * - `backgroundPosition` = 把那条渐变**锚到卡片的自然页面位置**（`navHeight`），
+ *   这样未滚动时带子上的渐变与它背后的页面渐变**逐像素相同**（否则导航栏下沿会留下一条比周围
+ *   亮/暗的接缝 —— 与第五/第六轮修掉的"卡片上方那条白线"同一类问题）。
+ *   ⚠️ 锚点用 `navHeight` 而不是 `navBarHeight`：后者比卡片的自然位置低 1 个设备像素（那是重叠）。
+ *   ⚠️ 滚动后它**不跟着页面走**（内联在带子自己身上）—— 这正是白字恒可读的原因。
+ */
+const headStyle = computed(() => ({
+  top: `${navBarHeight.value}px`,
+  backgroundPosition: `0 -${navHeight.value}px`,
+}))
+
+/**
+ * 更新"是否已吸住"（**只影响阴影**，可过渡）。
  *
- * ⚠️ `uni.createSelectorQuery().boundingClientRect` 给的是**视口坐标** ⇒ 要加回当前滚动量
- *    （`lastScrollTop`）才是页面坐标。
- * ⚠️ **已经吸住时不能量**：那时视口坐标恒等于导航栏下沿，加回去得到的是"吸住位置"而不是
- *    "自然位置" ⇒ 用它算判据永远算不出吸住点。这一档直接丢弃（下次在非吸住位置再量）。
- * @see https://uniapp.dcloud.net.cn/api/ui/nodes-info.html
- */
-function measureHeadTop(): void {
-  if (headTopPx.value > 0 || headMeasureTries >= HEAD_MEASURE_MAX_TRIES) return
-  headMeasureTries++
-  uni.createSelectorQuery()
-    .select('#shop-head')
-    .boundingClientRect((rect) => {
-      const top = Number((rect as { top?: number } | null)?.top)
-      if (!Number.isFinite(top) || top <= navBarHeight.value + 1) return
-      headTopPx.value = top + lastScrollTop
-    })
-    .exec()
-}
-
-/**
- * 折叠块的**累计真实高度**（px，按 `COLLAPSE_BLOCK_IDS` 逐块求和）：全部收起后，吸顶带整体上移这么多。
- * ⚠️ 只对**已经量到**的块求和（量不到 = 那块根本不存在/还没量到 ⇒ 当作 0，绝不猜一个高度）。
- */
-const collapsedShiftPx = computed(() => COLLAPSE_BLOCK_IDS.reduce(
-  (sum, id) => sum + (collapseHeights.value[id] || 0),
-  0
-))
-
-/**
- * 更新"是否已吸住"（**只影响阴影**）。
- *
- * 判据 = `scrollTop + 导航栏下沿 ≥ 吸顶带的页面顶边`；吸顶带在**折叠态**下整体上移了
- * `collapsedShiftPx`（折叠块都在它上方）⇒ 判据同步上移同样的像素数，折叠动画与吸顶**同源同量**，
- * 不会出现"折叠完阴影滞后 / 提前"。
- * 量不到顶边（`headTopPx === 0`）⇒ 恒 `false`：**不猜阈值**，宁可没有阴影。
+ * 判据 = **页面滚过了**（见上面那段注释：带子从第一帧起就吸住，折叠只改它的**高度**、
+ * 不改它的**页面坐标**；所以这里**没有**、也**不能有**折叠量的补偿项）。
  */
 function syncHeadStuck(scrollTop: number): void {
-  if (headTopPx.value <= 0) return
-  const headTop = headTopPx.value - (metricsCollapsed.value ? collapsedShiftPx.value : 0)
-  headStuck.value = scrollTop + navBarHeight.value >= headTop
+  headStuck.value = scrollTop > HEAD_STUCK_SCROLL_FLOOR
 }
 
 /**
@@ -493,20 +494,19 @@ const fans = computed(() => fansText(shop.value?.fansCount))
  * ⚠️ 顺手在这里**量一次每个折叠块的真实高度**（`measureCollapseBlock`）：`onLoad` 时模板还没渲染完，
  *    量到的会是 0 ⇒ 必须在每次滚动里试着量，量到就记下、之后不再量。
  * ⚠️ **本回调要便宜**：每帧只做「几个缓存判空 + 两次数值比较」，**没有布局读取** ——
- *    每个 `createSelectorQuery` 都在量到之后立即短路（各自还有重试上限兜底，见那两个常量）。
+ *    每个 `createSelectorQuery` 都在量到之后立即短路（各自还有重试上限兜底，见那个常量）。
+ * ⚠️ 第八轮起这里**不再有"量吸顶带页面坐标"的那次查询**（判据改成"页面滚过了"，见 `syncHeadStuck`）：
+ *    本回调在带子这一侧只剩一次数值比较。
  */
 onPageScroll((event) => {
   const top = Number(event?.scrollTop) || 0
-  lastScrollTop = top
   for (const id of COLLAPSE_BLOCK_IDS) measureCollapseBlock(id)
-  // 吸顶带的页面坐标只在"还没吸住"时量得到（见 `measureHeadTop`）；量到即缓存，之后零开销。
-  if (headTopPx.value <= 0) measureHeadTop()
   if (!metricsCollapsed.value && top >= METRICS_COLLAPSE_THRESHOLD) {
     metricsCollapsed.value = true
   } else if (metricsCollapsed.value && top <= METRICS_COLLAPSE_THRESHOLD - METRICS_COLLAPSE_HYSTERESIS) {
     metricsCollapsed.value = false
   }
-  // 放在折叠判定**之后**：同一帧里折叠与吸顶判据用的是同一份几何（见 `syncHeadStuck`）。
+  // 放在折叠判定**之后**：同一帧里折叠与吸顶用的是同一个滚动量（见 `syncHeadStuck`）。
   syncHeadStuck(top)
 })
 
@@ -729,11 +729,6 @@ onLoad(async (options) => {
   await loadShop()
   // 门店不存在 ⇒ 不再去问商品（问了也只有 8000）。
   if (shop.value) {
-    // ⚠️ 吸顶带的**页面坐标**要趁"页面还在顶部、且还没吸住"时量一次（见 `measureHeadTop`）：
-    //    等一拍让模板把 `loading=false` 后的真实内容（含吸顶带）渲染出来，否则节点还不存在。
-    //    量一次就缓存；万一这次没量到，`onPageScroll` 里还有限次兜底（不猜阈值、也不每帧读布局）。
-    await nextTick()
-    measureHeadTop()
     await loadProducts(true)
     // ⚠️ 关注状态**必须登录**才查（未登录时该接口 401，见 `followed` 注释）：
     //    放在商品之后、且不 await 进关键路径 —— 它只影响按钮上的一个词，不该拖慢首屏。
@@ -882,127 +877,151 @@ function formatAmount(value: number): string {
          ⚠️ `position: relative; z-index: 1`（见样式表 `.shop-body`）：**压住上面的绝对定位渐变层**，
             否则整页内容会被渐变盖住 —— 2026-10-10 实机就是这样（只有渐变 + 资质条那枚 `›`）。 -->
     <view class="shop-body" :style="{ paddingTop: `${navHeight}px` }">
-      <!-- ① 店铺卡：**无论数据到没到都渲染**（用户 2026-10-10：「就算是没有相应的字段也是有内容的啊」）。
-           ⚠️ 这里**没有** `v-if`/`v-else`：卡里**不依赖后端字段**的部分（logo 槽 / 店名 / 收藏按钮 /
-              资质条）必须恒在；只有**数据位**（评分行 / 粉丝 / 服务表现三格）各自判空不渲染。
-           ⚠️ 档案取不到时，店名退回**进店时就已知**的那个（`shopNameText` ← `knownShopName`），
-              并在卡内用一行**如实的状态**说明（加载中 / 门店不存在 / 加载失败可重试）。 -->
-      <view class="shop-card">
-        <view class="shop-card-head">
-          <image v-if="logo" class="shop-logo" :src="logo" mode="aspectFill" />
-          <!-- 没有 `shopImage` 时画**中性方块**（`.shop-logo` 自带的 10% 白底），不塞占位图：
-               设计稿的 logo 是 IMAGE 填充（平台自己的品牌图），拿它顶 = 伪造门店归属。 -->
-          <view v-else class="shop-logo" />
-          <view class="shop-card-main">
-            <text class="shop-name">{{ shopNameText }}</text>
-            <!-- 店铺卡内的**评分/粉丝行**（含下面那行解释文案）—— ⚠️ **不随滚动收起**：
-                 用户 2026-10-10 第六轮逐字「**吸顶的话店铺卡片是不收的**」⇒ 评分/粉丝行属于店铺卡片
-                 ⇒ **保留**（与设计稿滚动帧 `4050:6387` 保留 `Frame 117` 一致）。
-                 ⚠️ 它**不在** `COLLAPSE_BLOCK_IDS` 里，并且**不接**折叠类 / 折叠内联样式：契约
-                    §11e 对"本块没有折叠钩子"有反向断言。（第六轮之前这里挂着
-                    `:class="{ 'shop-metrics-block-collapsed': metricsCollapsed }"` ⇒ 滚动后整块
-                    `opacity: 0` **但仍占位** —— 看着就像页面坏了，故删掉。）
-                 ⚠️ `id` 只是结构锚点（不再参与高度测量）；与店名的间距仍是**本块自己**的
-                    `padding-top`，不写成 `margin-top`（间距归块所有，别再挪回行上）。
-                 数据（**S4 起为真实字段**，2026-10-10 第四轮接线）：
-                 评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
-                 解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
-                 光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null** ⇒ 星串与分值
-                 一起不渲染（不补 0、不补 `—`）；粉丝 ← `ShopVO.fansCount`
-                 （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染 —— 2026-10-10 实测线上
-                 `GET /api/shop/5` 就是 `"fansCount": 0`，而 `rating` / `onTimeRate` /
-                 `avgAcceptSeconds` **三个键后端一个都不下发** ⇒ 那一行按"没有数据"如实留空）。
-                 ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
-                    `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
-            <view
-              id="shop-metrics-block"
-              class="shop-metrics-block"
-            >
-              <!-- ⚠️ 2026-10-10 第七轮（用户决定）：本行**不再整行消失** —— 用户要
-                   「**要留着那里**」，没有值就用 `--`（明确表示"无此数据"，不是伪造）。
-                   取不到值时：分数显示 `--`、粉丝显示 `--`；星星与竖线仍只在有真值时才画
-                   （空星串 + 一根悬空竖线反而更像坏了）。 -->
-              <view class="shop-metrics-row">
-                <view class="shop-rating">
-                  <text v-if="stars" class="shop-stars">{{ stars }}</text>
-                  <text class="shop-score">{{ rating || '--' }}</text>
+      <!-- ===== 吸顶区（用户 2026-10-10 第八轮**明确选 A**）=====
+           四块**一起**吸顶，自上而下：① 店铺卡（logo + 店名 + 收藏 + 评分/粉丝行）
+           → ② 资质条（店铺资质 / 经营资质）→ ③ Tab 行（首页 / 商品）→ ④ 筛选行（销量/价格/新品/口碑优品）。
+           ⚠️ **服务表现三格仍然随滚动收起**（它在店铺卡内部，见 `#shop-service-row`），其余一律不收
+              —— 用户逐字：「**吸顶的话店铺卡片是不收的**」。
+           ⚠️ 吸顶对象只能是**一个**元素：几个兄弟各自 `sticky` 会在同一个 `top` 上互相重叠，
+              所以这四块必须包在同一个 `#shop-head` 里（不是两个吸顶元素）。
+           ⚠️ 这里是全页 `position: sticky` 的**唯一**一处（契约 §13 有计数断言）：滚动只切
+              `.shop-head-stuck`（阴影，可过渡），**绝不**切 `relative ↔ sticky`（不可过渡 ⇒ 抖）。
+           ⚠️ 白字压白底：带子自己画一条与页面同尺度、同色的渐变底（见样式表 `.shop-head`）；
+              卡片仍是**透明卡**（产品决策不变，只是背后那层从"页面渐变"变成"带子自己的渐变"）。
+           ⚠️ 带子里的东西都必须可点：收藏 / 资质入口 / Tab / chips —— `z-index: 20` 必须低于
+              固定导航栏的 100，否则返回键与标题会被这张卡压住。
+           ⚠️ 顶部偏移由 `headStyle` 绑成"真实状态栏高 + 44"（写死会在刘海屏/不同状态栏下压住卡片）。 -->
+      <view id="shop-head" class="shop-head" :class="{ 'shop-head-stuck': headStuck }" :style="headStyle">
+        <!-- ① 店铺卡：**无论数据到没到都渲染**（用户 2026-10-10：「就算是没有相应的字段也是有内容的啊」）。
+             ⚠️ 这里**没有** `v-if`/`v-else`：卡里**不依赖后端字段**的部分（logo 槽 / 店名 / 收藏按钮 /
+                资质条）必须恒在；只有**数据位**（评分行 / 粉丝 / 服务表现三格）各自判空不渲染。
+             ⚠️ 档案取不到时，店名退回**进店时就已知**的那个（`shopNameText` ← `knownShopName`），
+                并在卡内用一行**如实的状态**说明（加载中 / 门店不存在 / 加载失败可重试）。 -->
+        <view class="shop-card">
+          <view class="shop-card-head">
+            <image v-if="logo" class="shop-logo" :src="logo" mode="aspectFill" />
+            <!-- 没有 `shopImage` 时画**中性方块**（`.shop-logo` 自带的 10% 白底），不塞占位图：
+                 设计稿的 logo 是 IMAGE 填充（平台自己的品牌图），拿它顶 = 伪造门店归属。 -->
+            <view v-else class="shop-logo" />
+            <view class="shop-card-main">
+              <text class="shop-name">{{ shopNameText }}</text>
+              <!-- 店铺卡内的**评分/粉丝行**（含下面那行解释文案）—— ⚠️ **不随滚动收起**：
+                   用户 2026-10-10 第六轮逐字「**吸顶的话店铺卡片是不收的**」⇒ 评分/粉丝行属于店铺卡片
+                   ⇒ **保留**（与设计稿滚动帧 `4050:6387` 保留 `Frame 117` 一致）。
+                   ⚠️ 它**不在** `COLLAPSE_BLOCK_IDS` 里，并且**不接**折叠类 / 折叠内联样式：契约
+                      §11e 对"本块没有折叠钩子"有反向断言。（第六轮之前这里挂着
+                      `:class="{ 'shop-metrics-block-collapsed': metricsCollapsed }"` ⇒ 滚动后整块
+                      `opacity: 0` **但仍占位** —— 看着就像页面坏了，故删掉。）
+                   ⚠️ `id` 只是结构锚点（不再参与高度测量）；与店名的间距仍是**本块自己**的
+                      `padding-top`，不写成 `margin-top`（间距归块所有，别再挪回行上）。
+                   数据（**S4 起为真实字段**，2026-10-10 第四轮接线）：
+                   评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
+                   解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
+                   光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null** ⇒ 星串与分值
+                   一起不渲染（不补 0、不补 `—`）；粉丝 ← `ShopVO.fansCount`
+                   （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染 —— 2026-10-10 实测线上
+                   `GET /api/shop/5` 就是 `"fansCount": 0`，而 `rating` / `onTimeRate` /
+                   `avgAcceptSeconds` **三个键后端一个都不下发** ⇒ 那一行按"没有数据"如实留空）。
+                   ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
+                      `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
+              <view
+                id="shop-metrics-block"
+                class="shop-metrics-block"
+              >
+                <!-- ⚠️ 2026-10-10 第七轮（用户决定）：本行**不再整行消失** —— 用户要
+                     「**要留着那里**」，没有值就用 `--`（明确表示"无此数据"，不是伪造）。
+                     取不到值时：分数显示 `--`、粉丝显示 `--`；星星与竖线仍只在有真值时才画
+                     （空星串 + 一根悬空竖线反而更像坏了）。 -->
+                <view class="shop-metrics-row">
+                  <view class="shop-rating">
+                    <text v-if="stars" class="shop-stars">{{ stars }}</text>
+                    <text class="shop-score">{{ rating || '--' }}</text>
+                  </view>
+                  <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）；
+                       只有两边都有值时才画（单边时不出现一根悬空的竖线）。 -->
+                  <view v-if="rating && fans" class="shop-divider" />
+                  <text class="shop-fans">{{ fans || '--' }}</text>
                 </view>
-                <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）；
-                     只有两边都有值时才画（单边时不出现一根悬空的竖线）。 -->
-                <view v-if="rating && fans" class="shop-divider" />
-                <text class="shop-fans">{{ fans || '--' }}</text>
+                <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
               </view>
-              <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
             </view>
-          </view>
-            <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
-                 （三个 handle 的仿射变换 ⇒ CSS `104.7deg`，见样式表注释），
-                 内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星（真实切图，
-                 `static/shop/fav-star.png`），文案白字 12px。
-                 ✅ 2026-10-10 S4 起**可用**：点击 = 关注/取关门店（`/api/shop/{shopId}/follow`），
-                    未登录则弹登录引导；文案「收藏」是设计原文，已关注时作「已收藏」（见 `favText`）。 -->
-            <view class="shop-fav" :class="{ 'shop-fav-on': followed === true }" @click="onFavoriteTap">
-              <image class="shop-fav-star" src="/subpkg-goods/static/shop/fav-star.png" mode="aspectFit" />
-              <text class="shop-fav-text">{{ favText }}</text>
+              <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
+                   （三个 handle 的仿射变换 ⇒ CSS `104.7deg`，见样式表注释），
+                   内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星（真实切图，
+                   `static/shop/fav-star.png`），文案白字 12px。
+                   ✅ 2026-10-10 S4 起**可用**：点击 = 关注/取关门店（`/api/shop/{shopId}/follow`），
+                      未登录则弹登录引导；文案「收藏」是设计原文，已关注时作「已收藏」（见 `favText`）。 -->
+              <view class="shop-fav" :class="{ 'shop-fav-on': followed === true }" @click="onFavoriteTap">
+                <image class="shop-fav-star" src="/subpkg-goods/static/shop/fav-star.png" mode="aspectFit" />
+                <text class="shop-fav-text">{{ favText }}</text>
+              </view>
             </view>
-          </view>
 
-          <!-- **状态行**（如实、且**不再擦掉整张卡**）：
-               档案没到 / 门店不存在 / 档案取失败时，用一种**互斥**的说法点明"现在缺的是什么"，
-               而不是把卡片换成一句提示（旧实现在这里会整块消失 ⇒ 实机看着像"这页坏了"）。
-               ⚠️ 顺序与判据与原实现一致（加载中 → 通用失败 → 8000）；
-               ⚠️ `8000` 文案是契约 §七 的建议文案，逐字保留。 -->
-          <view v-if="loading" class="shop-status"><text>店铺信息加载中…</text></view>
-          <view v-else-if="errorMessage" class="shop-status">
-            <text>店铺信息加载失败：{{ errorMessage }}</text>
-            <!-- 重试：档案请求是幂等的只读 GET，重试不产生任何副作用（否则这个错误态是死路）。 -->
-            <text class="shop-status-retry" @click="loadShop">重试</text>
-          </view>
-          <view v-else-if="shopUnavailable" class="shop-status"><text>店铺不存在或已停用</text></view>
+            <!-- **状态行**（如实、且**不再擦掉整张卡**）：
+                 档案没到 / 门店不存在 / 档案取失败时，用一种**互斥**的说法点明"现在缺的是什么"，
+                 而不是把卡片换成一句提示（旧实现在这里会整块消失 ⇒ 实机看着像"这页坏了"）。
+                 ⚠️ 顺序与判据与原实现一致（加载中 → 通用失败 → 8000）；
+                 ⚠️ `8000` 文案是契约 §七 的建议文案，逐字保留。 -->
+            <view v-if="loading" class="shop-status"><text>店铺信息加载中…</text></view>
+            <view v-else-if="errorMessage" class="shop-status">
+              <text>店铺信息加载失败：{{ errorMessage }}</text>
+              <!-- 重试：档案请求是幂等的只读 GET，重试不产生任何副作用（否则这个错误态是死路）。 -->
+              <text class="shop-status-retry" @click="loadShop">重试</text>
+            </view>
+            <view v-else-if="shopUnavailable" class="shop-status"><text>店铺不存在或已停用</text></view>
 
-          <!-- **服务表现**（设计 `服务表现` 390×55：三格 `#FFFFFF@10%`、圆角 6、
-               名 12px `#FFFFFF@80%` / 值 13px `#FFFFFF`）——
-               数据只接契约真有的两项（`onTimeRate` 准时送达率、`avgAcceptSeconds` 平均接单时长），
-               见 `utils/shop-metrics.ts`。
-               ⚠️ 这里**没有**设计稿的「口碑品质 / 商品品质」「平均满意度」「平均 12 小时发货」
-                  「客服响应 14 秒」：契约里一个都没有，一律不编。
-                  ⚠️ **本次核对**：节点 `4045:5815` 里这三格写的是
-                  「口碑品质 / 发货时效 / 客服响应」，而**进店卡片**节点（`4029:5751`）第一格写
-                  「商品品质」—— 两张卡的设计文案本身不一致（旧需求单 §4-4 已记）。
-                  因为服务表现的三项在契约里**都不存在**，我们改用契约真有的两项指标名，
-                  这个不一致**不影响本页**（不再沿用设计填充文案）。
-               ⚠️ **滚动收起**：用户 2026-10-10 第四条的答复是「吸顶是除了**星级评分，
-                  粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」，
-                  但第六轮又明确「**吸顶的话店铺卡片是不收的**」⇒ **只有本块**（服务表现格，
-                  模板里那个 id 与脚本 `COLLAPSE_BLOCK_IDS` 里的一字不差）随滚动收起，
-                  评分/粉丝行属于店铺卡片、**保留**
-                  （见脚本 `COLLAPSE_BLOCK_IDS`）；其余（导航栏 / logo+店名 / 收藏 / 资质条 /
-                  Tab / 筛选 / 网格）保持不动。
-                  过渡机制 = 显式 `height` + `opacity`（`display` 不可过渡），
-                  高度取**首帧量到的真实值**（见 `measureCollapseBlock`）。
-                  ⚠️ 这也正是设计稿**滚动帧**（`4050:6387`）的读法：它只删了「服务表现」、
-                     保留了评分行（`Frame 117`）—— 第六轮的用户更正与它**一致**。 -->
-          <view
-            id="shop-service-row"
-            v-if="serviceMetrics.length"
-            class="shop-service-row"
-            :class="{ 'shop-service-row-collapsed': metricsCollapsed }"
-            :style="collapseBlockStyle('shop-service-row')"
-          >
-            <view v-for="metric in serviceMetrics" :key="metric.name" class="shop-metric">
-              <text class="shop-metric-name">{{ metric.name }}</text>
-              <text class="shop-metric-value">{{ metric.value }}</text>
+            <!-- **服务表现**（设计 `服务表现` 390×55：三格 `#FFFFFF@10%`、圆角 6、
+                 名 12px `#FFFFFF@80%` / 值 13px `#FFFFFF`）——
+                 数据只接契约真有的两项（`onTimeRate` 准时送达率、`avgAcceptSeconds` 平均接单时长），
+                 见 `utils/shop-metrics.ts`。
+                 ⚠️ 这里**没有**设计稿的「口碑品质 / 商品品质」「平均满意度」「平均 12 小时发货」
+                    「客服响应 14 秒」：契约里一个都没有，一律不编。
+                    ⚠️ **本次核对**：节点 `4045:5815` 里这三格写的是
+                    「口碑品质 / 发货时效 / 客服响应」，而**进店卡片**节点（`4029:5751`）第一格写
+                    「商品品质」—— 两张卡的设计文案本身不一致（旧需求单 §4-4 已记）。
+                    因为服务表现的三项在契约里**都不存在**，我们改用契约真有的两项指标名，
+                    这个不一致**不影响本页**（不再沿用设计填充文案）。
+                 ⚠️ **滚动收起**：用户 2026-10-10 第四条的答复是「吸顶是除了**星级评分，
+                    粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」，
+                    但第六轮又明确「**吸顶的话店铺卡片是不收的**」⇒ **只有本块**（服务表现格，
+                    模板里那个 id 与脚本 `COLLAPSE_BLOCK_IDS` 里的一字不差）随滚动收起，
+                    评分/粉丝行属于店铺卡片、**保留**
+                    （见脚本 `COLLAPSE_BLOCK_IDS`）；其余（导航栏 / logo+店名 / 收藏 / 资质条 /
+                    Tab / 筛选 / 网格）保持不动。
+                    过渡机制 = 显式 `height` + `opacity`（`display` 不可过渡），
+                    高度取**首帧量到的真实值**（见 `measureCollapseBlock`）。
+                    ⚠️ 这也正是设计稿**滚动帧**（`4050:6387`）的读法：它只删了「服务表现」、
+                       保留了评分行（`Frame 117`）—— 第六轮的用户更正与它**一致**。 -->
+            <view
+              id="shop-service-row"
+              v-if="serviceMetrics.length"
+              class="shop-service-row"
+              :class="{ 'shop-service-row-collapsed': metricsCollapsed }"
+              :style="collapseBlockStyle('shop-service-row')"
+            >
+              <view v-for="metric in serviceMetrics" :key="metric.name" class="shop-metric">
+                <text class="shop-metric-name">{{ metric.name }}</text>
+                <text class="shop-metric-value">{{ metric.value }}</text>
+              </view>
             </view>
           </view>
-        </view>
 
         <!-- ② 资质条：`#FFF4E8`，只有上圆角 12，内边距 上12/右12/下24/左12（下 24 是给白卡压叠留的）。 -->
         <view class="qualification-bar">
-          <!-- 「店铺资质」在设计稿里是**转曲矢量**（节点 `4045:5860`，ink 66.86×14，`#8C5D2A`）
-               ⇒ 节点树里没有文字节点，但 **@2x 渲染图里字是清楚的**：把该区域放大到 6× 后可读为
-               「店铺资质」（4 字，ink 宽 66.86 ⇒ 字身 ≈ 16.7px，ink 高 14 ⇒ 字号 ≈ 17px；笔画偏粗 ⇒ 600）。
-               ⚠️ 旧实现按"文案待设计提供"渲染了虚线占位 —— 那是**看漏了渲染图**，已按实测改为真文案。 -->
-          <text class="qualification-label">店铺资质</text>
+          <!-- 「店铺资质」= **设计师给的矢量原件**（用户 2026-10-10 第八轮逐字：「店铺资质四个字
+               换成我给的这个图片」，源文件 `mini_shop/static/shop/店铺资质.svg`，viewBox **68×18**）。
+               ⚠️ **小程序 `<image>` 不支持 SVG**：真机上什么都不显示（只有开发者工具能渲染）——
+               与"真机不显示本地 webp"同一类坑 ⇒ 必须先转成位图再引用。
+               已用 headless Chrome 渲染成 **@3x PNG**：`subpkg-goods/static/shop/qual-label.png`，
+               **204×54**（= 68×18 × 3，透明底），放在**分包**里、不占主包预算。
+               实测（Pillow）：四角 alpha=0、**4161** 个不透明像素（不是空白）、
+               ink bbox `0,6–200,47`、主色 `(134,94,40)` ≈ `#865E28`（与设计 `#8C5D2A` 同族，
+               差值是 @3x 抗锯齿边缘取样）。
+               尺寸仍按设计 **68×18 ⇒ 131rpx × 35rpx**（行高与旧的 35rpx 文字**逐像素同高**，
+               资质条的竖向节奏不变）；`flex: none` 防止被 flex 行挤压。
+               ⚠️ 这里**不再是文字**：旧实现按"转曲矢量"的 ink 反推字号（≈17px/600）去画文字，
+               那条推理**随本次改动作废**（保留在此只为解释历史）。 -->
+          <image class="qualification-label-img" src="/subpkg-goods/static/shop/qual-label.png" mode="aspectFit" />
           <view class="qualification-link" @click="onQualificationTap">
             <!-- 认证徽章：设计 `4045:5862` 是 18×18 实例内的 14.83 描边**扇贝形**绿章 + 绿勾，
                  整枚是**一个绿色矢量**（`#00B42A`）—— 扇贝的 8 瓣波浪边 WXSS 画不出来，
@@ -1016,115 +1035,116 @@ function formatAmount(value: number): string {
           </view>
         </view>
 
-        <!-- ③ 白内容区：圆角 12/12/0/0，`padding-bottom` 40px（设计值），
+        <!-- ③ 白内容区的**上半截**（带子里的控制带）：圆角 12/12/0/0，**只有上沿**这一层与资质条相邻。
+             ⚠️ `padding-bottom: 77rpx`（设计 40px 底部留白）**不在这里**：它属于白内容区的下半截
+                （`.shop-grid-area`，在带子外面）—— 上下两截同为 `#FFFFFF`，接缝看不出来。
              ⚠️ `margin-top: -23rpx` 就是 `Frame 130` 的 **`gap: -12`**（负间距）在本平台的等价实现：
                小程序 flex 的 `gap` 不支持负值，只能用负外边距让白卡压住资质条 12 设计 px。
                层级靠**文档顺序**（资质条先渲染 = 在下层）。
              ⚠️ **门店不存在/已停用时整块不渲染**：Tab / 筛选 / 网格都是"这家店的商品"的操作面，
                店都没了还画一排能点的筛选器是**假装有内容**（状态行已经如实说了原因）。 -->
         <view v-if="!shopUnavailable" class="shop-content">
-          <!-- **吸顶带**（用户 2026-10-10 答「2. 吸顶」）：Tab 栏 + 筛选行**包成一个**元素吸顶。
-               ⚠️ 它**恒为 `position: sticky`**（`.shop-head`），滚动只切 `.shop-head-stuck`（阴影，可过渡）：
-                  `relative ↔ sticky` 切换会重算位置并抖动（`CLAUDE.md` §十二）。
-               ⚠️ `top` 由 `headStyle` 绑成**真实状态栏高 + 44**（固定导航栏盖住的正是这一段），
-                  写死数值会在刘海屏/不同状态栏高度下把 Tab 压到导航栏底下。
-               ⚠️ `id` 是给 `measureHeadTop` 量"页面坐标顶边"用的（用它算"什么时候算吸住"）。 -->
-          <view id="shop-head" class="shop-head" :class="{ 'shop-head-stuck': headStuck }" :style="headStyle">
-            <!-- Tab 栏：390×42，底部 1px `#F1F2F4`（INSIDE）；两个等宽 195。 -->
-            <view class="tab-bar">
-              <view class="tab" @click="switchTab('home')">
-                <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'home' }">首页</text>
-                <view v-if="activeTab === 'home'" class="tab-underline" />
-              </view>
-              <view class="tab" @click="switchTab('goods')">
-                <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'goods' }">商品</text>
-                <view v-if="activeTab === 'goods'" class="tab-underline" />
-              </view>
+          <!-- Tab 栏：390×42，底部 1px `#F1F2F4`（INSIDE）；两个等宽 195。 -->
+          <view class="tab-bar">
+            <view class="tab" @click="switchTab('home')">
+              <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'home' }">首页</text>
+              <view v-if="activeTab === 'home'" class="tab-underline" />
             </view>
-
-            <!-- 筛选行：390×48，内边距 12，横向间距 8；**四个** chip，顺序 = 设计节点 `4050:6387` 的几何顺序
-                 （销量 x=502 / 价格 x=550 / **新品 x=612** / 口碑优品 x=660 —— 新品在**中间**，不是末尾）。 -->
-            <view class="filter-row">
-              <!-- 选中态：`#FFF4E8` 底 + 1px `#FF5500` 描边，文案 `#FF5500` -->
-              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'sold' }" @click="selectSort('sold')">
-                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'sold' }">销量</text>
-              </view>
-              <!-- 未选中态：`#F6F7F9` 底、无描边；`价格` 带 12×12 排序双三角
-                   （上三角 `#1D2129` = 升序生效中，下三角 `#86909C` = 未生效）。 -->
-              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'price' }" @click="selectSort('price')">
-                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'price' }">价格</text>
-                <view class="sort-arrows">
-                  <view class="sort-arrow-up" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'asc' }" />
-                  <view class="sort-arrow-down" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'desc' }" />
-                </view>
-              </view>
-              <!-- **新品**（用户 2026-10-10 答「3. 加」）：节点 `4050:6387` 的第 3 个 chip，
-                   逐字文案「新品」、40×24（= 8 + 24 + 8，与「销量」同宽）、未选中态 `#F6F7F9` + `#1D2129`
-                   ⇒ 与既有 chip 完全同一套处理，不新增样式。
-                   取值 `sortBy=new_desc`：契约逐字「`new_desc` — **新品**降序（按创建时间）」，
-                   且 `GET /api/shop/{shopId}/products` 的 `sortBy` 取值枚举里就有它（契约已核）。 -->
-              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'new' }" @click="selectSort('new')">
-                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'new' }">新品</text>
-              </view>
-              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'reputation' }" @click="selectSort('reputation')">
-                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'reputation' }">口碑优品</text>
-              </view>
+            <view class="tab" @click="switchTab('goods')">
+              <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'goods' }">商品</text>
+              <view v-if="activeTab === 'goods'" class="tab-underline" />
             </view>
           </view>
 
-          <!-- ④ 商品网格（设计：左右内边距 12、列间距 12、行间距 24、卡宽 177）。
-               ✅ 数据源：`GET /api/shop/{shopId}/products`（S2b）—— 按 `sortBy` + `page`/`pageSize`
-                  取该门店**在售**商品；触底由 `onReachBottom` 追加下一页（见 script 注释）。
-               ⚠️ 三种状态互斥且**如实**（绝不互相顶替）：
-                  · 取数失败 → `productsError`（不谎报"没有商品"）；
-                  · 取数成功但 `total=0` → 空态「该店铺暂无在售商品」；
-                  · 网格为空时**不渲染** `.goods-grid`（连它的 padding 都不出现）。 -->
-          <view v-if="gridProducts.length" class="goods-grid">
-            <view v-for="product in gridProducts" :key="product.id" class="goods-card" @click="openProduct(product)">
-              <view class="goods-image-wrap">
-                <!-- 设计里图片容器是 177×177 圆角 8，内层图 `scaleMode=FILL` 被裁成方形。 -->
-                <image class="goods-image" :src="product.mainImage" mode="aspectFill" />
-              </view>
-              <view class="goods-info">
-                <!-- 标题 / 卖点：**字段口径与首页 `HomeProductCard` 完全一致**（共用
-                     `utils/product-card.ts`；2026-10-10 用户报障「跟首页商品卡片字段不一样」）。
-                     ⚠️ 文字在 `gridProducts` 里算好（与价格同一套视图模型）。
-                     ⚠️ 卖点行**恒渲染**：设计 `Frame 30` 的第三行是一条固定 20px 的行；
-                        没有真实文字时渲染**空行**保住行高（不塞通用文案、不让网格跳动），
-                        后台「推荐文本」关闭时同样只留空行（判据见共用模块）。 -->
-                <text class="goods-title">{{ product.cardTitle }}</text>
-                <text v-if="product.showSellingPoint && product.cardSellingPoint" class="goods-selling">{{ product.cardSellingPoint }}</text>
-                <text v-else class="goods-selling"></text>
-                <!-- 价格：设计里 `¥ 299.00` 是**一个 TEXT 节点 + `characterStyleOverrides`**，
-                     `¥ ` = 12px/500、整数 = **18px**/500、小数 = 14px/500（三段**字号不同、字重都是 500**）
-                     ⇒ 这里必须用嵌套 text 保持同一条行内基线，不能拼成一整串。 -->
-                <text class="goods-price">
-                  <text class="goods-price-symbol">¥</text>
-                  <text class="goods-price-int">{{ product.priceInt }}</text>
-                  <text v-if="product.priceDec" class="goods-price-dec">{{ product.priceDec }}</text>
-                </text>
+          <!-- 筛选行：390×48，内边距 12，横向间距 8；**四个** chip，顺序 = 设计节点 `4050:6387` 的几何顺序
+               （销量 x=502 / 价格 x=550 / **新品 x=612** / 口碑优品 x=660 —— 新品在**中间**，不是末尾）。 -->
+          <view class="filter-row">
+            <!-- 选中态：`#FFF4E8` 底 + 1px `#FF5500` 描边，文案 `#FF5500` -->
+            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'sold' }" @click="selectSort('sold')">
+              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'sold' }">销量</text>
+            </view>
+            <!-- 未选中态：`#F6F7F9` 底、无描边；`价格` 带 12×12 排序双三角
+                 （上三角 `#1D2129` = 升序生效中，下三角 `#86909C` = 未生效）。 -->
+            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'price' }" @click="selectSort('price')">
+              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'price' }">价格</text>
+              <view class="sort-arrows">
+                <view class="sort-arrow-up" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'asc' }" />
+                <view class="sort-arrow-down" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'desc' }" />
               </view>
             </view>
-          </view>
-          <view v-else-if="productsError" class="goods-empty">
-            <text class="goods-empty-text">{{ productsError }}</text>
-          </view>
-          <view v-else-if="productsLoading || loading" class="goods-empty">
-            <text class="goods-empty-text">加载中...</text>
-          </view>
-          <!-- 诚实空态：门店**真实存在**但没有任何在售商品（`total=0`）——
-               与「门店不存在/停用」（上面 `shopUnavailable`）是两件事，不要合并。 -->
-          <view v-else-if="productsLoaded" class="goods-empty">
-            <text class="goods-empty-text">该店铺暂无在售商品</text>
-          </view>
-          <!-- ⚠️ 翻页中：网格已有内容时追加下一页的提示（不遮挡、不重置列表）。 -->
-          <view v-if="productsLoadingMore" class="goods-more">
-            <text class="goods-more-text">加载更多...</text>
-          </view>
-          <view v-else-if="products.length && !hasMore && !productsError" class="goods-more">
-            <text class="goods-more-text">没有更多了</text>
+            <!-- **新品**（用户 2026-10-10 答「3. 加」）：节点 `4050:6387` 的第 3 个 chip，
+                 逐字文案「新品」、40×24（= 8 + 24 + 8，与「销量」同宽）、未选中态 `#F6F7F9` + `#1D2129`
+                 ⇒ 与既有 chip 完全同一套处理，不新增样式。
+                 取值 `sortBy=new_desc`：契约逐字「`new_desc` — **新品**降序（按创建时间）」，
+                 且 `GET /api/shop/{shopId}/products` 的 `sortBy` 取值枚举里就有它（契约已核）。 -->
+            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'new' }" @click="selectSort('new')">
+              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'new' }">新品</text>
+            </view>
+            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'reputation' }" @click="selectSort('reputation')">
+              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'reputation' }">口碑优品</text>
+            </view>
           </view>
         </view>
+      </view>
+      <!-- 商品网格区（**在吸顶带外面**、所以随页面滚动）：白内容区的**下半截**，接在带子里
+           那半截（`.shop-content`）下面 —— 两截同为 `#FFFFFF`，接缝看不出来。
+           ⚠️ 它必须留在带子**外面**：带子（卡片 + 资质条 + Tab + 筛选）已经占了屏高的大半，
+              再把网格塞进去 ⇒ 带子比视口还高 ⇒ `position: sticky` **永远不会吸住**（静默失效）。
+           ⚠️ `v-if="!shopUnavailable"` 与带子里那半截同源：店没了就没有"这家店的商品"可看。 -->
+      <view v-if="!shopUnavailable" class="shop-grid-area">
+        <!-- ④ 商品网格（设计：左右内边距 12、列间距 12、行间距 24、卡宽 177）。
+             ✅ 数据源：`GET /api/shop/{shopId}/products`（S2b）—— 按 `sortBy` + `page`/`pageSize`
+                取该门店**在售**商品；触底由 `onReachBottom` 追加下一页（见 script 注释）。
+             ⚠️ 三种状态互斥且**如实**（绝不互相顶替）：
+                · 取数失败 → `productsError`（不谎报"没有商品"）；
+                · 取数成功但 `total=0` → 空态「该店铺暂无在售商品」；
+                · 网格为空时**不渲染** `.goods-grid`（连它的 padding 都不出现）。 -->
+        <view v-if="gridProducts.length" class="goods-grid">
+          <view v-for="product in gridProducts" :key="product.id" class="goods-card" @click="openProduct(product)">
+            <view class="goods-image-wrap">
+              <!-- 设计里图片容器是 177×177 圆角 8，内层图 `scaleMode=FILL` 被裁成方形。 -->
+              <image class="goods-image" :src="product.mainImage" mode="aspectFill" />
+            </view>
+            <view class="goods-info">
+              <!-- 标题 / 卖点：**字段口径与首页 `HomeProductCard` 完全一致**（共用
+                   `utils/product-card.ts`；2026-10-10 用户报障「跟首页商品卡片字段不一样」）。
+                   ⚠️ 文字在 `gridProducts` 里算好（与价格同一套视图模型）。
+                   ⚠️ 卖点行**恒渲染**：设计 `Frame 30` 的第三行是一条固定 20px 的行；
+                      没有真实文字时渲染**空行**保住行高（不塞通用文案、不让网格跳动），
+                      后台「推荐文本」关闭时同样只留空行（判据见共用模块）。 -->
+              <text class="goods-title">{{ product.cardTitle }}</text>
+              <text v-if="product.showSellingPoint && product.cardSellingPoint" class="goods-selling">{{ product.cardSellingPoint }}</text>
+              <text v-else class="goods-selling"></text>
+              <!-- 价格：设计里 `¥ 299.00` 是**一个 TEXT 节点 + `characterStyleOverrides`**，
+                   `¥ ` = 12px/500、整数 = **18px**/500、小数 = 14px/500（三段**字号不同、字重都是 500**）
+                   ⇒ 这里必须用嵌套 text 保持同一条行内基线，不能拼成一整串。 -->
+              <text class="goods-price">
+                <text class="goods-price-symbol">¥</text>
+                <text class="goods-price-int">{{ product.priceInt }}</text>
+                <text v-if="product.priceDec" class="goods-price-dec">{{ product.priceDec }}</text>
+              </text>
+            </view>
+          </view>
+        </view>
+        <view v-else-if="productsError" class="goods-empty">
+          <text class="goods-empty-text">{{ productsError }}</text>
+        </view>
+        <view v-else-if="productsLoading || loading" class="goods-empty">
+          <text class="goods-empty-text">加载中...</text>
+        </view>
+        <!-- 诚实空态：门店**真实存在**但没有任何在售商品（`total=0`）——
+             与「门店不存在/停用」（上面 `shopUnavailable`）是两件事，不要合并。 -->
+        <view v-else-if="productsLoaded" class="goods-empty">
+          <text class="goods-empty-text">该店铺暂无在售商品</text>
+        </view>
+        <!-- ⚠️ 翻页中：网格已有内容时追加下一页的提示（不遮挡、不重置列表）。 -->
+        <view v-if="productsLoadingMore" class="goods-more">
+          <text class="goods-more-text">加载更多...</text>
+        </view>
+        <view v-else-if="products.length && !hasMore && !productsError" class="goods-more">
+          <text class="goods-more-text">没有更多了</text>
+        </view>
+      </view>
     </view>
 
     <!-- 登录引导（未登录点「收藏」时打开）——与商品详情页同一组件、同一口径：
@@ -1263,12 +1283,16 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .shop-metric-name { color: rgba(255, 255, 255, 0.8); font-size: 23rpx; line-height: 38rpx; }
 .shop-metric-value { margin-top: 2rpx; color: #FFFFFF; font-size: 25rpx; line-height: 42rpx; }
 
-/* ===== 滚动折叠（用户 2026-10-10 第四条 + 第六轮更正） =====
+/* ===== 滚动折叠（用户 2026-10-10 第四条 + 第六轮更正 + 第八轮范围确认） =====
    「吸顶是除了**星级评分，粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」
    ⚠️⚠️ 但用户随后另行明确「**吸顶的话店铺卡片是不收的**」⇒ 店铺卡片里的评分/粉丝行**保留**，
    ⇒ 随滚动**收起**的只有**一块**：服务表现格（`.shop-service-row`）。见脚本 `COLLAPSE_BLOCK_IDS`。
-      另外一条随滚动**吸顶**的是 `.shop-head`（Tab 栏 + 筛选行，见那条注释），两者互不干涉：
-      折叠块在吸顶带**上方**，收起只会让吸顶带更早顶到吸住位置，不改变吸住后的位置。
+      另外一条随滚动**吸顶**的是 `.shop-head`（第八轮起 = 店铺卡 + 资质条 + Tab 栏 + 筛选行，
+      见那条注释），两者互不干涉：
+   ⚠️ **第八轮的关系变了**：折叠块现在在吸顶带**内部**（服务表现格是店铺卡里的一行）⇒
+      收起**只改变带子的高度**、**不改变带子的页面坐标**（`top` 是常量）⇒
+      "什么时候算吸住"的判据里**不再**、也**不能**有折叠量的补偿项（旧实现有，因为带子当时在
+      折叠块**下方**；见 `syncHeadStuck`）。收起后网格整体上移，正是用户要的"让位"。
 
    ⚠️ 过渡只用**可过渡属性**：`height` + `opacity`（外加 `overflow: hidden` 把内容裁干净）。
       · **不能**用 `display: none` —— 不可过渡，会变成硬切；
@@ -1285,8 +1309,16 @@ page { background: #F2F3F7; overflow-x: hidden; }
 
 /* ④ 资质条：390×56（108rpx），`#FFF4E8`，**只有上圆角 12**，左右两侧 space-between、垂直居中。 */
 .qualification-bar { display: flex; align-items: center; justify-content: space-between; height: 108rpx; padding: 23rpx 23rpx 46rpx; border-radius: 23rpx 23rpx 0 0; background: #FFF4E8; box-sizing: border-box; }
-/* 「店铺资质」：转曲矢量渲染图实测 ink 66.86×14、`#8C5D2A` ⇒ 字号 ≈17px（4 字 × 16.7）、字重 600。 */
-.qualification-label { color: #8C5D2A; font-size: 33rpx; font-weight: 600; line-height: 35rpx; }
+/* 「店铺资质」= 设计师给的矢量原件（`static/shop/店铺资质.svg`，viewBox 68×18），**不是文字**。
+   ⚠️ 小程序 `<image>` **渲染不了 SVG**（真机一片空白、只有开发者工具能显示 ⇒ 与本地 webp 同类坑）
+   ⇒ 已渲染成 **@3x PNG**：`subpkg-goods/static/shop/qual-label.png`（204×54，透明底，**分包**资产）。
+   盒子按设计 68×18 ⇒ **131rpx × 35rpx**（与旧文字规则的 35rpx 行高同高，资质条竖向节奏不变）；
+   `flex: none` 防止它被 flex 行挤扁（同类坑见 `.cert-badge`）。
+   实测（Pillow）：四角 alpha=0、4161 个不透明像素、ink bbox `0,6–200,47`、主色 `(134,94,40)`
+   ≈ `#865E28`（设计 `#8C5D2A`；差值是 @3x 抗锯齿边缘取样）。
+   ⚠️ 旧规则（`.qualification-label` 的 33rpx/600 文字 + `#8C5D2A`）**已删除**：
+   它来自"按 ink 宽反推字号"的推理，随本次改为真实矢量而作废。 */
+.qualification-label-img { width: 131rpx; height: 35rpx; flex: none; }
 .qualification-link { display: flex; align-items: center; }
 /* 认证徽标：设计是 18×18 实例内的 **14.83 描边扇贝形**徽章（节点 `4045:5862`，整枚一个绿色矢量）。
    扇贝边 WXSS 画不出来 ⇒ **直接用导出的切图**，盒子 = 实例的 18px（35rpx）。
@@ -1302,20 +1334,40 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .qualification-arrow-box { display: flex; align-items: center; justify-content: center; width: 27rpx; height: 27rpx; flex: none; }
 .qualification-arrow { width: 8rpx; height: 8rpx; border-top: 3rpx solid #86909C; border-right: 3rpx solid #86909C; transform: rotate(45deg); }
 
-/* ⑤ 白内容区：圆角 12/12/0/0 + 底部留白 40px（77rpx）。
-   ⚠️ `margin-top: -23rpx` = 设计里 `Frame 130` 的 `gap: -12`（小程序 gap 不支持负值）。 */
-.shop-content { margin-top: -23rpx; padding-bottom: 77rpx; border-radius: 23rpx 23rpx 0 0; background: #FFFFFF; }
+/* ⑤ 白内容区的**上半截**（吸顶带里的控制带）：圆角 12/12/0/0。
+   ⚠️ `margin-top: -23rpx` = 设计里 `Frame 130` 的 `gap: -12`（小程序 gap 不支持负值）。
+   ⚠️ `padding-bottom: 77rpx`（设计 40px 底部留白）**搬到下半截** `.shop-grid-area` 了：
+      白内容区现在被吸顶带切成两截（上半截在带子里、下半截在外面），底部留白属于整块白的**末端**。 */
+.shop-content { margin-top: -23rpx; border-radius: 23rpx 23rpx 0 0; background: #FFFFFF; }
 
-/* **吸顶带**（用户 2026-10-10 答「2. 吸顶」）：Tab 栏 + 筛选行合成一条控制带吸在导航栏下。
+/* 白内容区的**下半截**（在吸顶带**外面**、所以随页面滚动）：与上半截同为 `#FFFFFF`，
+   接缝不可见（上半截有上圆角与负间距，下半截只负责把白底与 40px 底部留白续完）。 */
+.shop-grid-area { padding-bottom: 77rpx; background: #FFFFFF; }
+
+/* **吸顶带**（用户 2026-10-10 第八轮**决定 A**）：店铺卡 + 资质条 + Tab 行 + 筛选行
+   **整体**吸在导航栏下（服务表现三格仍只收起，见 `.shop-service-row`）。
    ⚠️ **恒定 `position: sticky`**：`position` 不可过渡，按滚动在 `relative ↔ sticky` 之间切会重算位置、
       必然抖（`CLAUDE.md` §十二）⇒ 滚动**只**切 `.shop-head-stuck`（阴影）。
    ⚠️ `top` **不写在这里**：由模板绑定 `headStyle`（= 真实状态栏高 + 44），见脚本里那段注释。
-   ⚠️ 必须有**不透明底**：吸顶后内容从它下面滑过，透明底会透出商品图。
+   ⚠️ **必须有不透明底 —— 而且不能是白色**：店铺卡是**透明卡**、里面全是**白字**
+      （店名 / 评分 / 粉丝 / 收藏文案 / 服务表现），吸顶后它正好从**白色**的白内容区与商品网格上面
+      滑过去 ⇒ 白底 = 白字看不见。
+      正解：带子自己画一条**与页面同一条、同尺度**的渐变底 ——
+      `background-size: 100% 477rpx`（= 设计 248px 头图带）、`background-image` 用设计端点
+      `#704138 → #9A674D`（与 `.nav` / `.shop-page` / `.hero-gradient` **同值**，未引入任何新配色）。
+      渐变**锚点**由模板内联（`headStyle.backgroundPosition` = `0 -navHeight`）：未滚动时带子上的渐变
+      与它背后的页面渐变**逐像素相同**（否则导航栏下沿会出现一条比周围亮/暗的接缝）；滚动后它
+      **不跟着页面走** ⇒ 卡片区永远压在渐变上、白字恒可读。
+      `background-color: #9A674D` 是**渐变终点色**：渐变下方（页面 248px 以下）露出的那一丝也是同色
+      （资质条与白内容区会把其余部分盖住），所以任何情况下都不会露出白底。
+      `background-repeat: no-repeat` 必填，否则 477rpx 以下会平铺出第二条渐变。
    ⚠️ `z-index: 20` 必须**小于导航栏的 100**（否则吸顶带会盖住返回键与标题）；商品网格没有定位，
       所以它会被这条带子正常压住。
    ⚠️ 祖先链上不能有 `overflow: hidden`：那会成为 sticky 的"滚动容器"、让吸顶**静默失效**
-      （见 `.shop-page` 那条注释）。 */
-.shop-head { position: sticky; z-index: 20; background: #FFFFFF; transition: box-shadow 200ms ease-out; }
+      （见 `.shop-page` 那条注释）。
+   ⚠️ 带子高度必须**小于视口**：四块合计约 275 设计 px（+ 导航栏约 92px），远小于任何在售机型；
+      商品网格留在带子**外面**就是为了这一条（见模板里 `.shop-grid-area` 的注释）。 */
+.shop-head { position: sticky; z-index: 20; background-color: #9A674D; background-image: linear-gradient(180deg, #704138 0rpx, #9A674D 477rpx); background-repeat: no-repeat; background-size: 100% 477rpx; transition: box-shadow 200ms ease-out; }
 /* 已吸住时给一条**可过渡**的分隔：用 `box-shadow` 而不是 `border-bottom` —— 边框会占布局，
    切换时整条带子跳 1px。取值沿用仓库既有的吸顶口径（`pages/index/index.vue` 的 `.top-shell.scrolled`）：
    设计稿没有吸顶状态（节点 `4050:6387` 全部 `SCROLLS`），这里只为"内容从下面滑过去"提供边界感，
