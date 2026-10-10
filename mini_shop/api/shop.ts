@@ -1,8 +1,8 @@
 import { request } from '@/utils/request'
 
 /**
- * 门店档案（C 端公开）—— `/api/shop/all` 与 `/api/shop/deliverable` 返回的是**同一份** `ShopVO`
- * （`ResultListShopVO`），因此两个接口共用本类型。
+ * 门店档案（C 端公开）—— `/api/shop/all`、`/api/shop/deliverable` 与
+ * `/api/shop/{shopId}`（S3，2026-10-10 新增）返回的是**同一份** `ShopVO`，因此三个接口共用本类型。
  *
  * ⚠️ 这里**只声明前端真正消费的字段**。管理口径字段（`deposit` / `commissionRate` / `groupId` /
  *    `boundUserCount` …）刻意不声明：尤其 `boundUserCount` 是「已绑定微信人数」，**不是粉丝数** ——
@@ -37,7 +37,10 @@ export interface EnabledShop {
   description?: string
   /**
    * 所属品牌商家 ID（`null` = 平台自营单店）。
-   * 前端**只**用它做「商品 → 门店」归属的交叉校验（见 {@link resolveProductShop}），不直接展示。
+   * 前端**只**用它做「商品 → 门店」归属的交叉校验，不直接展示。
+   * ⚠️ 2026-10-10 起 C 端详情**直接下发进店门店**（`ProductDetail.shopId`），
+   * 这个交叉校验在 C 端已经没有调用方（原 {@link resolveProductShop} 已删除）；
+   * 字段声明保留：它随 `ShopVO` 一起下发，且 B 端口径的消费方随时可能需要。
    */
   merchantId?: number | null
   /** 实时营业状态：`OPEN`=营业中 / `REST`=休息中（未配置营业时间 = OPEN 全天营业） */
@@ -84,8 +87,7 @@ export function getDeliverableShops(skuIds?: Array<number | string>): Promise<En
  * 把 SKU 集合归一化成 `?skuIds=1,2` 查询串；**集合为空时返回空串**（= 完全不带该参数）。
  *
  * ⚠️ 空串与「传了但为空」语义完全不同：后者在后端等同于"没有筛选条件"，
- * 而 `/api/shop/deliverable` 不带 `skuIds` 时会**返回全部门店**（等价 `/api/shop/all`）
- * —— 见 {@link resolveProductShop} 的空集合守卫。
+ * 而 `/api/shop/deliverable` 不带 `skuIds` 时会**返回全部门店**（等价 `/api/shop/all`）。
  */
 function buildSkuIdsQuery(skuIds?: Array<number | string>): string {
   const ids = (skuIds || [])
@@ -95,71 +97,53 @@ function buildSkuIdsQuery(skuIds?: Array<number | string>): string {
 }
 
 /**
- * 按 `shopId` 取**单店档案**（C 端）。
+ * 按 `shopId` 取**单店档案**（C 端公开、**免登录**，游客可访问）。
  *
- * ⚠️ **后端目前没有 C 端「单店详情」接口**（`api_doc.json` 全量枚举：C 端公开侧只有
- * `/api/shop/all` 与 `/api/shop/deliverable`；单店详情只有 B 端的 `GET /api/merchant/shop/{id}`，
- * 需要商家 token）。所以这里退化为「拉全量启用门店再按 id 过滤」。
+ * 实现 = `GET /api/shop/{shopId}` → `Result<ShopVO>`（**2026-10-10 S3 后端新增**，
+ * 见《前端对接文档-2026-10-10-全集》§3.4；`ShopVO` 与 `/api/shop/all` **同构**，
+ * 因此复用 {@link EnabledShop} 类型）。
  *
- * ⇒ **后端需求**：`GET /api/shop/{shopId}`（公开、无需登录，返回店铺档案）。
- *    缺口清单与优先级见 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 3 条。
+ * ⚠️ **2026-10-10 起不再"拉全量再前端过滤"**：此前本函数是 `getEnabledShops()` +
+ * `find(id)` 的旁路（后端当时没有 C 端单店接口，缺口记在
+ * `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 3 条）—— 那种写法
+ * ① 多拉一份全量门店、② 把「门店不存在」与「请求失败」混成同一个空结果。
+ * 现在直连接口即可，且**错误语义变得可区分**（见下）。
  *
- * @returns 命中返回门店档案；**未命中（门店已停用/被删除/不存在）返回 `null`**。
- *   网络或业务异常**照常抛出** —— 「店铺不存在」与「请求失败」必须能被调用方区分，
- *   不得把网络故障显示成"店铺已停业"。
+ * @returns 命中返回门店档案。
+ * @throws 门店**不存在 / 已停用 / 已软删** ⇒ 业务码 **`8000`**（`SHOP_NOT_FOUND`）的
+ *   `ApiRequestError` —— 调用方**必须**把它渲染成「门店不存在或已停用」这一个**独立状态**，
+ *   **不要**混进通用错误文案（契约 §七：8000 = 门店不存在（含停用/软删））。
+ *   网络/其它业务异常同样照常抛出，由调用方按通用错误处理 ⇒ 两者天然可分。
  */
-export async function getShopById(shopId: string | number): Promise<EnabledShop | null> {
+export function getShopDetail(shopId: string | number): Promise<EnabledShop> {
   const id = String(shopId ?? '').trim()
-  if (!id) return null
-  const shops = await getEnabledShops()
-  return (shops || []).find((shop) => String(shop?.id) === id) || null
+  if (!id) return Promise.reject(new Error('缺少门店 ID'))
+  return request<EnabledShop>({ url: `/api/shop/${encodeURIComponent(id)}`, method: 'GET' })
 }
 
 /**
- * 解析「某个商品挂在**哪一家**门店」—— 进店卡片唯一的取数依据。
+ * ⚠️ **2026-10-10 已删除 `resolveProductShop()`**（连同 `api/product.ts` 的旧注释一起清理）。
  *
- * ## 为什么需要它（数据现实）
- * `ProductDetailV2VO`（C 端商品详情）**没有 `shopId`**：契约里与门店相关的字段只有
- * `merchantId` / `merchantName` / `shopIds`，而 `shopIds` 的注释明写是
- * 「**B 端**「关联门店」多选回填用」—— 2026-10-10 用**真实响应**复核过
- * `GET /api/v2/product/detail/68`：响应里**根本没有 `shopIds` 这个键**。
- * ⇒ 商品详情**无法**直接给出门店。
+ * 它曾经是进店卡片**唯一**的取数依据：当时 `ProductDetailV2VO` **没有** `shopId`
+ * （只有 B 端语义的 `merchantId`；`shopIds` 是 B 端回填字段，2026-10-10 实测 C 端响应里
+ * **根本没有这个键**），所以只能拿 `ProductDetail.skuList` 去问
+ * `GET /api/shop/deliverable?skuIds=`「哪些门店能全部提供这些 SKU」，并且**只在候选唯一时**
+ * 才认（0 家 = 没人在卖、多家 = 多门店商品，产品口径未定）⇒ **多门店商品一律不出卡片**。
  *
- * ## 这里用的口径（全部是 C 端公开契约，无推断字段）
- * `GET /api/shop/deliverable?skuIds=` 的契约原文：「给出购物车 SKU 集合，返回**能全部提供**
- * 这些商品的门店列表」「判定口径与下单拦截、试算**同一份实现**（`shop_product.status=1` 上架关系）」
- * ⇒ 它回答的正是「哪些门店真的在卖这个商品」。
+ * **为什么删而不是留作兜底**：
+ * 1. **数据源已到位**：S1 起商品详情直接下发 `shopId` / `shopName` / `shopImage` / `shopList`，
+ *    而且**给出了主门店口径**（"按最早加入在售关系排序的第一个"，见 §3.1）
+ *    ⇒ 多门店商品**也**该出卡片，且目标门店由后端决定 —— 这正是旧旁路放弃的那一支；
+ * 2. **留着会给出**与后端**不同的门店**：旁路候选唯一 ≠ 主门店，两套逻辑并存迟早分叉；
+ * 3. **少一次请求**：旁路每次进详情页都要多打一个 `/api/shop/deliverable`；
+ * 4. **诚实性不降级**：契约明写"无在售门店时 `shopId` 为 null、`shopList` 为空数组"
+ *    ⇒ 字段真的缺失（老后端/灰度）时就该**不出卡片**，那正是页面现在的行为，
+ *    不需要旁路去"再猜一次"（猜错 = 用编造的门店跳转，违反仓库硬原则）。
  *
- * ## fail-closed 规则（宁可不出卡片，也绝不猜门店）
- * 1. **没有可用 SKU ⇒ 直接放弃**（`getDeliverableShops()` 空集合会退化成"全部门店"，那不是归属）；
- * 2. **候选 ≠ 1 家 ⇒ 放弃**：0 家 = 没有门店在卖（品牌级/纯物流商品），多家 = 多门店商品，
- *    到底该进哪一家**产品未定**（见实现说明 §5 第 11/16 条）⇒ 不猜；
- * 3. **品牌交叉校验**：唯一候选的品牌与商品品牌都能拿到且**不一致** ⇒ 放弃（数据异常，不放行）。
+ * 全库引用核查（2026-10-10，删除前）：`resolveProductShop` 只被
+ * `subpkg-goods/detail/detail.vue` 一处引用；`getShopById` 只被 `subpkg-goods/shop/index.vue`
+ * 一处引用 —— 两者均已改为直读/直连，故一并删除。
  *
- * ⇒ 解析不出来时返回 `null`，调用方**不渲染进店卡片**（不导航、不占位）。
- *    后端补上 C 端 `shopId`（实现说明 §4.3 第 2 条，P0）后，本函数应改为直接读该字段。
- *
- * ⚠️ 本函数**吞掉取数异常并返回 `null`**：卡片是详情页的**可选**增强块，
- *    接口抖动时"少一张卡片"远好过"详情页弹错误"（详情页自身的错误态仍由商品详情接口负责）。
- *
- * @param skuIds 该商品的全部 SKU（`ProductDetail.skuList`）——「能全部提供」才算是它的门店。
- * @param merchantId 商品归属品牌（`ProductDetail.merchantId`），仅用于上面的交叉校验。
+ * 📄 缺口与口径来源：`docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3、
+ *    `docs/26/10.10/前端对接文档-2026-10-10-全集.md` §3.1。
  */
-export async function resolveProductShop(
-  skuIds: Array<number | string>,
-  merchantId?: number | string | null,
-): Promise<EnabledShop | null> {
-  if (!buildSkuIdsQuery(skuIds)) return null
-  let shops: EnabledShop[] = []
-  try {
-    shops = await getDeliverableShops(skuIds)
-  } catch {
-    return null
-  }
-  if (!Array.isArray(shops) || shops.length !== 1) return null
-  const shop = shops[0]
-  const productMerchant = merchantId === null || merchantId === undefined ? '' : String(merchantId).trim()
-  const shopMerchant = shop?.merchantId === null || shop?.merchantId === undefined ? '' : String(shop.merchantId).trim()
-  if (productMerchant && shopMerchant && productMerchant !== shopMerchant) return null
-  return shop
-}

@@ -15,22 +15,27 @@
  * 这张是**白卡**（深色字 + 无底色指标格 + 浅橙纯色「进店」按钮）。两张卡**不共用样式**。
  *
  * ## 数据现实（⚠️ 本组件刻意"有数据才画"）
- * - ✗ **评分**（`5.0`）：契约里**没有**店铺评分字段（`MerchantOverviewVO.serviceScore` 是
+ * - ✗ **评分**：契约里**没有**店铺评分字段（`MerchantOverviewVO.serviceScore` 是
  *   **恒 null 的占位**，契约注释明写"绝不能兜底成 0/占位值"）⇒ 无数据时**整行不渲染**。
- * - ✗ **粉丝数**（`3484 粉丝`）：契约里**没有** `fansCount`；`ShopVO.boundUserCount` 是
+ * - ✗ **粉丝数**：契约里**没有** `fansCount` 字段；`ShopVO.boundUserCount` 是
  *   「已绑定微信人数」，**语义不同、不得代替**。
- * - ✗ **服务表现**（`商品品质 / 平均满意度97.2%` 等三格）：契约里**没有**服务指标字段。
+ * - ✗ **服务表现**（`商品品质 / 平均满意度` 等三格）：契约里**没有**服务指标字段。
  * - 以上三项的缺口清单见 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 4/5/7 条。
- *   ⚠️ 设计稿里的 `5.0` / `3484` / `97.2%` / `12小时` / `14秒` 全部是**写死的填充文案**，
+ *   ⚠️ 设计稿里那几项指标的具体填充数值全部是**写死的填充文案**，
  *   **不是数据** ⇒ 一律不得硬编码（仓库硬原则：绝不伪造数据）。
  *   ⇒ 所以本组件**只公开可选 prop**：数据到了由父页面传入即渲染，没到就整块不出现（不留 `0`／`—`）。
  *
- * ## 可导航的前提（父页面必须已经解析出唯一门店）
- * 组件**自己不会猜门店 id**：`shop` 为空时**整张卡不渲染**（`v-if="shop && shop.id"`），
+ * ## 可导航的前提（门店由**商品详情**直给，组件自己不猜）
+ * 组件**自己不会猜门店 id**：`shop` 为空时**整张卡不渲染**（`v-if="canRender"`），
  * 点击时 `emit('enter', shop.id)` —— 把「跳哪里」的决定权留给父页面。
+ * ⚠️ **2026-10-10 S1 更新**：此前组件注释把"必须由父页面另行解析出唯一门店"当作前提
+ * （当时 `ProductDetailV2VO` 没有 `shopId`，只能靠 `/api/shop/deliverable` 旁路猜，
+ * 多门店商品一律无卡片）；现在商品详情直接下发 `shopId` / `shopName` / `shopImage`
+ * ⇒ 父页面**直读商品详情**即可，旁路已删除（见 `api/shop.ts` 末尾的删除说明）。
+ * 组件本身**不受影响**：它要的始终只是"一个有 id 的门店"。
  */
 import { computed } from 'vue'
-import type { EnabledShop } from '@/api/shop'
+import type { ShopEntry } from '@/api/product'
 
 /** 一条服务指标（名 + 值，值本身已含单位，如「平均满意度97.2%」）。 */
 export interface ShopServiceMetric {
@@ -38,12 +43,27 @@ export interface ShopServiceMetric {
   value: string
 }
 
+/**
+ * 进店卡片的门店：**只有跳转真正需要的三个字段**（`id` + 店名 + 门头图）。
+ *
+ * ⚠️ 这里刻意**不**复用 `api/shop.ts` 的 `EnabledShop` —— 那个类型是**门店档案**，`name` /
+ * `address` 是必填的；而本卡片的门店来源是**商品详情自带的** `ShopEntry`
+ * （`ProductDetailV2VO.shopId/shopName/shopImage`，2026-10-10 S1），店家档案字段并不保证存在。
+ * 用"档案类型"接一个"轻量条目"会逼父页面去补 `address` 之类的假字段 —— 那是伪造数据。
+ */
+export interface ShopNavigationTarget {
+  /** 门店 ID（字符串形态：契约 `int64`，前端按 string 处理防精度丢失）。 */
+  id: string
+  name?: string
+  shopImage?: string
+}
+
 const props = withDefaults(defineProps<{
-  /** 已解析出的门店档案；**为空则不渲染整张卡**（见头部注释的 fail-closed 约定）。 */
-  shop?: EnabledShop | null
+  /** 已从商品详情读出的门店；**为空则不渲染整张卡**（见头部注释的 fail-closed 约定）。 */
+  shop?: ShopNavigationTarget | ShopEntry | null
   /** 店铺评分（0–5，一位小数）。⚠️ 契约暂无此字段 ⇒ 不传即不渲染评分行。 */
   rating?: number | null
-  /** 店铺粉丝数。⚠️ 契约暂无此字段（≠ `boundUserCount`）⇒ 不传即不渲染粉丝。 */
+  /** 店铺粉丝数。⚠️ 契约暂无此字段（≠ `boundUserCount`）⇒ 不传即不渲染。 */
   fansCount?: number | null
   /** 服务表现（最多 3 条）。⚠️ 契约暂无此字段 ⇒ 不传即不渲染整行。 */
   serviceMetrics?: ShopServiceMetric[]
@@ -55,8 +75,8 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  /** 用户点「进店」/整卡：交出**已解析出的**门店 id，由父页面导航。 */
-  (e: 'enter', shopId: number): void
+  /** 用户点「进店」/整卡：交出**已读到的**门店 id（字符串形态，防 int64 精度丢失），由父页面导航。 */
+  (e: 'enter', shopId: string): void
 }>()
 
 /** 门店可用（有 id）才渲染：没有 id 就没有可靠的跳转目标。 */
@@ -90,7 +110,7 @@ const metrics = computed(() => (props.serviceMetrics || [])
 /** 点「进店」：**只在有真实门店 id 时**才向上抛事件（组件内不做任何 id 猜测）。 */
 function onEnter(): void {
   if (!canRender.value) return
-  emit('enter', Number(props.shop?.id))
+  emit('enter', String(props.shop?.id || ''))
 }
 </script>
 
@@ -113,6 +133,8 @@ function onEnter(): void {
             <text class="entry-score">{{ ratingText }}</text>
           </view>
           <view v-if="ratingText && fansText" class="entry-divider" />
+          <!-- ⚠️ 粉丝数只渲染**真实值**：`fansText` 在无数据时是空串（契约里根本没有该字段，
+                 设计稿那个数字是填充文案）⇒ 整段不出现，不留 `0`、不留 `—`。 -->
           <text v-if="fansText" class="entry-fans">{{ fansText }}</text>
         </view>
       </view>

@@ -26,38 +26,58 @@
  * 3. **无阴影**：设计里白卡那条 `DROP_SHADOW #E66A00@20%` 是 `visible:false` ⇒ 实现**不加阴影**
  *    （且 `clips` 也会裁掉向上偏移的阴影，见实现说明 §1.3 注解）。
  *
- * ## ⚠️ 数据现实（本页最大的约束）
- * 契约里**没有** C 端「单店详情」接口（`api_doc.json` 全量枚举：C 端公开侧只有 `/api/shop/all`
- * 与 `/api/shop/deliverable`）⇒ 本页的店铺档案走 `getShopById()`（拉全量启用门店再按 id 过滤，
- * 见 `api/shop.ts` 的注释与实现说明 §4.3 第 3 条）。
+ * ## 数据来源（2026-10-10 S2b / S3 已全部落地，本页不再有"无接口"的占位逻辑）
+ * 本页**两个真实数据源**（都免登录、游客可访问）：
+ * | 区块 | 接口 | 说明 |
+ * |---|---|---|
+ * | 店铺档案 | `GET /api/shop/{shopId}`（S3，新增） | `Result<ShopVO>`，与 `/api/shop/all` 同构 |
+ * | 商品网格 | `GET /api/shop/{shopId}/products`（S2b，新增） | `sortBy` + `page` / `pageSize` |
+ *
+ * ⚠️ **两种"没有"必须分开渲染**（混在一起就是静默失真）：
+ * - 门店不存在 /**已停用** / 软删 ⇒ 上面第一个接口返回业务码 **`8000`**（不是 500、不是 401）
+ *   ⇒ 渲染 `shopUnavailable` 那一档：「门店不存在或已停用」（契约 §七 建议文案）；
+ * - 门店存在但**无在售商品** ⇒ 接口 `200` + `total=0` ⇒ 渲染网格的空态，
+ *   **绝不能**把它显示成"店铺不见了"，也**绝不能**用别的商品顶上。
+ * ⚠️ 商品网格此前是**故意不取数**的：`/api/product/list` 的 `shopId` 当时契约写着
+ *    「PC 后台按门店筛选」+ 一句已作废的限制（说小程序端不下发该参数）—— 若后端忽略它，
+ *    页面会把**全商城商品**显示成"这家店的商品"（= 伪造归属关系）。该限制**已被后端删除**
+ *    （S2a 起 `shopId` 真正生效，S2b 又补了门店维度的正式接口）⇒ 本页现在走 S2b 的
+ *    **门店专属**入口，走不到"全量商品冒充本店商品"那条路。
+ * ⚠️ 负间距与设计值断言注意：网格为空时**不渲染** `.goods-grid`（连同它的 `padding`），
+ *    否则空态下面会多出一条白的空隙。
  *
  * 设计里这些元素**现有契约一个字段都没有**，因此**一律不渲染**（不编文案、不放 `0`/`—`、不硬编码
- * 设计稿的填充数字 `5.0` / `3484 粉丝` / `97.2%` / `12小时` / `14秒`）：
+ * 设计稿的填充数字）：
  * - 店铺**评分**：契约无 `rating`（`MerchantOverviewVO.serviceScore` 是**恒 null 占位**，不得挪用）；
  * - 店铺**粉丝数**：契约无 `fansCount`（`ShopVO.boundUserCount` = 「已绑定微信人数」，**语义不同**）；
  * - **服务表现**三格：契约无服务指标字段；
  * - **店铺收藏**：契约无关注/收藏店铺的读写接口（全库只有**商品**收藏）。
  * 缺口清单/优先级见 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3。
- *
- * **商品网格**同样被阻塞：`GET /api/product/list` 的 `shopId` 契约原文写明「PC 后台按门店筛选；
- * **C 端不传**」⇒ 本页**不发这个请求**（后端若忽略 `shopId`，页面会把全商城商品显示成"这家店的商品"
- * = 伪造归属关系）⇒ 只渲染网格外壳 + 空态占位，等后端确认 C 端口径或补
- * `GET /api/shop/{shopId}/products`（实现说明 §4.3 第 1 条，P0）。
  */
 import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
-import { getShopById, type EnabledShop } from '@/api/shop'
-import type { ProductCard } from '@/api/product'
+import { onLoad, onReachBottom } from '@dcloudio/uni-app'
+import { getShopDetail, type EnabledShop } from '@/api/shop'
+// ⚠️ 用 `getShopProducts`（= `GET /api/shop/{shopId}/products`，S2b）而**不是**
+//    `getProductList({ shopId })`：后者是"商品维度"的接口，对不存在的门店回 `200` + `total=0`，
+//    会把"这家店没了"渲染成"这家店没商品"（本仓库最忌的静默失真）。
+import { getShopProducts, type ProductCard } from '@/api/product'
+import { isApiRequestError } from '@/utils/request'
+
+/**
+ * 门店不存在的业务码（契约 §七：`8000` = 门店不存在（含停用/软删））。
+ * ⚠️ 它是**业务码**（HTTP 仍是 200），由 `utils/request.ts` 转成 `ApiRequestError.code`。
+ */
+const SHOP_NOT_FOUND_CODE = 8000
 
 /** 页面入参：`/subpkg-goods/shop/index?shopId=…`（进店卡片跳转过来）。 */
 const shopId = ref('')
 /** 店铺档案；`null` = 未加载/未命中。 */
 const shop = ref<EnabledShop | null>(null)
 const loading = ref(true)
-/** 取数失败（网络/接口异常）——与「店铺不存在」必须分开显示。 */
+/** 取数失败（网络/接口异常）——与「门店不存在」必须分开显示。 */
 const errorMessage = ref('')
-/** 门店不在「启用门店」列表里（已停用/被删除/id 不存在）。 */
-const notFound = ref(false)
+/** 门店**不存在 / 已停用 / 已被删除**（接口业务码 `8000`，或页面压根没带 `shopId`）。 */
+const shopUnavailable = ref(false)
 
 /** 真实状态栏高度（px）；导航栏高度 = 状态栏 + 设计稿的 **44px 标题栏**。 */
 const statusBarHeight = ref(0)
@@ -69,9 +89,10 @@ const logo = computed(() => String(shop.value?.shopImage || '').trim())
 
 /**
  * 当前 Tab（`首页` / `商品`）。
- * ⚠️ 设计只给了「首页」选中态的示例，**两个 Tab 的内容差异未定义**（实现说明 §5 第 7 条：
- *    「商品」Tab 是否就是同一份筛选 + 网格？）。因此这里**只做真实的前端状态切换**，
- *    内容区暂时共用同一套外壳；后端补齐「按门店查商品」后再按产品口径分叉。
+ * ⚠️ 设计只给了「首页」选中态的示例，**两个 Tab 的内容差异仍未定义**（实现说明 §5 第 7 条）。
+ *    现在两档共用同一份「店铺档案 + 筛选行 + 商品网格」—— 这不是"没做"，
+ *    而是**产品口径未定时刻意不分叉**（同一份数据，分叉只会凭空造出两套行为）。
+ *    后端已具备分叉能力（S2b 的 `sortBy` 含 `new_desc` / `sort_order`），等口径确定再拆。
  */
 const activeTab = ref<'home' | 'goods'>('home')
 
@@ -87,15 +108,104 @@ const activeSort = ref<'sold' | 'price'>('sold')
 const priceOrder = ref<'asc' | 'desc'>('asc')
 
 /**
- * 店铺商品列表。
+ * 传给 S2b 的 `sortBy`。
  *
- * ⚠️ **永远是空数组**：C 端「按门店查商品」的口径后端尚未确认（`/api/product/list` 的 `shopId`
- * 注明"C 端不传"，见文件头注释）⇒ 本页**不发该请求**。等后端确认后在这里接
- * `getProductList({ shopId, sortBy })` 即可，模板里的网格已经是按设计做好的。
+ * ⚠️ `sortBy` 在契约里是**可选**参数（`sold_desc / price_asc / price_desc / new_desc / sort_order`），
+ *    不传 = 后端默认排序。两个价格档**各自**给出自己的枚举值（升/降序不可互相顶替）；
+ *    「销量」档给出 `sold_desc`（设计里「销量」= 销量倒序，映射关系见 `activeSort` 注释）。
+ */
+const sortByParam = computed<'sold_desc' | 'price_asc' | 'price_desc'>(() => {
+  if (activeSort.value !== 'price') return 'sold_desc'
+  return priceOrder.value === 'desc' ? 'price_desc' : 'price_asc'
+})
+
+/** 每页条数（契约限 1~100；取 10 —— 与首页/搜索页同档，网格一小屏约 4 张）。 */
+const PAGE_SIZE = 10
+
+/**
+ * 店铺商品列表（`GET /api/shop/{shopId}/products`，S2b）。
+ * 空数组的含义由 `productsLoaded` / `productsError` 一起决定，不要单看它。
  */
 const products = ref<ProductCard[]>([])
+const productsLoading = ref(false)
+const productsLoadingMore = ref(false)
+/** 首页商品请求是否**已经成功返回过一次**（决定空态能不能说"暂无在售商品"）。 */
+const productsLoaded = ref(false)
+/** 商品列表取数失败（网络/业务异常）——与"空"必须分开，避免把故障说成"没有商品"。 */
+const productsError = ref('')
+const page = ref(1)
+/** 本页实际返回条数 —— 判"还有没有下一页"用它，**不看 `total`**（见下）。 */
+const lastPageSize = ref(0)
 
-/** 读页面参数并加载店铺档案。 */
+/**
+ * 是否还有下一页。
+ * ⚠️ 判据是「**本页条数 < pageSize**」，与 `subpkg-merchant/orders/list.vue` 同一口径：
+ *    本仓库已知后端 `total` 在部分接口上不可信，用"本页是否满页"判断不会漏也不会死循环。
+ */
+const hasMore = computed(() => lastPageSize.value >= PAGE_SIZE)
+
+/**
+ * 请求竞态 token：切换排序后**在飞的旧请求必须作废**（与 `subpkg-wallet/flows/flows.vue` 同款）。
+ * ⚠️ 这里**只**在排序切换（`reset`）时由用户触发发请求：没有输入框、没有滚动联动，
+ *    所以不需要防抖 —— 连点同一个排序项由 `selectSort` 的"值相同就 return"挡住。
+ */
+let productsToken = 0
+
+/**
+ * 拉取店铺商品。`reset=true` = 换排序后从第 1 页重查。
+ *
+ * ⚠️ 防重入只挡"加载更多"：切换排序**必须放行**（否则上一次请求没回来时切排序会被静默丢弃，
+ *    表现为"点了排序没反应"）。
+ */
+async function loadProducts(reset = true): Promise<void> {
+  if (!reset && (productsLoading.value || productsLoadingMore.value)) return
+  if (!reset && !hasMore.value) return
+  if (reset) {
+    productsLoading.value = true
+    productsError.value = ''
+  } else {
+    productsLoadingMore.value = true
+  }
+  const token = ++productsToken
+  const targetPage = reset ? 1 : page.value + 1
+  try {
+    const result = await getShopProducts({
+      shopId: shopId.value,
+      sortBy: sortByParam.value,
+      page: targetPage,
+      pageSize: PAGE_SIZE,
+    })
+    // 过期响应丢弃：旧排序的结果不能盖掉新排序的列表。
+    if (token !== productsToken) return
+    const list = result?.list || []
+    products.value = reset ? list : products.value.concat(list)
+    page.value = Number(result?.page) || targetPage
+    // ⚠️ 用**本页实际条数**判"还有没有下一页"（不用 total，见 hasMore 注释）。
+    lastPageSize.value = list.length
+    productsLoaded.value = true
+  } catch (error) {
+    if (token !== productsToken) return
+    productsError.value = error instanceof Error ? error.message : '商品加载失败，请重试'
+  } finally {
+    // 只有最新请求能关 loading。
+    if (token === productsToken) {
+      productsLoading.value = false
+      productsLoadingMore.value = false
+    }
+  }
+}
+
+/** 触底加载下一页（页面级滚动由微信触发，与搜索页/首页同款）。 */
+onReachBottom(() => {
+  void loadProducts(false)
+})
+
+/**
+ * 读页面参数 → 取门店档案（S3）→ 再取该门店的在售商品（S2b）。
+ *
+ * ⚠️ 两个接口**串行**：商品接口对停用门店同样返回 `8000`，但"门店没了"这个结论应当由
+ *    门店档案接口给出（它是门店维度的事实来源）；先档案后商品，语义最直白。
+ */
 onLoad(async (options) => {
   try {
     const info = uni.getSystemInfoSync()
@@ -106,19 +216,26 @@ onLoad(async (options) => {
   }
   shopId.value = String(options?.shopId || '').trim()
   if (!shopId.value) {
-    notFound.value = true
+    // 没带 shopId 就没法定位门店：如实说"门店不存在"，不编一个默认店。
+    shopUnavailable.value = true
     loading.value = false
     return
   }
   try {
-    shop.value = await getShopById(shopId.value)
-    // 后端只返回**启用**门店 ⇒ 没命中就是「不存在 / 已停用 / 被删除」，如实显示，不编造店铺。
-    notFound.value = !shop.value
+    shop.value = await getShopDetail(shopId.value)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '店铺信息加载失败'
+    // ⚠️ `8000` 是**独立状态**（门店不存在/停用），不是通用错误：契约 §七 给的建议文案就是
+    //    「门店不存在或已停用」。其余异常（网络/5xx/其它业务码）一律走通用错误分支。
+    if (isApiRequestError(error) && Number(error.code) === SHOP_NOT_FOUND_CODE) {
+      shopUnavailable.value = true
+    } else {
+      errorMessage.value = error instanceof Error ? error.message : '店铺信息加载失败'
+    }
   } finally {
     loading.value = false
   }
+  // 门店不存在 ⇒ 不再去问商品（问了也只有 8000）。
+  if (shop.value) await loadProducts(true)
 })
 
 /** 返回上一级；没有历史页面时回首页。 */
@@ -136,14 +253,23 @@ function switchTab(tab: 'home' | 'goods'): void {
   activeTab.value = tab
 }
 
-/** 选择排序项；`价格` 再点一次反转升降序。 */
+/**
+ * 选择排序项并**立即按新排序重查第 1 页**（S2b 的 `sortBy`，见 `sortByParam`）。
+ *
+ * - 点「销量」：切到销量档（已在该档则什么都不做，`sortByParam` 不变 ⇒ 不发重复请求）；
+ * - 点「价格」：未在价格档 ⇒ 切过去并回到**升序**（设计默认）；已在价格档 ⇒ **反转升降序**。
+ * ⚠️ 重查走 `loadProducts(true)`：它会用 token 作废在飞的旧请求（见该函数注释），
+ *    所以连着点也不会出现"列表回到上一个排序"。
+ */
 function selectSort(sort: 'sold' | 'price'): void {
-  if (sort === 'price' && activeSort.value === 'price') {
+  if (sort === activeSort.value) {
+    if (sort !== 'price') return
     priceOrder.value = priceOrder.value === 'asc' ? 'desc' : 'asc'
-    return
+  } else {
+    activeSort.value = sort
+    if (sort === 'price') priceOrder.value = 'asc'
   }
-  activeSort.value = sort
-  if (sort === 'price') priceOrder.value = 'asc'
+  void loadProducts(true)
 }
 
 /**
@@ -203,7 +329,9 @@ function formatAmount(value: number): string {
     <view class="shop-body" :style="{ paddingTop: `${navHeight}px` }">
       <view v-if="loading" class="page-state"><text>加载中...</text></view>
       <view v-else-if="errorMessage" class="page-state"><text>{{ errorMessage }}</text></view>
-      <view v-else-if="notFound" class="page-state"><text>店铺不存在或已停业</text></view>
+      <!-- ⚠️ `8000 SHOP_NOT_FOUND`（门店不存在/停用/软删）**独立于**上面的通用错误：
+           契约 §七 给的建议文案就是这句；不要用 `errorMessage` 兜住它。 -->
+      <view v-else-if="shopUnavailable" class="page-state"><text>店铺不存在或已停用</text></view>
 
       <template v-else>
         <!-- ① 店铺卡：**透明卡**（产品已定）——白字直接压在渐变上，不画白底。
@@ -213,10 +341,12 @@ function formatAmount(value: number): string {
             <image v-if="logo" class="shop-logo" :src="logo" mode="aspectFill" />
             <view class="shop-card-main">
               <text class="shop-name">{{ shop?.name }}</text>
-              <!-- ⚠️ 评分行（星级 + `5.0`）与粉丝数（`3484 粉丝`）在设计里是**写死的填充文案**，
-                   契约里既没有 `rating` 也没有 `fansCount` ⇒ 整行不渲染。
+              <!-- ⚠️ 评分行与粉丝数：设计里这两项是**写死的填充文案**，契约里既没有 `rating`
+                   也没有 `fansCount` ⇒ 整行不渲染（数值本身见文件头「不渲染清单」，此处不重复写出）。
                    注意：不得用 `MerchantOverviewVO.serviceScore`（恒 null 占位）或
                    `ShopVO.boundUserCount`（已绑定微信人数）顶替。 -->
+              <!-- ✅ 门店档案现在是**真实数据**（`GET /api/shop/{shopId}`，S3）：
+                   店名走 `shop.name`、logo 走 `shop.shopImage`（未配置时不画 `<image>`，不塞占位图）。 -->
             </view>
             <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
                  （方向 handle (0,0)→(1,1) = 左上→右下 ⇒ 135deg），文案白字 12px。
@@ -284,8 +414,12 @@ function formatAmount(value: number): string {
           </view>
 
           <!-- ④ 商品网格（设计：左右内边距 12、列间距 12、行间距 24、卡宽 177）。
-               ⚠️ `products` 恒为空数组（C 端按门店筛选的商品接口未落地，见文件头注释）
-               ⇒ 现在只会渲染下面的空态占位，**不伪造任何商品**。 -->
+               ✅ 数据源：`GET /api/shop/{shopId}/products`（S2b）—— 按 `sortBy` + `page`/`pageSize`
+                  取该门店**在售**商品；触底由 `onReachBottom` 追加下一页（见 script 注释）。
+               ⚠️ 三种状态互斥且**如实**（绝不互相顶替）：
+                  · 取数失败 → `productsError`（不谎报"没有商品"）；
+                  · 取数成功但 `total=0` → 空态「该店铺暂无在售商品」；
+                  · 网格为空时**不渲染** `.goods-grid`（连它的 padding 都不出现）。 -->
           <view v-if="products.length" class="goods-grid">
             <view v-for="product in products" :key="product.id" class="goods-card" @click="openProduct(product)">
               <view class="goods-image-wrap">
@@ -303,8 +437,23 @@ function formatAmount(value: number): string {
               </view>
             </view>
           </view>
-          <view v-else class="goods-empty">
-            <text class="goods-empty-text">店铺商品暂未开放</text>
+          <view v-else-if="productsError" class="goods-empty">
+            <text class="goods-empty-text">{{ productsError }}</text>
+          </view>
+          <view v-else-if="productsLoading" class="goods-empty">
+            <text class="goods-empty-text">加载中...</text>
+          </view>
+          <!-- 诚实空态：门店**真实存在**但没有任何在售商品（`total=0`）——
+               与「门店不存在/停用」（上面 `shopUnavailable`）是两件事，不要合并。 -->
+          <view v-else-if="productsLoaded" class="goods-empty">
+            <text class="goods-empty-text">该店铺暂无在售商品</text>
+          </view>
+          <!-- ⚠️ 翻页中：网格已有内容时追加下一页的提示（不遮挡、不重置列表）。 -->
+          <view v-if="productsLoadingMore" class="goods-more">
+            <text class="goods-more-text">加载更多...</text>
+          </view>
+          <view v-else-if="products.length && !hasMore && !productsError" class="goods-more">
+            <text class="goods-more-text">没有更多了</text>
           </view>
         </view>
       </template>
@@ -408,7 +557,11 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .goods-price-symbol { color: #FF5500; font-size: 22rpx; line-height: 42rpx; }
 .goods-price-value { margin-left: 4rpx; color: #FF5500; font-size: 27rpx; font-weight: 600; line-height: 42rpx; }
 
-/* 空态占位：商品列表接口未落地（C 端按门店筛选未承诺）⇒ 如实说明，不伪造商品。 */
+/* 网格状态文案（空态 / 取数失败 / 首页加载中）：三档共用一套中性灰，不引入新配色。
+   ⚠️ 文案由模板按**真实状态**给（无在售商品 ≠ 门店不存在 ≠ 请求失败），这里只管排版。 */
 .goods-empty { display: flex; align-items: center; justify-content: center; padding: 140rpx 24rpx; }
 .goods-empty-text { color: #86909C; font-size: 26rpx; }
+/* 翻页提示（加载更多 / 没有更多了）：设计稿没有这一行，取仓库既有的居中灰字口径。 */
+.goods-more { display: flex; align-items: center; justify-content: center; padding: 28rpx 24rpx 46rpx; }
+.goods-more-text { color: #86909C; font-size: 24rpx; }
 </style>

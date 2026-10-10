@@ -106,6 +106,10 @@ function isPublicBrowseRequest(url: string | undefined, method?: string): boolea
     || /^\/api\/v2\/product\/detail\/[^/]+$/.test(path)
     || path === '/api/v2/homepage'
     || path === '/api/shop/all'
+    // 2026-10-10 S3 / S2b 新增的两条 C 端公开门店接口（免登录、游客可访问）：
+    // 旧 Token 失效时同样要能降级成游客重试，否则店铺页会显示成"加载失败"。
+    || /^\/api\/shop\/[^/]+$/.test(path)
+    || /^\/api\/shop\/[^/]+\/products$/.test(path)
     || /^\/api\/(public|setting|coupon|announcement)\//.test(path)
     || path === '/api/image'
     || path.startsWith('/api/image/')

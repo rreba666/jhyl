@@ -20,7 +20,6 @@ import LoginGuide from '@/components/LoginGuide.vue'
 import SkuSheet from '@/components/goods/SkuSheet.vue'
 // 2026-10-10 新增：商品详情页「进店卡片」（Figma 节点 `4029:5751`，主包组件，先例同 SkuSheet）。
 import ShopEntryCard from '@/components/goods/ShopEntryCard.vue'
-import { resolveProductShop, type EnabledShop } from '@/api/shop'
 
 const menuTop = ref(0)
 const menuHeight = ref(32)
@@ -212,31 +211,47 @@ function formatAmount(value: number): string {
 }
 
 /**
- * 「进店卡片」的门店（2026-10-10 新增，设计节点 `4029:5751`）。
+ * 「进店卡片」的门店（2026-10-10 新增，设计节点 `4029:5751`；**2026-10-10 S1 改为直读商品详情**）。
  *
- * ⚠️ **拿不到就不出卡片** —— 这是刻意的 fail-closed：`ProductDetailV2VO` **没有** `shopId`
- * （只有 B 端语义的 `merchantId`；`shopIds` 是 B 端回填字段，2026-10-10 实测 C 端响应里
- * **根本没有这个键**），所以门店只能靠 `resolveProductShop()` 另行解析，规则是
- * 「该商品的全部 SKU 能被**唯一一家**门店全部提供」才认（见 `api/shop.ts` 的完整说明
- * 与 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 2 条）。
- * ⇒ 解析不出（0 家 / 多家 / 接口抖动）时保持 `null`，`ShopEntryCard` 整块不渲染，
- *   **绝不用猜出来的 id 跳转**（多门店商品该进哪家，产品口径未定：实现说明 §5 第 11/16 条）。
+ * ## 取数（现在）
+ * `ProductDetailV2VO` 自 **S1（2026-10-10）** 起直接下发
+ * `shopId` / `shopName` / `shopImage` / `shopList[]`（《前端对接文档-2026-10-10-全集》§3.1）：
+ * 口径 = `shop_product.status=1` 的启用门店，多门店时 `shopId` 是**主在售门店**
+ * （「按最早加入在售关系排序的第一个」）⇒ **本页只需要读，不推断、不猜、不再发第二个请求**。
+ *
+ * ## ⚠️ 这里替换掉了旧的 `resolveProductShop()`
+ * 旧实现拿 `skuList` 去问 `/api/shop/deliverable?skuIds=`，**只有候选唯一才出卡片**
+ * ⇒ 多门店商品（后端本次明确说"多门店是既有能力，不做取舍"）**一律没有进店入口**，
+ * 而这正是 S1 要修掉的那件事。旧函数已连同 `api/shop.ts` 里的说明一起删除。
+ *
+ * ## fail-closed（保留、未放宽）
+ * `shopId` 为 null/缺失（无在售门店 → 契约明确下发 null；或旧后端/灰度根本没有这个键）
+ * ⇒ 保持 `null` ⇒ `ShopEntryCard` 整块不渲染。
+ * **绝不用 `merchantId` / `shopIds` / `shopList[0]` 各自反推一个门店 id 去跳转**
+ * （`merchantId` 是品牌、`shopIds` 是 B 端回填字段且 C 端响应里根本没有这个键）。
+ *
+ * ⚠️ `shopList` **只**用来给**同一个主门店**补 `shopImage`（按 `shopId` 匹配那一条，
+ *    不是按位置取"第一家"）；`shopId` 与 `shopName` 一律只认扁平字段 ⇒ 门店永远不会被换成另一家。
  */
-const shopEntryShop = ref<EnabledShop | null>(null)
+const shopEntryShop = computed(() => {
+  const detail = product.value
+  const id = Number(detail?.shopId)
+  // `Number(null) / Number(undefined) / Number('')` 全为 0 ⇒ 一个判据覆盖"没下发/为空/非法"。
+  if (!Number.isFinite(id) || id <= 0) return null
+  // 主门店在 `shopList` 里的那一条；仅用于给主门店补 `shopImage`（扁平字段为 null 时）。
+  const mainEntry = (detail?.shopList || []).find((entry) => Number(entry?.shopId) === id)
+  return {
+    id: String(id),
+    name: String(detail?.shopName || mainEntry?.shopName || '').trim(),
+    shopImage: String(detail?.shopImage || mainEntry?.shopImage || '').trim(),
+  }
+})
 
 /** 进店卡片与上方「价格/标题/标签」区之间的间距（自定义组件外边距只能内联传，见模板注释）。 */
 const SHOP_ENTRY_GAP = '20rpx'
 
-/** 解析当前商品所属门店；异常与"不唯一"一律落回 `null`（不打扰用户，见上）。 */
-async function loadShopEntry(): Promise<void> {
-  const detail = product.value
-  if (!detail) return
-  const skuIds = (detail.skuList || []).map((sku) => sku.id)
-  shopEntryShop.value = await resolveProductShop(skuIds, detail.merchantId)
-}
-
-/** 点「进店」→ 进店铺页；id 由卡片（= 已解析出的真实门店）给出，这里再挡一次空值。 */
-function onEnterShop(shopId: number): void {
+/** 点「进店」→ 进店铺页；id 由卡片（= 商品详情里那个真实门店）给出，这里再挡一次空值。 */
+function onEnterShop(shopId: string | number): void {
   const id = String(shopId ?? '').trim()
   if (!id) return
   uni.navigateTo({ url: `/subpkg-goods/shop/index?shopId=${encodeURIComponent(id)}` })
@@ -259,8 +274,8 @@ onLoad(async (options) => {
   try {
     product.value = await productRequest
     favorite.value = Boolean(product.value.favorite)
-    // 进店卡片与用户资料并行取（卡片是可选增强块，不阻塞首屏）。
-    void loadShopEntry()
+    // ⚠️ 进店卡片**不再需要单独取数**：门店随商品详情一起到（S1），`shopEntryShop` 是
+    //    computed，`product` 一赋值就已就绪 —— 既不阻塞首屏，也不多打一个请求。
     user.value = await profileRequest
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '商品详情加载失败'
@@ -565,7 +580,7 @@ onShow(() => {
              设计只给了**独立画板**，没有标注它插在详情页的哪两个模块之间（实现说明 §5 第 15 条）
              ⇒ 这里放在「价格/标题/标签」区之后、售后保障之前（主流电商的位置，也是本页最贴近
                「店铺归属」语义的落点）。
-             ⚠️ `shopEntryShop` 为 null（解析不出唯一门店）时组件**整块不渲染**；
+             ⚠️ `shopEntryShop` 为 null（商品没有在售门店 / 后端未下发 `shopId`）时组件**整块不渲染**；
              ⚠️ 给自定义组件加外边距必须用**内联 `:style`**（小程序 `styleIsolation: isolated`，
                父页面的 class 规则作用不到子组件根节点）。 -->
         <ShopEntryCard :shop="shopEntryShop" :style="{ marginTop: SHOP_ENTRY_GAP }" @enter="onEnterShop" />
