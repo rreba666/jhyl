@@ -1,0 +1,218 @@
+[
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "nav gradient slice endpoint #804F40 -> the old eyeballed #704138",
+    "find": "background: linear-gradient(180deg, #704138 0%, #804F40 100%); box-sizing: border-box; }",
+    "replace": "background: linear-gradient(180deg, #704138 0%, #704138 100%); box-sizing: border-box; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "favourite button gradient angle 113deg -> CSS 135deg",
+    "find": "background: linear-gradient(113deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }",
+    "replace": "background: linear-gradient(135deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "favourite star outline glyph back to a filled star",
+    "find": "<text class=\"shop-fav-star\">\u2606</text>",
+    "replace": "<text class=\"shop-fav-star\">\u2605</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "tab bar bottom stroke back to 2rpx (design is 0.5px INSIDE)",
+    "find": "border-bottom: 1rpx solid #F1F2F4;",
+    "replace": "border-bottom: 2rpx solid #F1F2F4;"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "tab content back to vertical centring (design is top-aligned, text 10px down)",
+    "find": "justify-content: flex-start; padding-top: 19rpx;",
+    "replace": "justify-content: center; padding-top: 0;"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "sort triangle ink width back to 12rpx (design vector is 5.18px)",
+    "find": "border-right: 5rpx solid transparent; border-bottom: 6rpx solid #86909C;",
+    "replace": "border-right: 6rpx solid transparent; border-bottom: 6rpx solid #86909C;"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "grid row gap removed (design: 24 between rows, none after the last)",
+    "find": "gap: 46rpx 23rpx;",
+    "replace": "gap: 0 23rpx;"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "product card radius removed (design Frame 27 r=8)",
+    "find": ".goods-card { width: 340rpx; border-radius: 15rpx; }",
+    "replace": ".goods-card { width: 340rpx; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "price integer segment back to 14px/600 (design: 18px/500)",
+    "find": ".goods-price-int { color: #FF5500; font-size: 35rpx; font-weight: 500; }",
+    "replace": ".goods-price-int { color: #FF5500; font-size: 27rpx; font-weight: 600; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "price decimal segment wrong size (design: 14px/500)",
+    "find": ".goods-price-dec { color: #FF5500; font-size: 27rpx; font-weight: 500; }",
+    "replace": ".goods-price-dec { color: #FF5500; font-size: 23rpx; font-weight: 500; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "integer price segment stops using the pre-split view model",
+    "find": "<text class=\"goods-price-int\">{{ product.priceInt }}</text>",
+    "replace": "<text class=\"goods-price-int\">{{ product.price }}</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "decimal segment rendered unconditionally (empty '.00' tail)",
+    "find": "<text v-if=\"product.priceDec\" class=\"goods-price-dec\">{{ product.priceDec }}</text>",
+    "replace": "<text class=\"goods-price-dec\">{{ product.priceDec }}</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "grid loops the raw API list instead of the price-split view model",
+    "find": "v-for=\"product in gridProducts\"",
+    "replace": "v-for=\"product in products\""
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "grid view model renamed away (must be derived from the API list)",
+    "find": "const gridProducts = computed(() => products.value.map((product) => {",
+    "replace": "const gridProductsX = computed(() => products.value.map((product) => {"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "qualification vector label copy replaced by the old design-pending placeholder",
+    "find": "<text class=\"qualification-label\">\u5e97\u94fa\u8d44\u8d28</text>",
+    "replace": "<text class=\"qualification-label\">\u5f85\u8bbe\u8ba1\u63d0\u4f9b\u6587\u6848</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "cert badge back to a filled green disc (design is an outlined seal)",
+    "find": ".cert-badge { display: flex; align-items: center; justify-content: center; width: 29rpx; height: 29rpx; margin: 3rpx; border: 2rpx solid #00B42A; border-radius: 50%; box-sizing: border-box; }",
+    "replace": ".cert-badge { display: flex; align-items: center; justify-content: center; width: 35rpx; height: 35rpx; border-radius: 50%; background: #00B42A; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "qualification arrow grows back to the oversized 13rpx+3rpx square",
+    "find": ".qualification-arrow { width: 8rpx; height: 8rpx; border-top: 3rpx solid #86909C;",
+    "replace": ".qualification-arrow { width: 13rpx; height: 13rpx; margin-left: 8rpx; border-top: 3rpx solid #86909C;"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "qualification arrow gets a gap that the design does not have (Frame 124 has no gap)",
+    "find": "border-top: 3rpx solid #86909C; border-right: 3rpx solid #86909C; transform: rotate(45deg); }",
+    "replace": "margin-left: 8rpx; border-top: 3rpx solid #86909C; border-right: 3rpx solid #86909C; transform: rotate(45deg); }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "design-pending placeholder class comes back (reverse assertion)",
+    "find": ".qualification-label { color: #8C5D2A;",
+    "replace": ".qualification-placeholder { color: #8C5D2A;"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "qualification row stops opening the qualification page",
+    "find": "uni.navigateTo({ url: `/subpkg-goods/shop/qualification?shopId=${encodeURIComponent(shopId.value)}` })",
+    "replace": "uni.showToast({ title: 'x', icon: 'none' })"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "favourite star glyph size off design (vector box is 14x14)",
+    "find": ".shop-fav-star { color: #FFFFFF; font-size: 28rpx; line-height: 38rpx; }",
+    "replace": ".shop-fav-star { color: #FFFFFF; font-size: 25rpx; line-height: 38rpx; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "qualification label size/weight off design (render ink implies ~17px/600)",
+    "find": ".qualification-label { color: #8C5D2A; font-size: 33rpx; font-weight: 600; line-height: 35rpx; }",
+    "replace": ".qualification-label { color: #8C5D2A; font-size: 27rpx; font-weight: 400; line-height: 35rpx; }"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/index.vue",
+    "desc": "price symbol segment weight/size off design (12px/500)",
+    "find": ".goods-price-symbol { margin-right: 6rpx; color: #FF5500; font-size: 23rpx; font-weight: 500; }",
+    "replace": ".goods-price-symbol { margin-right: 6rpx; color: #FF5500; font-size: 23rpx; font-weight: 400; }"
+  },
+  {
+    "file": "mini_shop/components/goods/ShopEntryCard.vue",
+    "desc": "entry star run loses its letter-spacing (design star block is 62px wide)",
+    "find": ".entry-star { color: #FFB200; font-size: 20rpx; letter-spacing: 4rpx; line-height: 38rpx; }",
+    "replace": ".entry-star { color: #FFB200; font-size: 20rpx; line-height: 38rpx; }"
+  },
+  {
+    "file": "mini_shop/components/goods/ShopEntryCard.vue",
+    "desc": "entry arrow grows back to the oversized 12rpx+3rpx square (vector ink is 4.58x8.11)",
+    "find": ".entry-arrow { width: 8rpx; height: 8rpx; margin-left: 4rpx; border-top: 3rpx solid #FF5500;",
+    "replace": ".entry-arrow { width: 12rpx; height: 12rpx; margin-left: 4rpx; border-top: 3rpx solid #FF5500;"
+  },
+  {
+    "file": "mini_shop/api/shop.ts",
+    "desc": "ShopVO.businessName not declared (qualification page would read undefined)",
+    "find": "businessName?: string",
+    "replace": "businessNameX?: string"
+  },
+  {
+    "file": "mini_shop/pages.json",
+    "desc": "qualification page not registered",
+    "find": "\"path\": \"shop/qualification\",",
+    "replace": "\"path\": \"shop/qualificationX\","
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "licence block gets a hardcoded (invented) image URL",
+    "find": "{ key: 'business-license', heading: '\u7f51\u5e97\u8425\u4e1a\u6267\u7167\u4fe1\u606f\u516c\u793a\u5982\u4e0b\uff1a', images: [], note: LICENSE_NOTE },",
+    "replace": "{ key: 'business-license', heading: '\u7f51\u5e97\u8425\u4e1a\u6267\u7167\u4fe1\u606f\u516c\u793a\u5982\u4e0b\uff1a', images: ['https://cdn.example.com/license.png'], note: LICENSE_NOTE },"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "licence blocks stop being declared with an empty image source",
+    "find": "const sections = computed<QualificationSection[]>(() => [",
+    "replace": "const sectionsX = computed<QualificationSection[]>(() => ["
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "honest empty state copy replaced",
+    "find": "<text class=\"qual-empty-text\">\u8d44\u8d28\u4fe1\u606f\u6682\u672a\u516c\u793a</text>",
+    "replace": "<text class=\"qual-empty-text\">\u6682\u65e0</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "shop-name row label replaced",
+    "find": "<text class=\"qual-row-label\">\u5546\u5bb6\u5e97\u94fa\u540d\u79f0</text>",
+    "replace": "<text class=\"qual-row-label\">\u5e97\u94fa\u540d\u79f0</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "merchant entity read from a borrowed B-side field",
+    "find": "const businessName = computed(() => String(shop.value?.businessName || '').trim())",
+    "replace": "const businessName = computed(() => String(shop.value?.merchantName || '').trim())"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "empty merchant entity renders blank instead of \"not published\"",
+    "find": ">{{ businessName || '\u672a\u516c\u793a' }}<",
+    "replace": ">{{ businessName }}<"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "8000 SHOP_NOT_FOUND code not pinned",
+    "find": "const SHOP_NOT_FOUND_CODE = 8000",
+    "replace": "const SHOP_NOT_FOUND_CODE = 8001"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "shop-gone state stops rendering the documented copy",
+    "find": "<text>\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528</text>",
+    "replace": "<text>\u52a0\u8f7d\u5931\u8d25</text>"
+  },
+  {
+    "file": "mini_shop/subpkg-goods/shop/qualification.vue",
+    "desc": "licence legal note rendered even without a licence image",
+    "find": "<text v-if=\"section.note\" class=\"qual-note\">{{ section.note }}</text>",
+    "replace": "<text class=\"qual-note\">{{ section.note }}</text>"
+  }
+]
