@@ -1341,8 +1341,13 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .shop-content { margin-top: -23rpx; border-radius: 23rpx 23rpx 0 0; background: #FFFFFF; }
 
 /* 白内容区的**下半截**（在吸顶带**外面**、所以随页面滚动）：与上半截同为 `#FFFFFF`，
-   接缝不可见（上半截有上圆角与负间距，下半截只负责把白底与 40px 底部留白续完）。 */
-.shop-grid-area { padding-bottom: 77rpx; background: #FFFFFF; }
+   接缝不可见（上半截有上圆角与负间距，下半截只负责把白底与 40px 底部留白续完）。
+   ⚠️ 2026-10-10（用户反馈「筛选项和下方商品卡片太近了，商品卡片要往下方移动一点，
+      留出一小部分白色间隔」）⇒ 本切片加 `padding-top: 23rpx` 留出那条白色间隔。
+      取 **23rpx** 而非随手一个数：它等于筛选行自己的 `padding`（`.filter-row { padding: 23rpx }`），
+      上下同一节奏；⚠️ 间隔必须落在**这块白底切片**上，不要写成网格的 `margin`
+      —— 那会在带子与网格之间露出页面灰底（`#F2F3F7`），看着像一条脏缝。 */
+.shop-grid-area { padding-top: 23rpx; padding-bottom: 77rpx; background: #FFFFFF; }
 
 /* **吸顶带**（用户 2026-10-10 第八轮**决定 A**）：店铺卡 + 资质条 + Tab 行 + 筛选行
    **整体**吸在导航栏下（服务表现三格仍只收起，见 `.shop-service-row`）。
