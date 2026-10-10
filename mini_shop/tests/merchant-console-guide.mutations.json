@@ -92,13 +92,13 @@
     {
         "file": "mini_shop/utils/merchant-console.ts",
         "desc": "the initial-password rule is mis-stated (6 digits instead of 4, and 12 in total) - the rule is the ONLY thing the merchant has, so it must be pinned verbatim",
-        "find": "'申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位（共 8 位）'",
+        "find": "'电话后 4 位 + 身份证后 4 位（共 8 位）'",
         "replace": "'申请单联系电话去除非数字后取后 6 位 + 申请单身份证号去空格、末位 x 大写后取后 6 位（共 12 位）'"
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
         "desc": "the digit count is dropped from the initial-password line (the rule alone no longer says how long the password is)",
-        "find": "'申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位（共 8 位）'",
+        "find": "'电话后 4 位 + 身份证后 4 位（共 8 位）'",
         "replace": "'申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位'"
     },
     {

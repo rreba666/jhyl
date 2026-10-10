@@ -97,7 +97,7 @@ export const MERCHANT_CONSOLE_LOGIN_NAME_RULE = 'M + 商户ID（例：商户ID 1
  * ⚠️ 用户 2026-10-10 晚的要求（"初始密码的描述太冗余了，直接说初始密码是什么就行了"）仍然成立：
  *    本行只讲规则本身，由模板里的块标题「初始密码」承担"这是什么"；解释性从句一律不加回来。
  */
-export const MERCHANT_CONSOLE_PASSWORD_RULE = '申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位（共 8 位）'
+export const MERCHANT_CONSOLE_PASSWORD_RULE = '电话后 4 位 + 身份证后 4 位（共 8 位）'
 
 /**
  * 唯一的动作提示（**只保留一行** —— 用户 2026-10-10 要的是"砍掉冗余"）。
