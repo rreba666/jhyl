@@ -31,13 +31,28 @@
  *    这样未滚动时与 477rpx 的头图渐变**视觉连续**，滚动后返回箭头依然在。
  * 3. **无阴影**：设计里白卡那条 `DROP_SHADOW #E56A00@20% off(0,-8) r16` 是 `visible:false`
  *    ⇒ 实现**不加阴影**（且 `clips` 也会裁掉向上偏移的阴影）。
- * 4. **收藏按钮的渐变角度**：节点是 `handles=(0,0)→(1,1)`，即**按包围盒归一化的对角线**
- *    （66×28 的盒子 ⇒ 方向 (66,28)），**不是** CSS 的 `135deg`（那是屏幕空间 45°，在扁盒子上
- *    会明显过陡、颜色提前跑完）。等价 CSS 角度 = `180deg - atan(W/H)` = 180 - atan(66/28)
- *    ≈ **113deg**（用渲染图逐点取样反解验证过：t≈0.068/0.564/0.945 三处都吻合）。
- * 5. **认证徽标**：设计是 18×18 实例内的 **14.83 描边「扇贝形」徽章**（绿描边 + 绿对勾），
- *    不是实心绿圆。扇贝（8 瓣波浪边）在 WXSS 里画不出来 ⇒ 退化为**同色的描边圆 + 绿对勾**
- *    （去掉填充色是这次最关键的修正：旧实现画成了实心绿圆 + 白对勾）。
+ * 4. **收藏按钮的渐变角度 = 104.7deg**（⚠️ 2026-10-10 第三轮**改了**；旧值 113deg 是错的）。
+ *    节点是 `handles=(0,0)→(1,1)→(-0.5,4.5)` —— **第三个 handle 不能丢**：Figma 三个 handle 定义的是
+ *    仿射变换 `p = h0 + u·(h1−h0) + v·(h2−h0)`，而渐变颜色**只随 u 变化** ⇒ 等色线沿 `(h2−h0)`，
+ *    **不是**沿包围盒对角线。把 u 在像素空间的梯度解出来：`∇u = (0.9/66, 0.1/28) ∝ (126, 33)`，
+ *    方向比 **dx/dy = 3.818**（"只看 h0/h1"会得到 66/28 = 2.357 ⇒ 那是错的来源）。
+ *    等价 CSS 角度 = `180deg − atan(3.818)` = **104.7deg**。
+ *    实测（从 `card-4045-5826-x4.png` 抠出按钮内部、按 3×3 邻域腐蚀掉抗锯齿边后剩 **1131 点**）：
+ *    · `104.7deg` 的 t 误差 rms **0.0063** / 中位 **0.0050** / 最大 **0.0197**（与仿射模型逐点相同）；
+ *    · 旧的 `113deg` 是 rms **0.0241** / 中位 **0.0181** / 最大 **0.0565**（**3.9 倍**）⇒ 确证 113deg 错。
+ * 5. **认证徽标是真实切图**（本轮修正）：设计是 18×18 实例内的 **14.83 描边「扇贝形」徽章**
+ *    （绿描边 + 绿对勾），既不是实心绿圆、也不是"描边圆 + ✓ 字形"能近似的 —— 本轮**直接从 Figma 导出**
+ *    （节点 `4045:5862`）⇒ `static/shop/cert-badge.png`（18×18 @3x = 54×54，透明底；
+ *    实测 584 个不透明像素**全部**是 `#00B42A`，四角 alpha=0）。旧的 CSS 圆 + 字形已删除。
+ * 6. **切图总口径（第三轮）**：能导出的矢量艺术**导出**，其余**明确**保留字形/CSS：
+ *    ① 导出：`cert-badge.png`（认证徽章）、`fav-star.png`（收藏按钮的**空心**白星，14×14 @3x = 42×42，
+ *       透明底，实测中心像素 alpha=0 ⇒ 空心）；两者都放**分包** `subpkg-goods/static/shop/`（不占主包额度）。
+ *    ② 保留 CSS：右箭头 / 返回箭头（"正方形两边旋转 45°"的折线，墨迹 `0.707·(B+t) × 1.414·B`；
+ *       收藏按钮那颗 B=11rpx/t=3rpx ⇒ 5.15×8.09px，设计 4.58×8.11px，差 12%；单色、可随状态改色、
+ *       任意 DPR 下都锐利）、排序双三角（CSS 三角 5.2×3.12px vs 设计 5.18×3.31px）、
+ *       评分实心星 `★`（见下：只在有真实评分时按分值渲染）。
+ *    ③ **不导出设计稿的 logo**：它是 IMAGE 填充（平台自己的品牌图），拿它当"门店门头图"= 给没有
+ *       logo 的门店安一个别人的 logo ⇒ 未配置 `shopImage` 时只画 10% 白的中性方块（无图无字）。
  *
  * ## 数据来源（2026-10-10 S2b / S3 已全部落地，本页不再有"无接口"的占位逻辑）
  * 本页**两个真实数据源**（都免登录、游客可访问）：
@@ -59,13 +74,22 @@
  * ⚠️ 负间距与设计值断言注意：网格为空时**不渲染** `.goods-grid`（连同它的 `padding`），
  *    否则空态下面会多出一条白的空隙。
  *
- * 设计里这些元素**现有契约一个字段都没有**，因此**一律不渲染**（不编文案、不放 `0`/`—`、不硬编码
- * 设计稿的填充数字）：
- * - 店铺**评分**：契约无 `rating`（`MerchantOverviewVO.serviceScore` 是**恒 null 占位**，不得挪用）；
- * - 店铺**粉丝数**：契约无 `fansCount`（`ShopVO.boundUserCount` = 「已绑定微信人数」，**语义不同**）；
- * - **服务表现**三格：契约无服务指标字段；
- * - **店铺收藏**：契约无关注/收藏店铺的读写接口（全库只有**商品**收藏）。
- * 缺口清单/优先级见 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3。
+ * ## 新节点 `4045:5826`（= 本页店铺卡 `Frame 114`）**确认了什么、我们仍填不了什么**
+ * 2026-10-10 第三轮重取该节点（390×143，`docs/_ref/shop-card-4045-5826/`）——它**只覆盖店铺卡本体**
+ * （logo + 店名 + 评分行 + 收藏按钮 + 服务表现三格），**不含**资质条 / Tab / 筛选 / 商品网格。
+ * 卡内的两块在契约里**依然一个字段都没有**（下面逐条给了 2026-10-10 的复核方式）⇒ **一律不渲染**
+ * （不编文案、不放 `0`/`—`、不硬编码设计稿的填充数字）：
+ * - 店铺**评分**（节点 `4045:5834..5841`：5 颗 10×10 实心星 + `5.0`，`#FFB200`）：
+ *   契约无 `rating`（`MerchantOverviewVO.serviceScore` 是**恒 null 占位**，不得挪用）。
+ *   复核：本地 `api_doc.json` 与 dev `/v3/api-docs`（HTTP 200，1 394 605 B）的 `ShopVO` 逐字段一致，
+ *   37 个字段里**没有**任何评分字段；
+ * - 店铺**粉丝数**（节点 `4045:5843` = `3484 粉丝`）：契约无 `fansCount`；`ShopVO.boundUserCount`
+ *   = 「已绑定微信人数」，**语义不同**，且实测 dev `/api/shop/all` 14 家**全都没下发**该键；
+ * - **服务表现**三格（节点 `4045:5847`：128/116/103 × 55，`#FFFFFF@10%`，r=6）：契约无服务指标字段。
+ * - **店铺收藏**：契约无关注/收藏店铺的读写接口（全库只有**商品**收藏）⇒ 按钮只提示未开放。
+ * ⇒ 已按本轮口径把这三项进需求单：`docs/26/10.10/后端需求-店铺页数据缺口-2026-10-10.md` **R8**
+ *   （P0：评分 / 粉丝数 / 服务表现，含需要的字段名与待定口径）；旧的缺口清单见
+ *   `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onReachBottom } from '@dcloudio/uni-app'
@@ -379,6 +403,9 @@ function formatAmount(value: number): string {
         <view class="shop-card">
           <view class="shop-card-head">
             <image v-if="logo" class="shop-logo" :src="logo" mode="aspectFill" />
+            <!-- 没有 `shopImage` 时画**中性方块**（`.shop-logo` 自带的 10% 白底），不塞占位图：
+                 设计稿的 logo 是 IMAGE 填充（平台自己的品牌图），拿它顶 = 伪造门店归属。 -->
+            <view v-else class="shop-logo" />
             <view class="shop-card-main">
               <text class="shop-name">{{ shop?.name }}</text>
               <!-- ⚠️ 评分行与粉丝数：设计里这两项是**写死的填充文案**，契约里既没有 `rating`
@@ -386,14 +413,16 @@ function formatAmount(value: number): string {
                    注意：不得用 `MerchantOverviewVO.serviceScore`（恒 null 占位）或
                    `ShopVO.boundUserCount`（已绑定微信人数）顶替。 -->
               <!-- ✅ 门店档案现在是**真实数据**（`GET /api/shop/{shopId}`，S3）：
-                   店名走 `shop.name`、logo 走 `shop.shopImage`（未配置时不画 `<image>`，不塞占位图）。 -->
+                   店名走 `shop.name`、logo 走 `shop.shopImage`；未配置时画**中性方块**（不是占位图、
+                   也不是设计稿那枚平台自己的品牌图）。 -->
             </view>
             <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
-                 （方向 handle (0,0)→(1,1) = 按包围盒归一化的对角线 ⇒ CSS `113deg`，见样式表注释），
-                 内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星，文案白字 12px。
+                 （三个 handle 的仿射变换 ⇒ CSS `104.7deg`，见样式表注释），
+                 内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星（真实切图，
+                 `static/shop/fav-star.png`），文案白字 12px。
                  点击只提示（店铺收藏读写接口缺失，见 onFavoriteTap 注释）。 -->
             <view class="shop-fav" @click="onFavoriteTap">
-              <text class="shop-fav-star">☆</text>
+              <image class="shop-fav-star" src="/subpkg-goods/static/shop/fav-star.png" mode="aspectFit" />
               <text class="shop-fav-text">收藏</text>
             </view>
           </view>
@@ -410,9 +439,15 @@ function formatAmount(value: number): string {
                ⚠️ 旧实现按"文案待设计提供"渲染了虚线占位 —— 那是**看漏了渲染图**，已按实测改为真文案。 -->
           <text class="qualification-label">店铺资质</text>
           <view class="qualification-link" @click="onQualificationTap">
-            <view class="cert-badge"><text class="cert-check">✓</text></view>
+            <!-- 认证徽章：设计 `4045:5862` 是 18×18 实例内的 14.83 描边**扇贝形**绿章 + 绿勾，
+                 整枚是**一个绿色矢量**（`#00B42A`）—— 扇贝的 8 瓣波浪边 WXSS 画不出来，
+                 所以**直接导出切图**（`static/shop/cert-badge.png`，18×18 @3x，透明底，
+                 实测 584 个不透明像素全部为 `#00B42A`）。旧实现是"描边圆 + ✓ 字形"，已删除。 -->
+            <image class="cert-badge" src="/subpkg-goods/static/shop/cert-badge.png" mode="aspectFit" />
             <text class="qualification-text">经营资质</text>
-            <view class="qualification-arrow" />
+            <!-- 箭头：`箭头_右` 实例 **14×14**（矢量 ink 4.58×8.11）——外层盒子必须占满 14×14，
+                 否则整条"经营资质"会右移（设计里 `Frame 124` 无 gap：18 + 4 + 52 + 14 = 88）。 -->
+            <view class="qualification-arrow-box"><view class="qualification-arrow" /></view>
           </view>
         </view>
 
@@ -538,13 +573,16 @@ page { background: #F2F3F7; overflow-x: hidden; }
 /* 店名 16px/600/行高 24，白色 */
 .shop-name { color: #FFFFFF; font-size: 31rpx; font-weight: 600; line-height: 46rpx; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* 「收藏」按钮 66×28 圆角 4，渐变 #FF9900 → #FF3C00，内边距 上4/右12/下4/左12，间距 4。
-   ⚠️ 角度是 **113deg** 而不是 `135deg`：节点的 `handles=(0,0)→(1,1)` 是**按包围盒归一化的对角线**
-   （66×28 的盒子 ⇒ 方向向量 (66,28)），等价 CSS 角度 = `180deg - atan(W/H)` ≈ 113deg。
-   `135deg` 是屏幕空间 45°，在扁盒子上会明显过陡（渲染图取样反解验证：t≈0.068/0.564/0.945 三处全中）。 */
-.shop-fav { display: flex; align-items: center; flex: none; height: 54rpx; padding: 8rpx 23rpx; border-radius: 8rpx; background: linear-gradient(113deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }
-/* 星形：设计是 14×14 的**空心（描边）**白星 —— 节点名 `收藏` 下的矢量叫 `Star 1 (Stroke)`，
-   渲染图放大后也是空心星。⚠️ 旧实现用了实心 `★`，这是"抄了名字没看图"。 */
-.shop-fav-star { color: #FFFFFF; font-size: 28rpx; line-height: 38rpx; }
+   ⚠️ 角度是 **104.7deg**：节点的三个 handle 是 (0,0) → (1,1) → (-0.5,4.5)，
+   仿射变换 `p = h0 + u·(h1−h0) + v·(h2−h0)` 里**只有 u 决定颜色** ⇒ 等色线沿 (h2−h0)，
+   像素空间梯度 `∇u = (0.9/66, 0.1/28) ∝ (126,33)` ⇒ dx/dy = 3.818 ⇒ CSS 角度 = 180 − atan(3.818)。
+   （旧值 113deg 只看 h0/h1、丢了第三个 handle；渲染图 1131 点实测 rms 0.0241 vs 104.7deg 的 0.0063。） */
+.shop-fav { display: flex; align-items: center; flex: none; height: 54rpx; padding: 8rpx 23rpx; border-radius: 8rpx; background: linear-gradient(104.7deg, #FF9900 0%, #FF3C00 100%); box-sizing: border-box; }
+/* 星形：设计是 14×14 的**空心（描边）**白星（节点 `4045:5845`，`Star 1 (Stroke)`）
+   —— 真机字号下的 `☆` 字形笔画比设计细很多，故**用导出的切图**（14×14 @3x = 42×42，透明底、
+   纯白、中心 alpha=0 即空心）。宽度 27rpx = 14.04px，与文字间距 8rpx = 4.16px（设计 gap 4）
+   ⇒ 按钮总宽 12 + 14 + 4 + 24 + 12 = 66 ✓。 */
+.shop-fav-star { width: 27rpx; height: 27rpx; flex: none; }
 .shop-fav-text { margin-left: 8rpx; color: #FFFFFF; font-size: 23rpx; line-height: 38rpx; }
 
 /* ④ 资质条：390×56（108rpx），`#FFF4E8`，**只有上圆角 12**，左右两侧 space-between、垂直居中。 */
@@ -552,18 +590,18 @@ page { background: #F2F3F7; overflow-x: hidden; }
 /* 「店铺资质」：转曲矢量渲染图实测 ink 66.86×14、`#8C5D2A` ⇒ 字号 ≈17px（4 字 × 16.7）、字重 600。 */
 .qualification-label { color: #8C5D2A; font-size: 33rpx; font-weight: 600; line-height: 35rpx; }
 .qualification-link { display: flex; align-items: center; }
-/* 认证徽标：设计是 18×18 实例内的 **14.83 描边扇贝形**徽章（`#00B42A` 描边 + 同色对勾）。
-   扇贝的 8 瓣波浪边 WXSS 画不出来 ⇒ 退化为**描边圆 + 绿对勾**（关键修正：不再是实心绿圆 + 白对勾）。
-   外框保持 18px（35rpx），圆环 29rpx（15.1px ≈ 设计的 14.83）居中，故左右各留 3rpx。 */
-.cert-badge { display: flex; align-items: center; justify-content: center; width: 29rpx; height: 29rpx; margin: 3rpx; border: 2rpx solid #00B42A; border-radius: 50%; box-sizing: border-box; }
-.cert-check { color: #00B42A; font-size: 19rpx; line-height: 1; }
+/* 认证徽标：设计是 18×18 实例内的 **14.83 描边扇贝形**徽章（节点 `4045:5862`，整枚一个绿色矢量）。
+   扇贝边 WXSS 画不出来 ⇒ **直接用导出的切图**，盒子 = 实例的 18px（35rpx）。
+   （旧实现是"描边圆 + ✓ 字形"：圆 ≠ 扇贝、字形笔画也与设计不同，已删除。） */
+.cert-badge { width: 35rpx; height: 35rpx; flex: none; }
 /* 「经营资质」13px/400/行高 20，`#86909C`；与徽标间距 4（8rpx）。 */
 .qualification-text { margin-left: 8rpx; color: #86909C; font-size: 25rpx; line-height: 38rpx; }
-/* 箭头：`箭头_右` 实例 14×14 内的矢量 ink 4.58×8.11（`#86909C`）。
-   ⚠️ 折线用「正方形两边旋转 45°」画：旋转后的 ink = 0.707·S × 1.414·S，S = width + border
-   ⇒ 取 width/height 8rpx + 3rpx 边框 ⇒ ink ≈ 4.05×8.09px，与设计基本重合。
-   旧实现 13rpx+3rpx ⇒ ink 5.9×11.8px，大了 ~45%。
-   ⚠️ 设计里文案与箭头**没有间距**（`Frame 124` 无 gap：52 + 14 = 66）⇒ 这里不能加 margin-left。 */
+/* 箭头：`箭头_右` 实例 **14×14** 内的矢量 ink 4.58×8.11（`#86909C`）。
+   外层盒子必须占满实例的 14px（27rpx）—— 设计里 `Frame 124` **无 gap**（18 + 4 + 52 + 14 = 88），
+   只画墨迹会让整条链接比设计窄 8px、箭头贴到最右。
+   折线仍用「正方形两边旋转 45°」画：墨迹 = 0.707·(B+t) × 1.414·B，B = 8rpx + 3rpx 边框
+   ⇒ ≈ 5.15×8.09px，设计 4.58×8.11px（宽 12%；单色、可随状态改色、任意 DPR 都锐利 ⇒ 不切图）。 */
+.qualification-arrow-box { display: flex; align-items: center; justify-content: center; width: 27rpx; height: 27rpx; flex: none; }
 .qualification-arrow { width: 8rpx; height: 8rpx; border-top: 3rpx solid #86909C; border-right: 3rpx solid #86909C; transform: rotate(45deg); }
 
 /* ⑤ 白内容区：圆角 12/12/0/0 + 底部留白 40px（77rpx）。
