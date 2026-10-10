@@ -178,7 +178,10 @@ function onEnter(): void {
         <text v-if="shopName" class="entry-name">{{ shopName }}</text>
         <!-- 评分行：星级 + 分数 + 分隔线 + 粉丝数；三块各自有真实数据才出现
              （设计里的数字是填充文案，不硬编码；S4 起数据来源 = `ShopVO.rating` / `fansCount`）。 -->
-        <view v-if="rating || fans" class="entry-rating">
+        <!-- ⚠️ 2026-10-10 第七轮（用户决定）：本行**不再整行消失** —— 用户要「**要留着那里**」，
+             没有值就用 `--`（明确表示"无此数据"，不是伪造）。与店铺页 `shop/index.vue` 的
+             `shop-metrics-row` 保持逐字同构，两卡不得分叉。 -->
+        <view class="entry-rating">
           <view v-if="stars" class="entry-stars">
             <!-- ⚠️ 设计稿里五颗星复用的是一个**名叫 `收藏_填充`** 的组件（`4002:4148`，内部矢量却叫
                  `Star 1 (Stroke)`）—— 名字有误导性，但**这里的星是实心的**（渲染图确认：
@@ -188,12 +191,12 @@ function onEnter(): void {
                  ⚠️ 星串由 `ratingStars()` 按**真实分值**算（不写死五颗）：写死五颗实心 = 把 3.2 分的店
                  显示成满分（视觉伪造数据）。用字形而不是切图：单色、可随数据改色、任意 DPR 都锐利。 -->
             <text class="entry-star">{{ stars }}</text>
-            <text class="entry-score">{{ rating }}</text>
+            <text class="entry-score">{{ rating || '--' }}</text>
           </view>
           <view v-if="rating && fans" class="entry-divider" />
-          <!-- ⚠️ 粉丝数只渲染**真实值**（`ShopVO.fansCount`，契约：恒不为 null、0 = 暂无粉丝）
-                 ⇒ 0 也照实显示 `0 粉丝`；字段缺失（老后端）时整段不出现，不留 `0`、不留 `—`。 -->
-          <text v-if="fans" class="entry-fans">{{ fans }}</text>
+          <!-- ⚠️ 2026-10-10 第七轮：粉丝数缺值时显示 `--`（原先"整段不出现"），
+                 与店铺页同构；`0` 仍是**真实值**（契约：恒不为 null、0 = 暂无粉丝）⇒ 照实显示 `0 粉丝`。 -->
+          <text class="entry-fans">{{ fans || '--' }}</text>
         </view>
         <!-- 评分的解释文案：契约明写评分是**客观指标合成、非用户评价**，而设计只画了
              「★★★★★ 5.0」⇒ 不加这一行会被读成"用户评分"（被动误导）。只在真有评分时出现，

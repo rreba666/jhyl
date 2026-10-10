@@ -96,13 +96,30 @@ export function fansText(fansCount: number | null | undefined): string {
  * ① 准时送达率 `onTimeRate`（0~1 → 一位小数百分比，与契约示例 `0.972` 口径一致）；
  * ② 平均接单时长 `avgAcceptSeconds`（秒 → `N 秒`；≥60 秒时换算成分钟，避免出现 `523 秒` 这种读不动的值）。
  *
- * ⚠️ **缺哪项就少哪一格**：契约明写两项"无数据时为 null" ⇒ 直接过滤掉，
- *    **不补位置、不补 `—`、不补 0**（0% 准时率与"没有配送单"是两件事）。
- * ⚠️ 返回顺序固定（先准时送达、后平均接单）—— 契约没给顺序，前端按"可读性优先"排，
- *    并在这里写死而不是散在模板里，两张卡的顺序才不会分叉。
+ * ⚠️⚠️ 2026-10-10 第七轮（用户决定）：**设计稿那三格的位置必须留着，没有值就用 `--` 占位**
+ *    （用户原话：「要做，用 -- 代替都行，**要留着那里**」）。
+ *    ⇒ 本函数现在**无条件**返回设计稿的三个固定格（口碑品质 / 发货时效 / 客服响应），
+ *      取不到值时填 `--`。`--` 是明确表示"无此数据"，**不是伪造数据**，与仓库硬原则不冲突。
+ *
+ * ⚠️ 口径纪律（别为了填满格子去错配）：设计稿三格是**满意度 / 发货时效 / 客服响应**，
+ *    而契约目前**只有** `onTimeRate`（**准时送达率**）与 `avgAcceptSeconds`（**平均接单时长**）——
+ *    **两者口径不同**，所以：
+ *    · 「口碑品质」「发货时效」「客服响应」三格**一律 `--`**（那三项契约里没有字段：
+ *      满意度连评价模块都没有；客服响应连 IM/会话实体都没有）；
+ *    · 两个**真实**指标**另起两格**、用**它们自己的准确标签**（准时送达 / 平均接单）追加在后面，
+ *      有值时才出现。⇒ 格子数 3~5，模板用 flex 等分自适应，不会破版。
+ *    ⛔ 禁止把 `onTimeRate` 塞进「发货时效」、或把 `avgAcceptSeconds` 塞进「客服响应」——
+ *      那是**改文案冒充**，比留空更糟。
+ * ⚠️ 返回顺序固定（先三个设计格，再两个真实格）—— 契约没给顺序，写死在这里而不是散在模板里，
+ *    两张卡（店铺页 + 进店卡）的顺序才不会分叉。
  */
 export function shopServiceMetrics(shop: ShopObjectiveMetrics | null | undefined): ShopServiceMetric[] {
-  const list: ShopServiceMetric[] = []
+  // 设计稿的三格：契约当前无字段 ⇒ 固定 `--` 占位（用户要求"留着那里"）。
+  const list: ShopServiceMetric[] = [
+    { name: '口碑品质', value: '--' },
+    { name: '发货时效', value: '--' },
+    { name: '客服响应', value: '--' },
+  ]
   const rate = shop?.onTimeRate
   if (rate !== null && rate !== undefined && Number.isFinite(Number(rate))) {
     // 契约示例 `0.972` 恰好是一位小数百分比；`toFixed(1)` 对 0 / 1 也给出 `0.0%` / `100.0%`（真实值，照实显示）。
@@ -113,5 +130,5 @@ export function shopServiceMetrics(shop: ShopObjectiveMetrics | null | undefined
     const total = Number(seconds)
     list.push({ name: '平均接单', value: total >= 60 ? `${Math.round(total / 60)} 分钟` : `${Math.round(total)} 秒` })
   }
-  return list.slice(0, SHOP_METRIC_LIMIT)
+  return list
 }

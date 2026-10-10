@@ -918,15 +918,19 @@ function formatAmount(value: number): string {
               id="shop-metrics-block"
               class="shop-metrics-block"
             >
-              <view v-if="rating || fans" class="shop-metrics-row">
-                <view v-if="rating" class="shop-rating">
-                  <text class="shop-stars">{{ stars }}</text>
-                  <text class="shop-score">{{ rating }}</text>
+              <!-- ⚠️ 2026-10-10 第七轮（用户决定）：本行**不再整行消失** —— 用户要
+                   「**要留着那里**」，没有值就用 `--`（明确表示"无此数据"，不是伪造）。
+                   取不到值时：分数显示 `--`、粉丝显示 `--`；星星与竖线仍只在有真值时才画
+                   （空星串 + 一根悬空竖线反而更像坏了）。 -->
+              <view class="shop-metrics-row">
+                <view class="shop-rating">
+                  <text v-if="stars" class="shop-stars">{{ stars }}</text>
+                  <text class="shop-score">{{ rating || '--' }}</text>
                 </view>
                 <!-- 分隔竖线：设计 `Frame 122` 1×8 `#FFFFFF@70%`（节点 opacity 0.8）；
                      只有两边都有值时才画（单边时不出现一根悬空的竖线）。 -->
                 <view v-if="rating && fans" class="shop-divider" />
-                <text v-if="fans" class="shop-fans">{{ fans }}</text>
+                <text class="shop-fans">{{ fans || '--' }}</text>
               </view>
               <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
             </view>
