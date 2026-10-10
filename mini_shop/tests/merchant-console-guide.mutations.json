@@ -31,9 +31,9 @@
     },
     {
         "file": "mini_shop/subpkg-merchant/home/index.vue",
-        "desc": "the password RULE sentence is duplicated into the template instead of using the shared constant",
+        "desc": "the password RULE is restated in the template instead of using the shared constant (two sources of truth for a credential)",
         "find": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text>",
-        "replace": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text><text class=\"console-block-text\">手机号后 4 位 + 身份证后 4 位</text>"
+        "replace": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text><text class=\"console-block-text\">去除非数字后取后 4 位</text>"
     },
     {
         "file": "mini_shop/subpkg-merchant/home/index.vue",
@@ -67,19 +67,19 @@
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "an un-issued console account is no longer stated in words",
+        "desc": "an un-opened console account is no longer stated in words",
         "find": "value: '尚未发放',",
         "replace": "value: '待定',"
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "the long-winded prefix the user cut comes back (\"the password is set when CS issues the account / unless customer service set one\") - INVERTED 2026-10-10 ninth pass: re-adding it IS the regression now",
+        "desc": "the long-winded prefix the user cut comes back (\"the password is set when CS issues the account / unless customer service set one\") - INVERTED 2026-10-10: re-adding it IS the regression now",
         "find": "export const MERCHANT_CONSOLE_PASSWORD_RULE = ",
-        "replace": "const MERCHANT_CONSOLE_PASSWORD_RULE_LEGACY = '密码由客服发号时设置。若客服未单独设置'\r\nexport const MERCHANT_CONSOLE_PASSWORD_RULE = "
+        "replace": "const MERCHANT_CONSOLE_PASSWORD_RULE_LEGACY = '密码由客服发号时设置。若客服未单独设置'\nexport const MERCHANT_CONSOLE_PASSWORD_RULE = "
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "the \"issued but no work number came back\" case is blanked out (that is where a guessed account would appear)",
+        "desc": "the \"opened but no work number came back\" case is blanked out (that is where a guessed account would appear)",
         "find": "value: '已发放，工号未返回',",
         "replace": "value: '已发放',"
     },
@@ -87,36 +87,132 @@
         "file": "mini_shop/utils/merchant-console.ts",
         "desc": "the notice the user cut comes back as the whole old note (\"the mini program does not show the password / first login may force a change / forgot it, contact CS\")",
         "find": "export const MERCHANT_CONSOLE_PASSWORD_NOTE = ",
-        "replace": "export const MERCHANT_CONSOLE_PASSWORD_NOTE = '小程序不显示密码。首次登录若被要求先修改初始密码，请按提示修改后再使用其它功能；忘记密码或提示密码错误，请联系客服重置。'\r\nexport const MERCHANT_CONSOLE_PASSWORD_NOTE_LEGACY = "
+        "replace": "export const MERCHANT_CONSOLE_PASSWORD_NOTE = '小程序不显示密码。首次登录若被要求先修改初始密码，请按提示修改后再使用其它功能；忘记密码或提示密码错误，请联系客服重置。'\nexport const MERCHANT_CONSOLE_PASSWORD_NOTE_LEGACY = "
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "the initial-password rule is mis-stated (6 digits instead of 4, and 12 in total) - the rule IS in the current contract, so it must be pinned verbatim",
-        "find": "'手机号后 4 位 + 身份证后 4 位（共 8 位）'",
-        "replace": "'手机号后 6 位 + 身份证后 6 位（共 12 位）'"
+        "desc": "the initial-password rule is mis-stated (6 digits instead of 4, and 12 in total) - the rule is the ONLY thing the merchant has, so it must be pinned verbatim",
+        "find": "'申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位（共 8 位）'",
+        "replace": "'申请单联系电话去除非数字后取后 6 位 + 申请单身份证号去空格、末位 x 大写后取后 6 位（共 12 位）'"
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
         "desc": "the digit count is dropped from the initial-password line (the rule alone no longer says how long the password is)",
-        "find": "'手机号后 4 位 + 身份证后 4 位（共 8 位）'",
-        "replace": "'手机号后 4 位 + 身份证后 4 位'"
+        "find": "'申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位（共 8 位）'",
+        "replace": "'申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位'"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the phone normalisation (\"strip non-digits\") is dropped from the rule (the merchant would take the last 4 characters instead of the last 4 digits)",
+        "find": "申请单联系电话去除非数字后取后 4 位",
+        "replace": "申请单联系电话取后 4 位"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the id-card normalisation (\"strip spaces, upper-case a trailing x\") is dropped from the rule",
+        "find": "申请单身份证号去空格、末位 x 大写后取后 4 位",
+        "replace": "申请单身份证号取后 4 位"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the login-name rule is mis-stated (the prefix is no longer the documented one)",
+        "find": "'M + 商户ID（例：商户ID 1024 的登录名为 M1024）'",
+        "replace": "'工号 + 商户ID（例：商户ID 1024 的登录名为 M1024）'"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the login-name rule is copy-pasted into the template (two sources of truth for a login name)",
+        "find": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_LOGIN_NAME_RULE }}</text>",
+        "replace": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_LOGIN_NAME_RULE }}</text><text class=\"console-block-text\">M + 商户ID（例：商户ID 1024 的登录名为 M1024）</text>"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the obsolete \"wait for customer service to issue a work number\" sentence comes back into the un-opened note (section 7-4 declares it obsolete)",
+        "find": "export function merchantConsoleAccount(",
+        "replace": "const OLD_PENDING_COPY = '客服发放工号后即可登录电脑端后台'\nexport function merchantConsoleAccount("
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the un-opened note stops saying the account is opened automatically (the merchant would wait for a human who is no longer in the loop)",
+        "find": "审核通过后系统会自动开通电脑端后台",
+        "replace": "后台账号状态以系统为准"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the legacy caveat is dropped (applications approved before auto account creation are NOT back-filled)",
+        "find": "不会追溯补号",
+        "replace": "以系统记录为准"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the change-password nudge stops saying that skipping it is fine (item 10-6: it must not become a gate)",
+        "find": "不修改也能正常使用",
+        "replace": "修改后才能正常使用"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the nudge drops the only self-service route (the staff account can change its password in the other app)",
+        "find": "登录核销页后点「修改密码」可自助修改",
+        "replace": "请自行处理"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the nudge drops the \"the two accounts do not affect each other\" statement (section 7-5)",
+        "find": "改一个不影响另一个",
+        "replace": "改一个两处都生效"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the nudge is no longer dismissible (its label constant disappears)",
+        "find": "export const MERCHANT_CONSOLE_SUGGEST_CHANGE_DISMISS = ",
+        "replace": "const MERCHANT_CONSOLE_SUGGEST_CHANGE_DISMISS_LEGACY = "
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the nudge's dismiss button is wired to the sheet closer instead (the flag would never be written)",
+        "find": "@click=\"dismissSuggest\"",
+        "replace": "@click=\"closeConsoleGuide\""
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the nudge becomes a GATE on the entry (dismissing it would block the login guide)",
+        "find": "async function openConsoleGuide(): Promise<void> {",
+        "replace": "async function openConsoleGuide(): Promise<void> {\n  if (suggestDismissed.value) return"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "dismissing the nudge also does something else (the handler is pinned so a second action cannot slip in)",
+        "find": "function dismissSuggest(): void {",
+        "replace": "function dismissSuggest(): void {\n  uni.showModal({ title: 'x', showCancel: false })\n  return"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the obsolete \"issued separately by customer service\" wording comes back as user-visible copy (section 8-2)",
+        "find": "<text class=\"hint\">{{ statusHint }}</text>",
+        "replace": "<text class=\"hint\">商家工号由客服另行发放</text>"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the H5 verification host is introduced into the mini program (a client this sheet does not describe)",
+        "find": "export const MERCHANT_CONSOLE_URL",
+        "replace": "const H5_ENTRY = 'https://ylcqcode.jinhuayou365.com'\nexport const MERCHANT_CONSOLE_URL"
     },
     {
         "file": "mini_shop/subpkg-merchant/home/index.vue",
         "desc": "the workbench reads a `password` field from the application payload",
         "find": "const consoleApply = ref<MerchantApplyVO | null>(null)",
-        "replace": "const consoleApply = ref<MerchantApplyVO | null>(null)\r\nconst consolePwd = computed(() => String((consoleApply.value as any)?.password || ''))"
+        "replace": "const consoleApply = ref<MerchantApplyVO | null>(null)\nconst consolePwd = computed(() => String((consoleApply.value as any)?.password || ''))"
     },
     {
         "file": "mini_shop/subpkg-merchant/home/index.vue",
         "desc": "the mini program calls the central-console password endpoint",
         "find": "const consoleApply = ref<MerchantApplyVO | null>(null)",
-        "replace": "const consoleApply = ref<MerchantApplyVO | null>(null)\r\nconst consolePwdUrl = '/api/admin/staff/{id}/login-password'"
+        "replace": "const consoleApply = ref<MerchantApplyVO | null>(null)\nconst consolePwdUrl = '/api/admin/staff/{id}/login-password'"
     },
     {
         "file": "mini_shop/utils/merchant-console.ts",
-        "desc": "the copy sends merchants to the H5 verification route instead of the PC console",
+        "desc": "the copy sends merchants to the H5 verification route as a login destination instead of the PC console",
         "find": "export const MERCHANT_CONSOLE_SHEET_SUB = ",
-        "replace": "export const MERCHANT_CONSOLE_H5_NOTE = '店长请用 H5 核销页'\r\nexport const MERCHANT_CONSOLE_SHEET_SUB = "
+        "replace": "export const MERCHANT_CONSOLE_H5_NOTE = '店长请用 H5 核销页'\nexport const MERCHANT_CONSOLE_SHEET_SUB = "
     }
 ]

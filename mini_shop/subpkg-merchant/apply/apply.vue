@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import { getMyMerchantApply, submitMerchantApply, type MerchantApplyVO } from '@/api/merchant'
 import { ApiRequestError, uploadFile } from '@/utils/request'
-import { validateIdCard } from '@/utils/input-validation'
+import { validateApplyContactPhone, validateApplyIdCardFloor, validateIdCard } from '@/utils/input-validation'
 // ⚠️ 2026-10-01 新增：图片上传前统一压缩，不再指望用户自己把图裁到规定尺寸。
 import {
   chooseAndCompressImage,
@@ -93,12 +93,17 @@ const statusHint = computed(() => {
   if (!item) return ''
   if (item.status === 0) return '资料已提交，平台正在审核（1–3 个工作日）。'
   if (item.status === 2) return '申请未通过，请按驳回原因修改后重新提交（同名品牌可直接重提）。'
-  // 入驻审核通过会**同时**授予「商家 MERCHANT_OWNER」与「首店店长 MANAGER」两个身份，
-  // 而**店长身份不需要工号**（只有商家主账号卡工号）→ 通过后立刻就能进小程序「门店管理」。
-  // `backendAccountIssued` 只决定能否登 PC 控制台 / H5 核销页，**不阻塞小程序入口**，
-  // 所以两种状态都不该让用户以为"还要等发号"。
-  if (!item.backendAccountIssued) return '审核已通过，已开通「门店管理」，可到「我的 → 我的身份」进入；商家工号（登录 PC 控制台用）由客服另行发放，不影响小程序使用。'
-  return '审核已通过，商家工号已发放；可到「我的 → 我的身份」进入门店管理，工号用于登录 PC 控制台。'
+  // ⚠️ 2026-10-10 改写（对接文档 §一/§二/§八-2，旧文案「商家工号由客服另行发放」已作废）：
+  //    审核通过时后端**自动开好两个账号**（核销页 + 商户后台，同名同初始密码）⇒ 不再需要客服发号。
+  // ⚠️ 但**不能无条件宣称"账号已开通"**：`backendAccountIssued` 是"账号是否已开通"的权威字段，
+  //    为 false 时只可能是**自动开户上线前已通过的存量申请**（对接文档 §九：不追溯补号）
+  //    ⇒ 那种情况如实说要补发，绝不编一句"已经开通"（本仓库硬红线：不伪造状态）。
+  // ⚠️ 另：审核通过会**同时**授予「商家 MERCHANT_OWNER」与「首店店长 MANAGER」，店长身份**免工号**
+  //    ⇒ 通过后立刻就能进小程序「门店管理」，账号只决定能否登 PC 后台 / 核销页，**不阻塞小程序入口**。
+  if (!item.backendAccountIssued) {
+    return '审核已通过，已开通「门店管理」，可到「我的 → 我的身份」进入；电脑端后台账号未随申请下发（自动开户上线前已通过的存量申请不会追溯补号），可由客服补发，不影响小程序使用。'
+  }
+  return '审核已通过，电脑端后台的登录名与初始密码已自动开通（见「商家工作台 → 电脑端后台」）；可到「我的 → 我的身份」进入门店管理。'
 })
 
 /** 状态栏高度：本页是 navigationStyle: custom，必须自己避开状态栏与右上角胶囊按钮，否则内容会顶头。 */
@@ -239,6 +244,20 @@ async function submit(): Promise<void> {
     uni.showToast({ title: '请先选择门店位置（必须选点）', icon: 'none' })
     return
   }
+  // 联系电话（2026-10-10 新增必填 + 底线校验，对接文档 §五 的审核前置条件）：
+  // 后端 `approve` 会用**申请单**的 `contactPhone` / `idCard` 生成初始密码 ⇒
+  // 「去掉非数字后不足 4 位」时**审核直接失败并整场回滚**（品牌/门店/账号/绑定都不落库）。
+  // ⚠️ 这里**只卡后端的底线**（≥4 位数字），不加严成"必须 11 位手机号" ——
+  //    加严会拦下后端本来会收的申请（§五 只要求"有联系电话且够 4 位"）。
+  if (!form.value.contactPhone.trim()) {
+    uni.showToast({ title: '请输入联系电话', icon: 'none' })
+    return
+  }
+  const phoneResult = validateApplyContactPhone(form.value.contactPhone)
+  if (!phoneResult.ok) {
+    uni.showToast({ title: phoneResult.message || '联系电话格式不正确', icon: 'none' })
+    return
+  }
   // 门店图片必填（2026-09-22 需求）：审核方要能看到门店实际长什么样，光有地址与坐标不够
   if (!form.value.shopImage) {
     uni.showToast({ title: '请上传门店图片', icon: 'none' })
@@ -247,6 +266,15 @@ async function submit(): Promise<void> {
   // 身份证：号 + 正反面照（2026-09-23 按 api_doc 补）。
   // ⚠️ 后端 `required` 只列了 `brandName`/`shop`，不传接口**不会**拒；但审核方要据此核验身份，
   // 且接口描述明确写了"提交时需填写身份证号及身份证正反面照"⇒ 前端按必填处理。
+  // ⚠️ 两道校验，顺序固定（2026-10-10）：
+  //    ① `validateApplyIdCardFloor`＝后端**审核前置条件**（§五：去空格后 ≥ 4 位，不够则审核必失败并回滚）；
+  //    ② `validateIdCard`＝我们**自家更严**的规则（18 位 + 出生日期 + 校验位）。
+  //    先过底线再收紧：万一将来有人把 ② 换宽松（或整段换掉），① 仍保证提交值不低于后端底线。
+  const idCardFloor = validateApplyIdCardFloor(form.value.idCard)
+  if (!idCardFloor.ok) {
+    uni.showToast({ title: idCardFloor.message || '请输入身份证号', icon: 'none' })
+    return
+  }
   const idCardResult = validateIdCard(form.value.idCard)
   if (!idCardResult.ok) {
     uni.showToast({ title: idCardResult.message || '身份证号格式不正确', icon: 'none' })
@@ -269,7 +297,10 @@ async function submit(): Promise<void> {
     apply.value = await submitMerchantApply({
       brandName: form.value.brandName.trim(),
       contactName: form.value.contactName.trim() || undefined,
-      contactPhone: form.value.contactPhone.trim() || undefined,
+      // ⚠️ 2026-10-10：提交**规范化后的纯数字**（`validateApplyContactPhone` 的返回值）——
+      //    后端 §四 本来就会"去除非数字后取后 4 位"生成初始密码，前端先把同一个值算好，
+      //    保证「前端认为够 4 位」与「后端拿来推导的串」是同一个（不是两次不同的清洗）。
+      contactPhone: phoneResult.value,
       shop: {
         name: form.value.shopName.trim(),
         address: form.value.address.trim() || undefined,
@@ -294,6 +325,13 @@ async function submit(): Promise<void> {
     await loadApply()
   } catch (error) {
     const code = error instanceof ApiRequestError ? error.code : undefined
+    // ⚠️ 2026-10-10（对接文档 §六）：**审核**接口的四种报错（缺资料回滚 / 该商户已有后台账号 /
+    //    登录名撞名 / 重复审核幂等）都发生在 `approve` 上，而那个入口在**中控后台**（本小程序不调它）
+    //    ⇒ 本页不可能是它们的展示面（真实展示面 = 中控，不属本次改动范围）。
+    //    这里遵守同一条原则：**只对契约写明的"提交类"错误码给本地文案**
+    //    （7315 已有审核中 / 7316 微信已属其它商家 / 13018 让利比例越界 / 7311 品牌重名），
+    //    其余一律把后端 `message` **原样**透出 —— ⛔ 不按码改写、不吞掉详情
+    //    （§六 那种"报错里带已存在登录名"的信息正是靠这条原样透出才不会被吃掉）。
     const message = error instanceof Error ? error.message : '提交失败'
     if (code === 7315) {
       // 已有审核中的申请：直接刷新为状态卡，不报错弹窗
@@ -314,7 +352,7 @@ async function submit(): Promise<void> {
   }
 }
 
-/** 返回上一页：审核通过后用户可在「我的身份」进入门店管理（不依赖是否已发号）。 */
+/** 返回上一页：审核通过后用户可在「我的身份」进入门店管理（**不依赖后台账号是否已开通**）。 */
 function goBack(): void {
   uni.navigateBack()
 }
@@ -341,7 +379,9 @@ function goBack(): void {
         </view>
         <view class="row"><text class="label">品牌名称</text><text class="value">{{ apply.brandName || '—' }}</text></view>
         <view class="row"><text class="label">首店名称</text><text class="value">{{ apply.shopName || '—' }}</text></view>
-        <view class="row" v-if="apply.accountUsername"><text class="label">商家工号</text><text class="value">{{ apply.accountUsername }}</text></view>
+        <!-- 登录名（工号）：审核通过后由后端**自动生成**（规则 = M + 商户ID，见 utils/merchant-console.ts），
+             不再由客服口头告知 ⇒ 拿到就显示，没拿到就不显示（⛔ 不编一个工号）。 -->
+        <view class="row" v-if="apply.accountUsername"><text class="label">登录名（工号）</text><text class="value">{{ apply.accountUsername }}</text></view>
         <view class="row" v-if="apply.applyTime"><text class="label">提交时间</text><text class="value">{{ apply.applyTime }}</text></view>
         <view class="row" v-if="apply.auditTime"><text class="label">审核时间</text><text class="value">{{ apply.auditTime }}</text></view>
 
@@ -352,14 +392,19 @@ function goBack(): void {
         </view>
 
         <text class="hint">{{ statusHint }}</text>
-        <!-- 审核通过即可进门店管理（走店长身份、免工号）；工号只影响 PC 控制台，不作为入口前置条件 -->
+        <!-- 审核通过即可进门店管理（走店长身份、**免工号**）；后台账号只影响"能不能登电脑端/核销页"，
+             不作为小程序入口的前置条件（详见 statusHint 的两种分支说明）。 -->
         <button v-if="apply.status === 1" class="btn" @click="goBack">去「我的身份」进入门店管理</button>
       </view>
 
       <!-- 表单：未申请过 / 已驳回重提 -->
       <view v-else class="card">
         <text class="card-title">商家入驻申请</text>
-        <text class="hint">提交后由平台客服审核；审核通过即可在「我的 → 我的身份」进入门店管理。商家工号（登录 PC 控制台用）由客服另行发放，不影响小程序使用。</text>
+        <!-- ⚠️ 2026-10-10 改写（对接文档 §八-2）：旧句「商家工号（登录 PC 控制台用）由客服另行发放」
+             的前提**已消失** —— 审核通过时后端**自动**开好核销页与商户后台两个账号（同名同初始密码）。
+             ⚠️ 这里**不复述规则**（登录名 = M + 商户ID、密码怎么推）：规则单一来源在
+                utils/merchant-console.ts，本页只指路，避免两处文案各自漂移（契约也钉住了这一点）。 -->
+        <text class="hint">提交后由平台客服审核。审核通过后，系统会自动生成电脑端后台的登录名与初始密码（登录地址与规则见「商家工作台 → 电脑端后台」），并可到「我的 → 我的身份」进入门店管理。</text>
 
         <!-- 驳回后重提：显示上次驳回原因 -->
         <view v-if="apply && apply.status === 2" class="reject-box">
@@ -385,7 +430,17 @@ function goBack(): void {
         <label class="field"><text class="field-label">门店地址</text><input v-model="form.address" class="field-input" placeholder="选点后自动回填，可微调" /></label>
         <label class="field"><text class="field-label">主营类目</text><input v-model="form.mainBusiness" class="field-input" placeholder="如：餐饮 / 便利店" /></label>
         <label class="field"><text class="field-label">联系人</text><input v-model="form.contactName" class="field-input" placeholder="请输入联系人姓名" /></label>
-        <label class="field"><text class="field-label">联系电话</text><input v-model="form.contactPhone" class="field-input" type="number" maxlength="11" placeholder="请输入手机号" /></label>
+        <!-- 联系电话（2026-10-10 改为**必填**，对接文档 §五）：后端审核通过时用它 + 身份证号生成
+             两个账号的初始密码 ⇒ 没有它（或去非数字后不足 4 位）时**审核会直接失败并回滚**。
+             ⚠️ 提交前的底线校验在 `submit()`（`validateApplyContactPhone`）；这里**不复述密码规则**
+                （规则单一来源在 utils/merchant-console.ts），只说明这个号码被用在哪。
+             ⚠️ `maxlength` 放宽到 20：§五 的底线只是"去除非数字后 ≥ 4 位数字"，
+                写死 11 会把固话（如 0571-88889999）挡在门外 —— 那是加严，不是对接文档的要求。 -->
+        <label class="field">
+          <text class="field-label">联系电话 *</text>
+          <input v-model="form.contactPhone" class="field-input" type="number" maxlength="20" placeholder="请输入联系电话" />
+          <text class="field-hint">用于平台联系你，也用于生成电脑端后台的初始密码</text>
+        </label>
 
         <!-- 门店图片（2026-09-22 需求）：有门店就必须上传，审核方据此核对门店真实性 -->
         <view class="field">

@@ -84,7 +84,15 @@ export interface MerchantApplyVO {
   auditRemark?: string
   /** 上一次被驳回的原因（驳回后重新提交、status=0 时仍返回），无驳回历史为 null。 */
   previousRejectReason?: string
-  /** 客服是否已发号（工号+密码都已设才为 true）。 */
+  /**
+   * 账号是否已开通（工号 + 密码都已设才为 true）。
+   *
+   * ⚠️ 2026-10-10（对接文档 §一/§二/§七-4）：入驻审核通过时后端**自动**开好核销页与商户后台两个账号
+   * ⇒ 这个布尔现在基本在"审核通过"那一刻就是 true；字段名仍是旧口径（契约描述里的
+   * 「客服是否已发放B端账号」属**过期描述**，接口行为以对接文档为准）。
+   * ⚠️ 为 false 的现实含义只剩**存量申请**（自动开户上线前已通过、未被追溯补号，§九）⇒ 页面按此如实提示，
+   * ⛔ 不得据此写"等客服发号"（那一步已被自动化取代）。
+   */
   backendAccountIssued?: boolean
   accountUsername?: string
   accountBound?: boolean

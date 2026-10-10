@@ -1,0 +1,20 @@
+{
+  "_why": "Chinese needles for merchant-console-guide.contract.ps1. They live HERE, not inline in the .ps1: Windows PowerShell 5.1 parses a BOM-less script as ANSI, which corrupts Chinese literals BEFORE the script runs (the repo already lost a whole mutation round to that). The contract reads this file with an explicit UTF-8 decoder. The pre-existing code-point needles stay inline in the contract.",
+  "_source": "docs/26/10.10/前端对接-商家入驻自动开户-2026-10-10.md (sections 4, 5, 7-4, 8, 10-6)",
+  "pwdRuleFull": "申请单联系电话去除非数字后取后 4 位 + 申请单身份证号去空格、末位 x 大写后取后 4 位（共 8 位）",
+  "pwdRuleFragment": "去除非数字后取后 4 位",
+  "pwdRuleIdFragment": "身份证号去空格",
+  "loginRuleFull": "M + 商户ID（例：商户ID 1024 的登录名为 M1024）",
+  "loginBlockTitle": "登录名",
+  "loginNameFormat": "M<商户ID>",
+  "oldPendingCopy": "客服发放工号后",
+  "newPendingFragment": "系统会自动开通",
+  "legacyNoBackfill": "不会追溯补号",
+  "notRequiredPhrase": "不修改也能正常使用",
+  "suggestTitle": "初始密码怎么改",
+  "suggestTextSelfService": "登录核销页后点「修改密码」可自助修改",
+  "suggestTextIndependent": "改一个不影响另一个",
+  "suggestDismiss": "知道了",
+  "oldOnboardingCopy": "由客服另行发放",
+  "h5Host": "ylcqcode.jinhuayou365.com"
+}

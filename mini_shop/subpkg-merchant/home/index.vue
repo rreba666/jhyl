@@ -23,8 +23,10 @@ import { uploadFile } from '@/utils/request'
 import { preloadMerchantSubscribeConfig, requestMerchantSubscribe } from '@/utils/subscribe'
 // 电脑端后台（PC 控制台）的地址与文案：**唯一来源**（地址只在该模块里写一次；见其头部注释）。
 import {
-  MERCHANT_CONSOLE_ENTRY_SUB, MERCHANT_CONSOLE_ENTRY_TITLE, MERCHANT_CONSOLE_PASSWORD_NOTE,
-  MERCHANT_CONSOLE_PASSWORD_RULE, MERCHANT_CONSOLE_SHEET_SUB, MERCHANT_CONSOLE_SHEET_TITLE,
+  MERCHANT_CONSOLE_ENTRY_SUB, MERCHANT_CONSOLE_ENTRY_TITLE, MERCHANT_CONSOLE_LOGIN_NAME_RULE,
+  MERCHANT_CONSOLE_PASSWORD_NOTE, MERCHANT_CONSOLE_PASSWORD_RULE, MERCHANT_CONSOLE_SHEET_SUB,
+  MERCHANT_CONSOLE_SHEET_TITLE, MERCHANT_CONSOLE_SUGGEST_CHANGE_DISMISS,
+  MERCHANT_CONSOLE_SUGGEST_CHANGE_TEXT, MERCHANT_CONSOLE_SUGGEST_CHANGE_TITLE,
   MERCHANT_CONSOLE_URL, merchantConsoleAccount,
 } from '@/utils/merchant-console'
 
@@ -221,18 +223,22 @@ function goSettlement(): void {
 // ===== 电脑端后台（PC 控制台）登录说明弹层（2026-10-10 新增，用户选了方案 B）=====
 /**
  * 入口 + 弹层。为什么放在**工作台**而不是入驻页（`subpkg-merchant/apply/apply.vue`）：
- * 入驻页确实已经有「商家工号」行与「工号用于登录 PC 控制台」的提示（`apply.vue` L344 / L100-L101 / L362），
+ * 入驻页确实已经有「登录名/工号」行与「登录 PC 控制台」的提示（`apply.vue` 的状态卡与表单提示），
  * **但那一页在拿到商家身份之后就点不到了** —— `pages/mine/mine.vue` 的菜单过滤是
  * `if (item.key === 'merchant-apply' && identity.value?.hasBusinessIdentity) return false`
  * （契约 `merchant-entry-module.contract.ps1` 还专门把这个隐藏行为钉住），
  * 而 `/subpkg-merchant/apply/apply` 全仓**只**有那一个 `navigateTo`（grep 核实）。
- * ⇒ 把按钮放入驻页 = 真正需要它的人（已发号的商家）永远看不到。
+ * ⇒ 把按钮放入驻页 = 真正需要它的人（已开通账号的商家）永远看不到。
  * 工作台是商家拿到身份后的常驻页面（「我的 → 我的身份 → 门店管理」）⇒ 入口放这里。
  * ⚠️ 没有在入驻页再放一个"同款入口"：逻辑与文案全部共用上面的模块，重复的是入口而不是真相源。
  *
  * 数据：`GET /api/merchant/apply/my`（C 端 token，契约原文「返回**最近一次**申请」，
  * 且 `data=null` = 从未申请过，**不是报错**）⇒ 只拿 `accountUsername` / `backendAccountIssued`。
  * ⛔ 不调 `/api/admin/staff/{id}/login-password`（契约：**仅中控/客服可用**）⇒ 小程序里**没有密码**。
+ *
+ * ⚠️ 2026-10-10 随「商家入驻自动开户」同步：审核通过 = 后端**自动开好两个账号**
+ *    （核销页 + 商户后台，同名同初始密码，见 `utils/merchant-console.ts` 头部）。
+ *    ⇒ 弹层不再暗示"等客服发号"；账号格四态照旧如实渲染（`pending` 现在只可能是存量申请）。
  */
 const consoleVisible = ref(false)
 /** 弹层里的账号信息：**打开时才拉**（工作台首屏已经打了 4~5 个接口，不为一个弹层加首屏成本）。 */
@@ -264,6 +270,7 @@ const consoleAccount = computed<{ state: string; username: string; value: string
 /** 打开弹层：第一次打开才拉申请状态（失败可重试）。 */
 async function openConsoleGuide(): Promise<void> {
   consoleVisible.value = true
+  loadSuggestDismissed()
   if (consoleLoaded.value || consoleLoading.value) return
   consoleLoading.value = true
   consoleError.value = false
@@ -276,6 +283,40 @@ async function openConsoleGuide(): Promise<void> {
     consoleError.value = true
   } finally {
     consoleLoading.value = false
+  }
+}
+
+// ===== 「建议修改初始密码」引导（对接文档 §十-6）—— 自愿、可跳过、绝不拦路 =====
+/**
+ * 为什么在这里：商家"坐在初始密码上不动"的唯一原因是他不知道**去哪改**
+ * （首登改密已**不强制**，见对接文档 §四）。而这一格的上下文正是"这是你的初始密码"，
+ * 所以提醒放在同一张弹层里最贴题；弹层入口在工作台常驻可达。
+ *
+ * ⚠️ 关闭状态只影响**这一块**：地址 / 登录名 / 初始密码规则**无条件渲染**
+ *    （契约 `merchant-console-guide.contract.ps1` 钉住"静态部分不随账号状态隐藏"）。
+ * ⚠️ 关闭状态存本地：读失败一律当"没关过"（提示宁可多出现一次，也不能因存储异常消失）；
+ *    写失败也只是"本次会话不再提示"。
+ * ⛔ 它不是门禁：这里不拦任何按钮、不改任何请求，文案也明说"不修改也能正常使用"
+ *    （§十-6 的验收要求就是"跳过也能正常使用"）。
+ */
+const CONSOLE_SUGGEST_DISMISSED_KEY = 'merchant-console-suggest-dismissed'
+/** 是否已关闭过这块提示（只影响这一块）。 */
+const suggestDismissed = ref(false)
+
+function loadSuggestDismissed(): void {
+  try {
+    suggestDismissed.value = uni.getStorageSync(CONSOLE_SUGGEST_DISMISSED_KEY) === 1
+  } catch {
+    suggestDismissed.value = false
+  }
+}
+
+function dismissSuggest(): void {
+  suggestDismissed.value = true
+  try {
+    uni.setStorageSync(CONSOLE_SUGGEST_DISMISSED_KEY, 1)
+  } catch {
+    // 存不下就只是"本次会话不再提示"：⛔ 绝不因存储失败去拦住任何流程
   }
 }
 
@@ -730,9 +771,9 @@ function goBack(): void {
     </view>
 
     <!-- 电脑端后台登录说明弹层（2026-10-10，用户方案 B）。
-         ⚠️ 静态两块（**后台地址** / **初始密码说明**）**无条件渲染** —— 账号查不到、查询失败、
-            还没发号时，地址与规则仍然要给（商家此刻最需要的就是"去哪登录"）。
-            只有「登录账号」那一格随状态变化（`consoleAccount`）。
+         ⚠️ 静态三块（**后台地址** / **登录名规则** / **初始密码规则**）**无条件渲染** ——
+            账号查不到、查询失败、还没开通时，地址与规则仍然要给（商家此刻最需要的就是"去哪登录、
+            用户名填什么、密码怎么来"）。只有「登录账号」那一格随状态变化（`consoleAccount`）。
          ⛔ 这里**不显示任何密码**（小程序拿不到密码：`IssueResult.password` 由中控发号接口返回，
             `GET /api/admin/staff/{id}/login-password` 契约原文「仅中控/客服可用」）⇒ 只讲规则。 -->
     <view v-if="consoleVisible" class="console-mask" @click="closeConsoleGuide">
@@ -756,13 +797,33 @@ function goBack(): void {
           <text class="console-value">{{ consoleAccount.value }}</text>
         </view>
 
+        <!-- 登录名规则（2026-10-10 自动开户新增）：审核通过后登录名由规则生成，
+             不再由客服口头告知 ⇒ 必须与密码规则一起无条件显示（§八-3）。 -->
+        <view class="console-block">
+          <text class="console-block-title">登录名</text>
+          <text class="console-block-text">{{ MERCHANT_CONSOLE_LOGIN_NAME_RULE }}</text>
+        </view>
+
         <view class="console-block">
           <text class="console-block-title">初始密码</text>
           <text class="console-block-text">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text>
           <text class="console-block-text">{{ MERCHANT_CONSOLE_PASSWORD_NOTE }}</text>
         </view>
 
-        <!-- 状态说明：未发号 / 工号未返回 / 未查到申请 / 查询失败时各说各的话（不混用）。 -->
+        <!-- 「建议修改初始密码」引导（§十-6）：**可关闭、不拦路**。
+             ⚠️ 独立用 `console-suggest` 类（不是 `console-block`）：一个是"可以隐藏的提示"，
+                一个是"必须无条件显示的静态内容"，契约里必须能区分开。
+             ⚠️ 关闭状态只影响这一块；地址/登录名/密码规则照旧无条件渲染。
+             ⛔ 它不是门禁：不拦任何按钮、不改任何请求，文案也明说"不修改也能正常使用"。 -->
+        <view v-if="!suggestDismissed" class="console-suggest">
+          <view class="console-suggest-head">
+            <text class="console-suggest-title">{{ MERCHANT_CONSOLE_SUGGEST_CHANGE_TITLE }}</text>
+            <text class="console-suggest-close" @click="dismissSuggest">{{ MERCHANT_CONSOLE_SUGGEST_CHANGE_DISMISS }}</text>
+          </view>
+          <text class="console-suggest-text">{{ MERCHANT_CONSOLE_SUGGEST_CHANGE_TEXT }}</text>
+        </view>
+
+        <!-- 状态说明：未开通 / 工号未返回 / 未查到申请 / 查询失败时各说各的话（不混用）。 -->
         <text v-if="consoleAccount.note" class="console-note">{{ consoleAccount.note }}</text>
       </view>
     </view>
@@ -1356,6 +1417,39 @@ function goBack(): void {
   display: block;
   margin-top: 8rpx;
   color: #4e5969;
+  font-size: 24rpx;
+  line-height: 38rpx;
+}
+/* 「建议修改初始密码」引导：**可关闭**的提示（与 .console-block 的"无条件静态内容"在样式上也区分开）。
+   配色沿用本页既有的提示条（未读通知条）：浅黄底 + 棕字，不引入新切图、不新增资源。 */
+.console-suggest {
+  margin-top: 23rpx;
+  padding: 23rpx;
+  border-radius: 16rpx;
+  background: #fff8e6;
+}
+.console-suggest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.console-suggest-title {
+  color: #a15c00;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+/* 关闭按钮：纯文字 + 下划线（"知道了"），点掉只是不再提示这一块。 */
+.console-suggest-close {
+  flex: none;
+  margin-left: 16rpx;
+  color: #b07d33;
+  font-size: 24rpx;
+  text-decoration: underline;
+}
+.console-suggest-text {
+  display: block;
+  margin-top: 8rpx;
+  color: #a15c00;
   font-size: 24rpx;
   line-height: 38rpx;
 }

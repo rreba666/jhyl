@@ -1,0 +1,56 @@
+[
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the contact phone goes back to optional in the payload (an approve precondition would slip through)",
+        "find": "contactPhone: phoneResult.value,",
+        "replace": "contactPhone: form.value.contactPhone.trim() || undefined,"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the empty-phone guard is neutered (a blank phone would be submitted)",
+        "find": "if (!form.value.contactPhone.trim()) {",
+        "replace": "if (false) {"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the back-end id-card floor is replaced by a hard-coded \"always ok\" object",
+        "find": "const idCardFloor = validateApplyIdCardFloor(form.value.idCard)",
+        "replace": "const idCardFloor = { ok: true, value: form.value.idCard }"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the stricter local validator runs BEFORE the back-end floor (the floor could then be skipped for values it rejects)",
+        "find": "const idCardFloor = validateApplyIdCardFloor(form.value.idCard)",
+        "replace": "const idCardResult = validateIdCard(form.value.idCard)\n  const idCardFloor = validateApplyIdCardFloor(form.value.idCard)"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the page redefines the back-end floor instead of importing it (two sources of truth for the precondition)",
+        "find": "contactPhone: '',",
+        "replace": "APPLY_APPROVE_MIN_PHONE_DIGITS = 4\n  contactPhone: '',"
+    },
+    {
+        "file": "mini_shop/utils/input-validation.ts",
+        "desc": "the phone floor is weakened below the back-end precondition (4 -> 3 digits)",
+        "find": "APPLY_APPROVE_MIN_PHONE_DIGITS = 4",
+        "replace": "APPLY_APPROVE_MIN_PHONE_DIGITS = 3"
+    },
+    {
+        "file": "mini_shop/utils/input-validation.ts",
+        "desc": "the id-card floor is weakened below the back-end precondition (4 -> 1 character)",
+        "find": "APPLY_APPROVE_MIN_ID_CARD_CHARS = 4",
+        "replace": "APPLY_APPROVE_MIN_ID_CARD_CHARS = 1"
+    },
+    {
+        "file": "mini_shop/utils/input-validation.ts",
+        "desc": "the shared contact-phone validator is renamed away (the page would have to reimplement it)",
+        "find": "export function validateApplyContactPhone(",
+        "replace": "function validateApplyContactPhoneLegacy("
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the contact-phone label loses its required marker (the form would look optional)",
+        "find": "<text class=\"field-label\">联系电话 *</text>",
+        "replace": "<text class=\"field-label\">联系电话</text>"
+    }
+]

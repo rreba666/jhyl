@@ -60,6 +60,55 @@ export function validateMobile(value: unknown, label = '手机号'): ValidationR
   return pass(normalized)
 }
 
+/**
+ * 入驻审核的**前置条件**（对接文档 §五，`docs/26/10.10/前端对接-商家入驻自动开户-2026-10-10.md`）：
+ * 后端在 `approve`（审核通过）时会用**申请单**的 `contactPhone` / `idCard` 生成初始密码
+ * ⇒ 「联系电话去掉非数字后不足 4 位」或「身份证去掉空格后不足 4 位」时**审核直接失败并回滚**
+ * （品牌、门店、账号、绑定都不会落库）。
+ * ⇒ 前端在**提交入驻**时就把这两条底线卡住，别让商家的资料卡在审核环节。
+ * ⚠️ 这两个数字是**后端底线**（= 够不够推导密码），**不是**完整格式校验：
+ *    后端只要求「≥4 位」，所以这里**不得**加严成"必须 11 位手机号 / 必须 18 位身份证"
+ *    —— 那会拦下后端本来会收的申请（对接文档 §五 的原话只要求"有号码且够 4 位"）。
+ * ⚠️ 与初始密码规则（`utils/merchant-console.ts` 的 `MERCHANT_CONSOLE_PASSWORD_RULE`）**同源**：
+ *    那边讲"密码怎么来"，这边保证"推导得出密码"。
+ */
+export const APPLY_APPROVE_MIN_PHONE_DIGITS = 4
+export const APPLY_APPROVE_MIN_ID_CARD_CHARS = 4
+
+/** 去除非数字字符（对接文档 §四 的口径：联系电话「去除非数字」后再取后 4 位）。 */
+export function stripNonDigits(value: unknown): string {
+  return String(value ?? '').replace(/\D/g, '')
+}
+
+/**
+ * 校验入驻申请的联系电话是否**够推导初始密码**（§五）：去除非数字后 ≥ 4 位。
+ * 返回值是**规范化后的纯数字串**（提交时用它：前端"能推导"与后端"能推导"必须是同一个值）。
+ */
+export function validateApplyContactPhone(value: unknown): ValidationResult<string> {
+  const normalized = stripNonDigits(value)
+  if (!normalized) return fail('请输入联系电话')
+  if (normalized.length < APPLY_APPROVE_MIN_PHONE_DIGITS) {
+    return fail(`联系电话至少需要 ${APPLY_APPROVE_MIN_PHONE_DIGITS} 位数字`)
+  }
+  return pass(normalized)
+}
+
+/**
+ * 校验入驻申请的身份证号是否**够推导初始密码**（§五）：去掉空格后 ≥ 4 位。
+ * ⚠️ 入驻页用的是**更强的** {@link validateIdCard}（18 位 + 出生日期 + 校验位）⇒ 本函数**不是放行**，
+ *    而是把后端的**底线**写在代码里：万一将来有人把 `validateIdCard` 换成宽松规则（或换掉整段校验），
+ *    这一条仍然保证提交值不会低于后端 `approve` 的底线（否则审核必失败并整场回滚）。
+ *    两段合起来是「先底线、再自家更严的规则」，与 `validateIdCard` 的注释口径一致。
+ */
+export function validateApplyIdCardFloor(value: unknown): ValidationResult<string> {
+  const normalized = cleanIdCard(value)
+  if (!normalized) return fail('请输入身份证号')
+  if (normalized.length < APPLY_APPROVE_MIN_ID_CARD_CHARS) {
+    return fail(`身份证号至少需要 ${APPLY_APPROVE_MIN_ID_CARD_CHARS} 位`)
+  }
+  return pass(normalized)
+}
+
 function hasValidCalendarDate(value: string): boolean {
   const year = Number(value.slice(6, 10))
   const month = Number(value.slice(10, 12))
