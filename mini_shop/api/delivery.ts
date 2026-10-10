@@ -268,6 +268,12 @@ export async function verifyTaskCode(taskId: number | string, code: string): Pro
 /**
  * 确认送达（**必采定位**）。
  * 注意：V1.18 起**不再接受前端 `pickupCodeVerified` 布尔**，启用收货码的任务必须先调 `/verify-code`。
+ *
+ * ⚠️ 请求体是 `DeliveredBody`，字段只有 `pickupCodeVerified`(deprecated) / `latitude` / `longitude` /
+ * `accuracy` / `locationText` / `requestId` —— **没有任何照片/凭证字段**
+ * （`api_doc.json` 与线上 `/v3/api-docs` 2026-10-10 复核一致）。
+ * ⇒ 「拍照或联系客户才可送达」的门禁**只能在骑手端前端拦**（`utils/delivery-gate.ts`），
+ * 送达前的照片只能先传 OSS 留存、送达后再 attach；**绕过前端即可规避**，属后端需求。
  */
 export async function deliverTask(taskId: number | string, body: TaskNodeBody): Promise<void> {
   await request({ url: `/api/delivery/tasks/${taskId}/delivered`, method: 'POST', data: body })
@@ -286,7 +292,11 @@ export async function rejectReceipt(taskId: number | string, remark?: string, re
   await request({ url: `/api/delivery/tasks/${taskId}/reject-receipt`, method: 'POST', data: { remark, requestId } })
 }
 
-/** 上传送达凭证（照片必传，可后补 24h；`objectKey` 用 `toObjectKey` 反推）。 */
+/**
+ * 上传送达凭证（照片必传，可后补 24h；`objectKey` 用 `toObjectKey` 反推）。
+ * ⚠️ 只能在 `delivered` **之后**提交：送达前调用报 `13003 仅送达后可上传凭证`
+ * ⇒ 送达前拍的照片要先在本地留存 Key，送达成功后再 attach（见 `utils/delivery-gate.ts`）。
+ */
 export async function uploadTaskProof(
   taskId: number | string,
   body: { proofType: string; objectKey: string; receiverName?: string; remark?: string; requestId?: string },

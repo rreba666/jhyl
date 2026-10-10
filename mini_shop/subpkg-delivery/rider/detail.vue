@@ -4,8 +4,13 @@
  * 契约：2026-09-14 v1.4
  * - 手机号明文（UI 打星）；`pickupCodeRequired` 决定送达前是否需校验收货码；
  * - 商品清单走 `GET /tasks/{id}/items`；
- * - 送达：先 `/verify-code`（服务端落事件）→ 再 `/delivered`（**不再传 pickupCodeVerified**）；
+ * - 送达：**先过「送达门禁」**（拍照留存 / 联系客户，二选一）→ `/verify-code`（服务端落事件）
+ *   → `/delivered`（**不再传 pickupCodeVerified**）→ 送达后 attach 送达照片（`/proof`，可后补 24h）；
  * - 异常上报：类型用附录 C 枚举 + 图片（上传拿 URL → `toObjectKey` 反推 OSS Key）。
+ *
+ * ⚠️ 送达门禁的两条腿都是**前端本地状态**（`utils/delivery-gate.ts`）：后端 `DeliveredBody`
+ * **没有照片字段**、`/proof` **只能送达后提交**（早传 `13003`）⇒ 绕过前端即可规避，
+ * 真正的强制需要后端支持（见该文件头注释）。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
@@ -29,6 +34,16 @@ import {
 import { collectNodeLocation, confirmDeliverDistance } from '@/utils/location'
 import { durationMinutesText, formatClock, formatDateTime } from '@/utils/datetime'
 import { canStillUploadProof, captureProofImages, submitProofImages } from '@/utils/delivery-proof'
+import {
+  clearPendingProofKeys,
+  hasContactedLeg,
+  hasProofPhotoLeg,
+  isDeliveryGateOpen,
+  markCustomerContacted,
+  markProofCaptured,
+  readDeliveryGate,
+  type DeliveryGateState,
+} from '@/utils/delivery-gate'
 import { uploadFile } from '@/utils/request'
 
 const taskId = ref('')
@@ -36,6 +51,11 @@ const task = ref<RiderTask | null>(null)
 const items = ref<RiderTaskItem[]>([])
 /** 送达凭证（仅已完成态拉取；用于订单信息里的「送达照片」）。 */
 const proofs = ref<DeliveryProof[]>([])
+/**
+ * 送达门禁的本地状态（拍照留存 / 联系客户，二选一）。
+ * 存在**本地存储**里（按 taskId 分）⇒ 骑手离开页面再回来不用重做；见 `utils/delivery-gate.ts`。
+ */
+const gate = ref<DeliveryGateState>({ photoKeys: [] })
 const loading = ref(true)
 const acting = ref(false)
 /** 剩余秒数（服务端基准，本地递减）。 */
@@ -160,6 +180,37 @@ const canUploadProof = computed(() => {
 })
 
 /**
+ * ===== 送达门禁（拍照留存 / 联系客户，二选一）=====
+ *
+ * 依据：后端 `DeliveredBody` 无照片字段、`/proof` 只能在送达后提交 ⇒ **只能前端拦**
+ * （详见 `utils/delivery-gate.ts` 文件头，含「绕过前端即可规避」的如实说明）。
+ * 两条腿分别由 `markProofCaptured`（**上传成功**才算）与 `markCustomerContacted`
+ * （拨号面板被拉起才算）写入本地存储；页面重新进入时 `loadDetail` 会重新读回来。
+ */
+const photoLegDone = computed(() => hasProofPhotoLeg(gate.value))
+const contactedLegDone = computed(() => hasContactedLeg(gate.value))
+/** 门禁是否放行（任一腿满足）。 */
+const deliverGateSatisfied = computed(() => isDeliveryGateOpen(gate.value))
+/** 放行原因的如实文案（联系腿只能说到"已拨号"，不谎称"已核实联系"）。 */
+const deliverGateHint = computed(() => {
+  const parts: string[] = []
+  if (photoLegDone.value) parts.push(`已拍照留存 ${gate.value.photoKeys.length} 张`)
+  if (contactedLegDone.value) parts.push('已拨号联系客户')
+  return `${parts.join('、')}，可确认送达`
+})
+/** 待送达后 attach 的照片 Key（送达前留存的那批）。 */
+const pendingProofKeys = computed(() => gate.value.photoKeys)
+/**
+ * 滚动区底部留白：底部条高度随「送达门禁」是否展开而变化（固定 160rpx 会被压住最后一张卡）。
+ * 门禁展开时 = 提示 + 两个按钮 + 动作行；已放行时只剩一行提示。
+ */
+const bodyBottomPadding = computed(() => {
+  // 非「配送中」形态：底部条只有一行按钮 —— 保持改动前的 160rpx（待取货/已完成/异常/已取消）
+  if (!canDeliver.value) return '160rpx'
+  return deliverGateSatisfied.value ? '300rpx' : '430rpx'
+})
+
+/**
  * 查看送达照片：用小程序原生图片预览（**交互由前端定**：缩略图点击 → 全屏预览，可左右滑动看多张）。
  * 设计稿只给了 56×56 缩略图，没有大图弹层，这里取"系统预览"这个最省事且体验标准的方式。
  */
@@ -190,6 +241,12 @@ async function loadDetail(): Promise<void> {
     proofs.value = String(detail.status) === 'DELIVERED'
       ? await getTaskProofs(taskId.value).catch(() => [])
       : []
+    // 送达门禁：进页面（含返回再进）都从本地存储重读 —— 骑手拍完照/打完电话离开再回来不用重做
+    gate.value = readDeliveryGate(taskId.value)
+    // 已完成且已过 24h 补传窗口：本地留存的 Key 再也 attach 不了，清掉，别留下一个假的"已留存"
+    if (String(detail.status) === 'DELIVERED' && !canStillUploadProof(detail.deliveredAt)) {
+      gate.value = clearPendingProofKeys(taskId.value)
+    }
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : '任务详情加载失败', icon: 'none' })
   } finally {
@@ -251,9 +308,50 @@ function confirmDeliverWithoutLocation(): Promise<boolean> {
   })
 }
 
+/**
+ * 门禁未满足时点「确认送达」：给出**具体**该做什么（不是「操作失败」），
+ * 并把两条腿的入口直接挂在弹窗按钮上 —— 同一屏就能完成，不用去别处找。
+ */
+function promptDeliverGate(): void {
+  uni.showModal({
+    title: '送达前请先完成一项',
+    content: '请先「拍照留存」送达照片，或「联系客户」拨号一次（二选一）；完成任一项即可确认送达。',
+    confirmText: '拍照留存',
+    cancelText: '联系客户',
+    success: (res) => {
+      if (res.confirm) void takeProofPhoto()
+      else if (res.cancel) void callCustomer()
+    },
+  })
+}
+
+/**
+ * 门禁的「拍照留存」：采集 + 上传 OSS，把**上传成功**的 `objectKey` 记进本地门禁状态
+ * （凭证记录要等送达后才能 attach 到 `/proof`）。
+ * ⚠️ 采集返回空（取消 / 暂不拍摄）或上传失败都**不**记录 —— 绝不把"没传成功"记成"已留存"。
+ */
+async function takeProofPhoto(): Promise<void> {
+  if (!taskId.value || uploading.value || acting.value) return
+  uploading.value = true
+  try {
+    // 门禁场景的"暂不拍摄"提示要讲清后果：能补传 ≠ 能送达（还有「联系客户」那条腿）
+    const keys = await captureProofImages('送达前需先留存照片，或改用「联系客户」')
+    if (!keys.length) return
+    gate.value = markProofCaptured(taskId.value, keys)
+    uni.showToast({ title: '照片已留存，可确认送达', icon: 'none' })
+  } finally {
+    uploading.value = false
+  }
+}
+
 /** 确认送达：需收货码时先弹框校验（服务端落事件），再提交送达（不传前端布尔）。 */
 async function doDeliver(): Promise<void> {
   if (acting.value || !taskId.value) return
+  // 送达门禁：拍照留存 / 联系客户 二选一（**前端拦**，后端口径见 utils/delivery-gate.ts）
+  if (!deliverGateSatisfied.value) {
+    promptDeliverGate()
+    return
+  }
   if (needPickupCode.value) {
     const code = await promptPickupCode()
     if (!code) return
@@ -280,8 +378,11 @@ async function doDeliver(): Promise<void> {
     }
     // 位置软提醒：离收货点太远先二次确认（只提醒不拦截 —— 室内定位飘移很常见）
     if (!(await confirmDeliverDistance({ latitude: task.value?.deliveryLat, longitude: task.value?.deliveryLng }))) return
-    // 引导拍送达照片（可跳过；跳过之后可在本页 24h 内补传）
-    const proofKeys = await captureProofImages()
+    // 送达照片：门禁里**已留存过**就不再重复索要（那批 Key 送达后统一 attach）；
+    // 没留存过则照旧引导拍照（可跳过 —— 门禁可能已由「联系客户」那条腿满足）
+    const proofKeys = pendingProofKeys.value.length ? [] : await captureProofImages()
+    // 送达前留存的那批 + 本次新拍的，一起在送达后 attach（后端要求凭证记录在送达之后落库）
+    const proofKeysToAttach = [...pendingProofKeys.value, ...proofKeys]
     // 先静默取一次定位：拿到就带上；拿不到则二次确认后按「无定位」提交
     let body: TaskNodeBody = {}
     try {
@@ -294,9 +395,19 @@ async function doDeliver(): Promise<void> {
     uni.showToast({ title: '已确认送达', icon: 'success' })
     await loadDetail()
     // 凭证必须在**送达之后**提交（后端口径：送达后 24h 内）；失败不打断流程，延后提示以免盖掉成功 toast
-    if (proofKeys.length) {
+    if (proofKeysToAttach.length) {
       try {
-        await submitProofImages(taskId.value, proofKeys, task.value?.receiverName)
+        const uploaded = await submitProofImages(taskId.value, proofKeysToAttach, task.value?.receiverName)
+        if (uploaded > 0) {
+          // 送达照片行刷新（此前不刷新 ⇒ 拍完照当页仍显示「无」）
+          proofs.value = await getTaskProofs(taskId.value).catch(() => proofs.value)
+        }
+        if (uploaded === proofKeysToAttach.length) {
+          // 全部 attach 成功：本地留存不再需要（留着的 Key 已不代表"待补传"）
+          gate.value = clearPendingProofKeys(taskId.value)
+        } else {
+          setTimeout(() => uni.showToast({ title: '部分送达照片上传失败，可在本页补传', icon: 'none' }), 1600)
+        }
       } catch {
         setTimeout(() => uni.showToast({ title: '送达照片上传失败，可在本页补传', icon: 'none' }), 1600)
       }
@@ -338,6 +449,36 @@ async function uploadProof(): Promise<void> {
     uni.showToast({ title: error instanceof Error ? error.message : '照片上传失败', icon: 'none' })
   } finally {
     uploading.value = false
+  }
+}
+
+/**
+ * 页面重新进入时补一次 attach：送达前留存过照片、但送达后的提交失败（或中断）——
+ * 用**同一批 objectKey** 重试，不让骑手重新拍照。
+ * ⚠️ 只提交后端**还没有的** Key（按 `proofs` 里的 objectKey 取差集）⇒ 不会产生重复凭证行；
+ * 失败静默（本页仍有「＋」补传入口），不打扰骑手。
+ */
+async function retryPendingProofs(): Promise<void> {
+  const id = taskId.value
+  if (!id || String(task.value?.status) !== 'DELIVERED' || !canUploadProof.value) return
+  const keys = pendingProofKeys.value
+  if (!keys.length) return
+  const serverKeys = new Set(photoProofs.value.map((proof) => String(proof.objectKey || '')))
+  const missing = keys.filter((key) => !serverKeys.has(key))
+  if (!missing.length) {
+    // 后端其实都收到了（例如 attach 成功但清本地失败）⇒ 只清本地，绝不重复提交
+    gate.value = clearPendingProofKeys(id)
+    return
+  }
+  try {
+    const uploaded = await submitProofImages(id, missing, task.value?.receiverName)
+    if (uploaded === missing.length) {
+      gate.value = clearPendingProofKeys(id)
+      proofs.value = await getTaskProofs(id).catch(() => proofs.value)
+      uni.showToast({ title: '送达照片已补传', icon: 'none' })
+    }
+  } catch {
+    // 静默：本页「送达照片 → ＋」入口仍可手动补传
   }
 }
 
@@ -388,20 +529,37 @@ async function submitException(): Promise<void> {
   }
 }
 
-/** 联系客户（取号留痕；失败退回明文号）。 */
+/**
+ * 联系客户（取号留痕；失败退回明文号）。
+ *
+ * 送达门禁的「联系腿」在这里落标记：**拨号面板真的被拉起**（`makePhoneCall` 的 success）才记，
+ * 取消拨号（fail）不记 —— 不把"点了按钮没拨"记成"已联系"。
+ * ⚠️ 只能证明「拨号面板拉起过」：小程序读不到通话记录，**无法证明通话真的发生**
+ * （详见 `utils/delivery-gate.ts`）。取号成功时后端另有 `GET /tasks/{id}/contact` 的**取号日志**
+ * （谁/何时/IP），但那只证明"取过号"，不等于打了电话。
+ */
 async function callCustomer(): Promise<void> {
   if (!taskId.value) return
+  let phone = ''
   try {
-    const phone = (await getTaskContact(taskId.value, '配送联系')) || task.value?.receiverPhone || ''
-    if (!phone) {
-      uni.showToast({ title: '未获取到号码', icon: 'none' })
-      return
-    }
-    uni.makePhoneCall({ phoneNumber: phone })
+    phone = (await getTaskContact(taskId.value, '配送联系')) || task.value?.receiverPhone || ''
   } catch {
-    if (task.value?.receiverPhone) uni.makePhoneCall({ phoneNumber: task.value.receiverPhone })
-    else uni.showToast({ title: '取号失败', icon: 'none' })
+    // 取号接口失败不影响拨号：退回任务里的明文号
+    phone = task.value?.receiverPhone || ''
   }
+  if (!phone) {
+    uni.showToast({ title: '未获取到号码', icon: 'none' })
+    return
+  }
+  uni.makePhoneCall({
+    phoneNumber: phone,
+    success: () => {
+      gate.value = markCustomerContacted(taskId.value)
+      uni.showToast({ title: '已记录：已拨号联系客户', icon: 'none' })
+    },
+    // 取消拨号 / 拉起失败：不落标记（不伪造"已联系"）
+    fail: () => uni.showToast({ title: '未拨出，暂不能确认送达', icon: 'none' }),
+  })
 }
 
 /** 导航。 */
@@ -427,7 +585,8 @@ function goBack(): void {
 onLoad((options?: Record<string, string | undefined>) => {
   statusBarHeight.value = uni.getSystemInfoSync().statusBarHeight || 0
   taskId.value = options?.taskId || ''
-  void loadDetail()
+  // 详情拉完再审门禁状态：已完成态若还有"留存了但没 attach 成功"的照片，这里静默补一次
+  void loadDetail().then(() => retryPendingProofs())
   tickTimer = setInterval(() => {
     if (remainSeconds.value != null && remainSeconds.value > 0) remainSeconds.value -= 1
   }, 1000)
@@ -447,7 +606,7 @@ onUnload(() => {
       </view>
     </view>
 
-    <scroll-view class="body" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false">
+    <scroll-view class="body" scroll-y :enhanced="true" :bounces="true" :show-scrollbar="false" :style="{ paddingBottom: bodyBottomPadding }">
       <view v-if="loading" class="state">加载中…</view>
       <view v-else-if="!task" class="state">任务不存在或无权查看</view>
       <template v-else>
@@ -565,14 +724,31 @@ onUnload(() => {
       </template>
     </scroll-view>
 
-    <!-- 底部动作（设计稿：待取货 = 确认取货；配送中 = 上报异常 + 确认送达；已完成/异常/已取消无底部条） -->
+    <!-- 底部动作（设计稿：待取货 = 确认取货；配送中 = 送达门禁 + 上报异常 + 确认送达；已完成/异常/已取消无底部条） -->
     <view v-if="task && (canPickup || canDeliver)" class="footer">
       <template v-if="canPickup">
         <button class="btn btn-primary btn-block" :disabled="acting" @click="doPickup">确认取货</button>
       </template>
       <template v-else-if="canDeliver">
-        <button class="btn btn-danger-ghost" style="flex: 136" @click="exceptionVisible = true"><text class="rider-icon rider-icon-jingbao btn-icon" />上报异常</button>
-        <button class="btn btn-primary" style="flex: 222" :disabled="acting" @click="doDeliver">确认送达</button>
+        <!--
+          送达门禁（拍照留存 / 联系客户，二选一）：两条腿的入口都放在**这一屏**（含门禁未满足时的
+          具体提示），骑手不用去别处找。⚠️ 这是**前端拦**——后端 DeliveredBody 无照片字段、
+          /proof 只能送达后提交，绕过前端即可规避（如实说明见 utils/delivery-gate.ts）。
+        -->
+        <view class="gate" :class="deliverGateSatisfied ? 'is-open' : 'is-closed'">
+          <text v-if="deliverGateSatisfied" class="gate-text">{{ deliverGateHint }}</text>
+          <template v-else>
+            <text class="gate-text">送达前请先完成一项：拍照留存送达照片，或联系客户拨号一次</text>
+            <view class="gate-actions">
+              <button class="btn gate-btn" @click="takeProofPhoto"><text class="rider-icon rider-icon-tianjia btn-icon" />拍照留存</button>
+              <button class="btn gate-btn" @click="callCustomer"><text class="rider-icon rider-icon-dianhua btn-icon" />联系客户</button>
+            </view>
+          </template>
+        </view>
+        <view class="footer-actions">
+          <button class="btn btn-danger-ghost" style="flex: 136" @click="exceptionVisible = true"><text class="rider-icon rider-icon-jingbao btn-icon" />上报异常</button>
+          <button class="btn btn-primary" :class="{ 'btn-locked': !deliverGateSatisfied }" style="flex: 222" :disabled="acting" @click="doDeliver">确认送达</button>
+        </view>
       </template>
     </view>
 
@@ -626,6 +802,7 @@ onUnload(() => {
   align-items: center;
 }
 .nav-title { color: #1d2129; font-size: 33rpx; font-weight: 600; }
+/* ⚠️ 底部留白由模板的 `:style="{ paddingBottom: bodyBottomPadding }"` 绑定（底部条高度随送达门禁变化） */
 .body { flex: 1; min-height: 0; padding: 16rpx 16rpx 160rpx; box-sizing: border-box; }
 .state { padding: 160rpx 0; color: #86909c; font-size: 28rpx; text-align: center; }
 .card { margin-bottom: 24rpx; padding: 24rpx; border-radius: 24rpx; background: #fff; }
@@ -702,15 +879,30 @@ onUnload(() => {
 .proof-add-icon { color: #86909c; font-size: 44rpx; line-height: 1; }
 
 /* ===== 底部动作（按钮高 48px → 92rpx、圆角 12px → 24rpx）===== */
-.footer { position: fixed; right: 0; bottom: 0; left: 0; display: flex; gap: 16rpx; padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom)); background: #fff; }
+.footer { position: fixed; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; gap: 16rpx; padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom)); background: #fff; }
+.footer-actions { display: flex; gap: 16rpx; }
 .btn { flex: 1; height: 92rpx; margin: 0; padding: 0 8rpx; border-radius: 24rpx; font-size: 31rpx; line-height: 92rpx; white-space: nowrap; }
 .btn::after { border: 0; }
 .btn-block { flex: none; width: 100%; }
 .btn-primary { color: #fff; background: #ff5500; }
 .btn-primary[disabled] { opacity: .6; }
+/* 门禁未满足时的「确认送达」：置灰示意"还不能点"，但**仍可点击**（点了给具体该做什么的提示） */
+.btn-locked { opacity: .6; }
 .btn-ghost { color: #1d2129; background: #f6f7f9; }
 /* 「上报异常」按钮（设计稿 #FFEDED 底 + 红字） */
 .btn-danger-ghost { color: #f53f3f; background: #ffeded; }
+
+/* ===== 送达门禁条（拍照留存 / 联系客户，二选一）=====
+   未满足 = 浅黄底 + 橙字（与「送达位置软提醒」同一套警示色）；已满足 = 浅绿底 + 绿字 */
+.gate { padding: 14rpx 20rpx; border-radius: 16rpx; }
+.gate.is-closed { background: #fff7e8; }
+.gate.is-open { background: #e8ffea; }
+.gate-text { font-size: 24rpx; line-height: 34rpx; }
+.gate.is-closed .gate-text { color: #ff7d00; }
+.gate.is-open .gate-text { color: #00b42a; }
+.gate-actions { display: flex; gap: 16rpx; margin-top: 14rpx; }
+/* 门禁里的两个入口（白底衬托，与底部动作行区分开） */
+.gate-btn { height: 72rpx; color: #1d2129; background: #fff; font-size: 27rpx; line-height: 72rpx; }
 
 /* ===== 上报异常弹层（设计稿 08：居中卡片 326×412、圆角 16px）===== */
 .mask { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .5); }
