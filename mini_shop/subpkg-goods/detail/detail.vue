@@ -18,6 +18,9 @@ import LoginGuide from '@/components/LoginGuide.vue'
 // ⚠️ 2026-10-08：`SkuSheet` 已挪回**主包** `components/goods/`（原因见该组件头部注释：
 //    主包经 CDN 迁移后余量充足，主包 tabBar 页也要用它弹层）。分包页引用主包组件合法。
 import SkuSheet from '@/components/goods/SkuSheet.vue'
+// 2026-10-10 新增：商品详情页「进店卡片」（Figma 节点 `4029:5751`，主包组件，先例同 SkuSheet）。
+import ShopEntryCard from '@/components/goods/ShopEntryCard.vue'
+import { resolveProductShop, type EnabledShop } from '@/api/shop'
 
 const menuTop = ref(0)
 const menuHeight = ref(32)
@@ -208,6 +211,37 @@ function formatAmount(value: number): string {
   return Number(value || 0).toFixed(2).replace(/\.00$/, '')
 }
 
+/**
+ * 「进店卡片」的门店（2026-10-10 新增，设计节点 `4029:5751`）。
+ *
+ * ⚠️ **拿不到就不出卡片** —— 这是刻意的 fail-closed：`ProductDetailV2VO` **没有** `shopId`
+ * （只有 B 端语义的 `merchantId`；`shopIds` 是 B 端回填字段，2026-10-10 实测 C 端响应里
+ * **根本没有这个键**），所以门店只能靠 `resolveProductShop()` 另行解析，规则是
+ * 「该商品的全部 SKU 能被**唯一一家**门店全部提供」才认（见 `api/shop.ts` 的完整说明
+ * 与 `docs/26/10.09/店铺页-Figma实现说明-2026-10-09.md` §4.3 第 2 条）。
+ * ⇒ 解析不出（0 家 / 多家 / 接口抖动）时保持 `null`，`ShopEntryCard` 整块不渲染，
+ *   **绝不用猜出来的 id 跳转**（多门店商品该进哪家，产品口径未定：实现说明 §5 第 11/16 条）。
+ */
+const shopEntryShop = ref<EnabledShop | null>(null)
+
+/** 进店卡片与上方「价格/标题/标签」区之间的间距（自定义组件外边距只能内联传，见模板注释）。 */
+const SHOP_ENTRY_GAP = '20rpx'
+
+/** 解析当前商品所属门店；异常与"不唯一"一律落回 `null`（不打扰用户，见上）。 */
+async function loadShopEntry(): Promise<void> {
+  const detail = product.value
+  if (!detail) return
+  const skuIds = (detail.skuList || []).map((sku) => sku.id)
+  shopEntryShop.value = await resolveProductShop(skuIds, detail.merchantId)
+}
+
+/** 点「进店」→ 进店铺页；id 由卡片（= 已解析出的真实门店）给出，这里再挡一次空值。 */
+function onEnterShop(shopId: number): void {
+  const id = String(shopId ?? '').trim()
+  if (!id) return
+  uni.navigateTo({ url: `/subpkg-goods/shop/index?shopId=${encodeURIComponent(id)}` })
+}
+
 /** 读取页面参数并加载商品详情。 */
 onLoad(async (options) => {
   capturePromotionContext(options as Record<string, unknown>)
@@ -225,6 +259,8 @@ onLoad(async (options) => {
   try {
     product.value = await productRequest
     favorite.value = Boolean(product.value.favorite)
+    // 进店卡片与用户资料并行取（卡片是可选增强块，不阻塞首屏）。
+    void loadShopEntry()
     user.value = await profileRequest
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '商品详情加载失败'
@@ -523,6 +559,15 @@ onShow(() => {
             <view v-if="!isFreshProduct" class="tag"><image class="tag-icon" src="/static/ProductDetails/七天无理由_slices/七天无理由.png" mode="aspectFit" /><text>七天无理由</text></view>
           </view>
         </view>
+
+        <!-- 进店卡片（2026-10-10 新增，Figma 节点 `4029:5751`「详情页进店卡片」）：
+             设计只给了**独立画板**，没有标注它插在详情页的哪两个模块之间（实现说明 §5 第 15 条）
+             ⇒ 这里放在「价格/标题/标签」区之后、售后保障之前（主流电商的位置，也是本页最贴近
+               「店铺归属」语义的落点）。
+             ⚠️ `shopEntryShop` 为 null（解析不出唯一门店）时组件**整块不渲染**；
+             ⚠️ 给自定义组件加外边距必须用**内联 `:style`**（小程序 `styleIsolation: isolated`，
+               父页面的 class 规则作用不到子组件根节点）。 -->
+        <ShopEntryCard :shop="shopEntryShop" :style="{ marginTop: SHOP_ENTRY_GAP }" @enter="onEnterShop" />
 
         <!-- 售后保障（2026-10-08 Step3 新增，依据《前端对接-Step3》§二 + 《前端对接-Step2》§三）：
              按该商品**支持的配送方式**逐条列出售后窗口；同城那条再按生鲜/普通档位分叉。

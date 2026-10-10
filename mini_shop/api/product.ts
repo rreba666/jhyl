@@ -4,6 +4,16 @@ export interface ProductDetail {
   id: string
   name: string
   mainImage: string
+  /**
+   * 归属品牌商家 ID（契约 `ProductDetailV2VO.merchantId`：null=未归属）。
+   * ⚠️ 契约注释写的是「**B 端**编辑『所属商户』回填用」，但它是**公开响应里就有**的字段
+   * （2026-10-10 实测 `/api/v2/product/detail/68` 返回 `merchantId: 3`）。
+   * 前端**只**用它做「商品 → 门店」归属的交叉校验（见 `api/shop.ts` 的 `resolveProductShop`），
+   * **不展示**给用户。
+   * ⚠️ C 端详情**没有** `shopId` / `shopName` / `shopImage`；`shopIds` 是 B 端回填字段
+   * （实测 C 端响应里**根本没有这个键**）⇒ 进店卡片的门店只能另行解析。
+   */
+  merchantId?: number | null
   /** 当前用户是否已收藏该商品（未登录恒为 false） */
   favorite?: boolean
   images?: string[]
@@ -62,6 +72,12 @@ export interface ProductCard {
   id: string | number
   name: string
   descriptionTitle?: string
+  /**
+   * 卡片说明文字（列表接口**实际已下发**，见 2026-10-10 实测 `/api/product/list` 响应字段；
+   * 契约描述「详情描述（卡片说明文字，最多一行）」）—— 店铺页商品网格的「卖点」行用它。
+   * 未下发时该行不渲染。
+   */
+  description?: string
   mainImage: string
   price: number
   minPrice?: number

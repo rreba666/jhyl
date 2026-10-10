@@ -141,6 +141,13 @@
           "style": {
             "navigationStyle": "custom"
           }
+        },
+        {
+          "path": "shop/index",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarBackgroundColor": "#FFFFFF"
+          }
         }
       ]
     },
