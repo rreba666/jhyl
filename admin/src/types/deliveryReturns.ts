@@ -89,7 +89,14 @@ export const DELIVERY_RETURNS_DEFAULT_PAGE_SIZE = 20
  *   —— **没有**"全部状态"这个取值，故前端也不提供"全部"选项，更不会用空串顶替。
  */
 export interface DeliveryReturnQuery {
-  /** 商户（品牌）ID；**不传 = 全平台**（本页默认不传，绝不兜底成某个 id）。 */
+  /**
+   * 门店/商户 ID；**不传 = 全平台**（本页默认不传，绝不兜底成某个 id）。
+   * ⚠️ **ID 空间待后端确认（前端不下结论）**：2026-10-10 探针显示该参数实际按**门店 id** 过滤
+   * —— dev 唯一一条记录的 `merchantId` 是 `90108`，该值出现在 `/api/admin/shop/all`（门店列表）里、
+   * **不在**平台 11 个品牌 ID 之中，门店 90108 自身的 `merchantId` 是 `913`；
+   * `?merchantId=90108` 命中该行、`?merchantId=913` 命中 0 行。
+   * ⇒ 前端只把输入值**原样**作为 `?merchantId=` 传下去（**不换算、不自动填充**），语义以契约为准。
+   */
   merchantId?: number
   /** 返货状态；**不传 = 未收口（PENDING + RETURNED）**。 */
   returnStatus?: ReturnStatus
@@ -112,7 +119,13 @@ export interface DeliveryReturnRow {
   taskNo: string | null
   /** 订单号。 */
   orderNo: string | null
-  /** 商户（品牌）ID —— 契约**没有**下发商户名/门店名 ⇒ 页面只能原样显示 ID，不猜名字。 */
+  /**
+   * 门店/商户 ID —— 字段名是 `merchantId`，但**它属于哪个 ID 空间未经后端确认**：
+   * 2026-10-10 探针里唯一一条记录该值是 `90108`（出现在 `/api/admin/shop/all`，门店 90108 的
+   * `merchantId` 是 `913`，且 `?merchantId=90108` 命中、`?merchantId=913` 不命中）
+   * ⇒ **不据此推断是门店 id 还是品牌 id**，也不换算。
+   * 契约**没有**下发商户名/门店名 ⇒ 页面只能**原样显示 ID**，不猜名字。
+   */
   merchantId: number | null
   /** 配送员 ID（契约同样没有姓名 ⇒ 只显示 ID）。 */
   deliveryPersonId: number | null

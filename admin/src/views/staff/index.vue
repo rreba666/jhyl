@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import DataTable from '@/components/DataTable.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useShopStore } from '@/stores/shop'
 import { useStaffStore } from '@/stores/staff'
 import type {
@@ -16,6 +17,7 @@ import { Edit, Key, MoreFilled, RefreshLeft } from '@element-plus/icons-vue'
 
 const store = useStaffStore()
 const shopStore = useShopStore()
+const authStore = useAuthStore()
 const route = useRoute()
 const selected = ref<StaffAccount[]>([])
 const deletableSelected = computed(() => selected.value.filter((item) => item.delFlag !== 1))
@@ -190,18 +192,97 @@ async function issueAccount(row: StaffAccount): Promise<void> {
   }
 }
 
+// ===== 明文门禁（D2 登录密码 / D3b 改密留痕，2026-10-10 加固）=====
+/**
+ * 明文揭示的**统一门禁**：默认遮罩 → 显式点击揭示 → 超时自动隐藏。
+ *
+ * 背景（改动原因）：`StaffPasswordViewVO.passwordPlain`（登录密码明文）与
+ * `StaffPasswordLogVO.passwordBefore/passwordAfter`（改前/改后明文留档）此前**直接渲染在页面上**
+ * ⇒ 只要页面开着（或一次肩窥 / 一张截图），店员密码就暴露了。
+ * 现在这两处明文一律**先遮罩**，必须**点击**才显示，并在 **30 秒后自动隐藏**、
+ * 弹窗关闭 / 路由离开时立刻清除。
+ *
+ * 角色：**只有平台管理员（SUPER_ADMIN）**能揭示 —— 复用 auth store 既有的 `isPlatformAdmin`
+ * （与 `views/invoices/index.vue` 同一套判法，不另造角色判断）。
+ * ⚠️ 这是**纵深防御、不是唯一一层**（后端契约 `GET /api/admin/staff/{id}/login-password` 的描述原文：
+ * 「明文留档查看，**仅中控/客服可用**，调用即写审计」）：
+ * - **客服（CUSTOMER_SERVICE）**在后端口径内，但本页路由矩阵（`utils/permission.ts`）里没有
+ *   `/staff`，客服进不到本页；
+ * - **商户管理员（ADMIN）能进本页**（矩阵里有 `/staff`）⇒ 前端这道门对他是**真正起作用**的那一道，
+ *   但仍以**后端拦截为准** —— 不要把前端隐藏当作明文的保护手段。
+ */
+const canRevealPlaintext = computed(() => authStore.isPlatformAdmin)
+/** 明文揭示的停留时长（秒）：到点自动隐藏，避免"人走了页面还开着"。 */
+const REVEAL_TIMEOUT_SECONDS = 30
+/** 默认遮罩占位（**绝不用明文本身兜底**）。 */
+const MASKED_PLAINTEXT = '••••••••'
+/** 无权限文案。 */
+const NO_PERMISSION_HINT = '无权查看（仅平台管理员）'
+/** 无明文留档文案（契约：历史账号可能无留档 ⇒ passwordPlain 为 null）。 */
+const NO_PLAIN_RECORD_HINT = '无留档'
+/** 留痕表的短文案（列宽有限）。 */
+const NO_PERMISSION_SHORT = '无权查看'
+
+/**
+ * 倒计时 + 定时器（登录密码弹窗与留痕弹窗各一份）。
+ * `ReturnType<typeof setInterval>` 与 `AdminLayout.vue` 的写法保持一致。
+ */
+const passwordRevealed = ref(false)
+const passwordCountdown = ref(0)
+let passwordTimer: ReturnType<typeof setInterval> | null = null
+const historyRevealed = ref(false)
+const historyCountdown = ref(0)
+let historyTimer: ReturnType<typeof setInterval> | null = null
+
 // ===== 查看登录密码（D2，敏感）=====
 const passwordVisible = ref(false)
 const passwordLoading = ref(false)
 const passwordView = ref<StaffPasswordView | null>(null)
+/**
+ * 本次响应里**确实拿到了**明文。
+ * ⚠️ **不能只看 `noPlainRecord`**：若后端按 R5 建议撤掉/改名留档字段
+ * （`docs/26/10.10/后端需求-入驻默认密码与首登改密-2026-10-10.md` §六），
+ * `noPlainRecord` 也会是 undefined ⇒ 会被误当成"有留档"而渲染出空白。
+ * 这里以**明文本体是否存在**为准 ⇒ 字段消失/为 null 时走「无留档」，不空着、也不报错。
+ */
+const plainPassword = computed<string>(() => (typeof passwordView.value?.passwordPlain === 'string' ? passwordView.value.passwordPlain : ''))
+const hasPlainPassword = computed(() => plainPassword.value.length > 0)
+/** 隐藏明文（超时 / 关闭弹窗 / 离开路由都会走这里）。 */
+function hidePasswordPlaintext(): void {
+  passwordRevealed.value = false
+  passwordCountdown.value = 0
+  if (passwordTimer !== null) {
+    clearInterval(passwordTimer)
+    passwordTimer = null
+  }
+}
+/** 揭示明文（仅超管 + 确实有留档时可用）；30 秒后自动隐藏。 */
+function revealPasswordPlaintext(): void {
+  if (!canRevealPlaintext.value || !hasPlainPassword.value) return
+  hidePasswordPlaintext()
+  passwordRevealed.value = true
+  passwordCountdown.value = REVEAL_TIMEOUT_SECONDS
+  passwordTimer = setInterval(() => {
+    passwordCountdown.value -= 1
+    if (passwordCountdown.value <= 0) hidePasswordPlaintext()
+  }, 1000)
+}
 async function viewPassword(row: StaffAccount): Promise<void> {
+  // 纵深防御：非超管连请求都不发（后端契约里该接口仅中控/客服可用，本页面前端再收窄一道）
+  if (!canRevealPlaintext.value) {
+    ElMessage.warning(NO_PERMISSION_HINT)
+    return
+  }
   try {
     await ElMessageBox.confirm('查看登录密码会记录操作日志，确认继续？', '敏感操作确认', { type: 'warning', confirmButtonText: '确认查看', cancelButtonText: '取消' })
   } catch { return }
+  hidePasswordPlaintext()
   passwordVisible.value = true
   passwordLoading.value = true
   try {
-    passwordView.value = await store.viewPassword(row.id)
+    const result = await store.viewPassword(row.id)
+    // 弹窗已关（或路由已离开）就**不再把明文落进响应式状态**
+    if (passwordVisible.value) passwordView.value = result
   } catch (error) {
     passwordVisible.value = false
     ElMessage.error(error instanceof Error ? error.message : '登录密码查看失败')
@@ -214,7 +295,37 @@ async function viewPassword(row: StaffAccount): Promise<void> {
 const historyVisible = ref(false)
 const historyLoading = ref(false)
 const historyList = ref<StaffPasswordLog[]>([])
+/** 隐藏留痕里的改前/改后明文。 */
+function hideHistoryPlaintext(): void {
+  historyRevealed.value = false
+  historyCountdown.value = 0
+  if (historyTimer !== null) {
+    clearInterval(historyTimer)
+    historyTimer = null
+  }
+}
+/** 揭示留痕里的改前/改后明文（仅超管）；30 秒后自动隐藏。 */
+function revealHistoryPlaintext(): void {
+  if (!canRevealPlaintext.value) return
+  hideHistoryPlaintext()
+  historyRevealed.value = true
+  historyCountdown.value = REVEAL_TIMEOUT_SECONDS
+  historyTimer = setInterval(() => {
+    historyCountdown.value -= 1
+    if (historyCountdown.value <= 0) hideHistoryPlaintext()
+  }, 1000)
+}
+/**
+ * 改密留痕的「改前 / 改后」列统一走这里：
+ * 非超管 → 「无权查看」（不渲染明文）；未揭示 → 遮罩；留档字段缺失 / 为 null → 「无留档」。
+ */
+function plainLogText(value: string | null | undefined): string {
+  if (!canRevealPlaintext.value) return NO_PERMISSION_SHORT
+  if (!historyRevealed.value) return MASKED_PLAINTEXT
+  return typeof value === 'string' && value.length > 0 ? value : NO_PLAIN_RECORD_HINT
+}
 async function viewHistory(row: StaffAccount): Promise<void> {
+  hideHistoryPlaintext()
   historyVisible.value = true
   historyLoading.value = true
   try {
@@ -225,6 +336,30 @@ async function viewHistory(row: StaffAccount): Promise<void> {
     historyLoading.value = false
   }
 }
+
+/**
+ * 弹窗关闭 / 路由离开 ⇒ **立刻**撤掉明文（不留在响应式状态里等下一次覆盖）。
+ */
+watch(passwordVisible, (visible) => {
+  if (visible) return
+  hidePasswordPlaintext()
+  passwordView.value = null
+})
+watch(historyVisible, (visible) => {
+  if (visible) return
+  hideHistoryPlaintext()
+  historyList.value = []
+})
+watch(() => route.fullPath, () => {
+  passwordVisible.value = false
+  historyVisible.value = false
+})
+onBeforeUnmount(() => {
+  passwordVisible.value = false
+  historyVisible.value = false
+  hidePasswordPlaintext()
+  hideHistoryPlaintext()
+})
 
 // ===== 绑定 / 解绑微信（D4b / D4c）=====
 async function bindWechat(row: StaffAccount): Promise<void> {
@@ -485,7 +620,10 @@ watch(() => route.query.shopId, (value) => {
                   <el-button size="small">更多<el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
-                      <el-dropdown-item v-if="row.accountIssued" command="password"><el-icon><Key /></el-icon>查看登录密码</el-dropdown-item>
+                      <!-- 查看登录密码：**仅平台管理员**可点（后端契约「仅中控/客服可用」，客服进不到本页）。
+                           非超管渲染成禁用项而不是直接消失 —— 让运营知道"有这项能力、但不是我能用的"。 -->
+                      <el-dropdown-item v-if="row.accountIssued && canRevealPlaintext" command="password"><el-icon><Key /></el-icon>查看登录密码</el-dropdown-item>
+                      <el-dropdown-item v-else-if="row.accountIssued" disabled><el-icon><Key /></el-icon>查看登录密码（仅平台管理员）</el-dropdown-item>
                       <el-dropdown-item command="history">改密留痕</el-dropdown-item>
                       <!-- ⚠️ 只有"纯核销账号"才不能绑微信：身份是「骑手 + 核销店员」这类叠加时仍需绑微信（否则该骑手接不了单）
                            —— 原来用 `includes('VERIFIER')` 会把叠加身份一起禁掉（2026-09-17 修） -->
@@ -542,7 +680,7 @@ watch(() => route.query.shopId, (value) => {
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving || store.actionLoading" @click="submitForm">保存</el-button></template>
     </el-dialog>
 
-    <!-- 查看登录密码（D2，敏感） -->
+    <!-- 查看登录密码（D2，敏感）：**默认遮罩**，必须点击才揭示，30 秒后自动隐藏 -->
     <el-dialog v-model="passwordVisible" title="查看登录密码（已记录操作日志）" width="480px" append-to-body>
       <el-skeleton v-if="passwordLoading" :rows="4" animated />
       <template v-else-if="passwordView">
@@ -551,21 +689,43 @@ watch(() => route.query.shopId, (value) => {
           <el-descriptions-item label="工号">{{ passwordView.username || '—' }}</el-descriptions-item>
           <el-descriptions-item label="登录入口">{{ passwordView.entry }}</el-descriptions-item>
           <el-descriptions-item label="登录密码">
-            <span v-if="passwordView.noPlainRecord" class="danger-text">{{ passwordView.hint || '该账号为历史数据（无明文留档），请使用「重置密码」' }}</span>
-            <span v-else class="plain-pwd">{{ passwordView.passwordPlain }}</span>
+            <!-- ① 非超管：不渲染明文，也不给揭示控件（后端契约里该接口仅中控/客服可用） -->
+            <span v-if="!canRevealPlaintext" class="muted">{{ NO_PERMISSION_HINT }}</span>
+            <!-- ② 后端明说无留档（历史账号 BCrypt 不可逆） -->
+            <span v-else-if="passwordView.noPlainRecord" class="danger-text">{{ passwordView.hint || '该账号为历史数据（无明文留档），请使用「重置密码」' }}</span>
+            <!-- ③ 字段缺失 / 为 null（后端若撤掉明文留档字段，走这里，不空着也不报错） -->
+            <span v-else-if="!hasPlainPassword" class="muted">{{ NO_PLAIN_RECORD_HINT }}（该账号无明文留档，请使用「重置密码」）</span>
+            <!-- ④ 默认遮罩 → 点击揭示 → 30 秒后自动隐藏 -->
+            <template v-else>
+              <span class="plain-pwd" :class="{ 'plain-masked': !passwordRevealed }">{{ passwordRevealed ? plainPassword : MASKED_PLAINTEXT }}</span>
+              <el-button size="small" :type="passwordRevealed ? 'info' : 'warning'" plain @click="passwordRevealed ? hidePasswordPlaintext() : revealPasswordPlaintext()">
+                {{ passwordRevealed ? '隐藏' : '点击查看' }}
+              </el-button>
+              <span v-if="passwordRevealed" class="muted reveal-countdown">{{ passwordCountdown }} 秒后自动隐藏</span>
+            </template>
           </el-descriptions-item>
         </el-descriptions>
-        <p class="muted">明文仅用于本次核验，请勿记录或外传。</p>
+        <!-- 审计提示：后端契约两条都写明「调用即写审计」，且审计枚举里有
+             ADMIN_VIEW_LOGIN_PASSWORD=查看B端账号登录密码 ⇒ 这句是**已证实**的，不是威慑话术。 -->
+        <p class="muted">查看动作会记录操作留痕（可追溯）；明文仅用于本次核验，请勿截屏、记录或外传。</p>
       </template>
     </el-dialog>
 
-    <!-- 改密留痕（D3b） -->
-    <el-dialog v-model="historyVisible" title="改密留痕" width="760px" append-to-body>
+    <!-- 改密留痕（D3b）：改前/改后同为明文留档，同样默认遮罩 -->
+    <el-dialog v-model="historyVisible" title="改密留痕（已记录操作日志）" width="760px" append-to-body>
+      <div class="plain-toolbar">
+        <el-button v-if="canRevealPlaintext" size="small" :type="historyRevealed ? 'info' : 'warning'" plain @click="historyRevealed ? hideHistoryPlaintext() : revealHistoryPlaintext()">
+          {{ historyRevealed ? '隐藏明文' : '显示明文' }}
+        </el-button>
+        <span v-else class="muted">改前 / 改后：{{ NO_PERMISSION_HINT }}</span>
+        <span v-if="historyRevealed" class="muted reveal-countdown">{{ historyCountdown }} 秒后自动隐藏</span>
+        <span class="muted">查看动作会记录操作留痕（可追溯），请勿截屏或外传。</span>
+      </div>
       <el-table v-loading="historyLoading" :data="historyList" border size="small" max-height="420">
         <el-table-column prop="createTime" label="时间" width="180" />
         <el-table-column prop="username" label="工号" width="140" />
-        <el-table-column prop="passwordBefore" label="改前" width="130" />
-        <el-table-column prop="passwordAfter" label="改后" width="130" />
+        <el-table-column label="改前" width="130"><template #default="{ row }"><span class="plain-pwd" :class="{ 'plain-masked': !historyRevealed }">{{ plainLogText(row.passwordBefore) }}</span></template></el-table-column>
+        <el-table-column label="改后" width="130"><template #default="{ row }"><span class="plain-pwd" :class="{ 'plain-masked': !historyRevealed }">{{ plainLogText(row.passwordAfter) }}</span></template></el-table-column>
         <el-table-column label="类型" width="90"><template #default="{ row }">{{ row.changeType === 'CREATE' ? '建号/发号' : '重置' }}</template></el-table-column>
         <el-table-column label="操作方" width="110"><template #default="{ row }">{{ row.operatorType === 'ADMIN' ? '中控' : '商家PC' }}</template></el-table-column>
         <el-table-column prop="remark" label="备注" min-width="150" />
@@ -590,6 +750,10 @@ watch(() => route.query.shopId, (value) => {
 :deep(.row-deleted) { color: var(--el-text-color-placeholder); background: var(--el-fill-color-light); }
 :deep(.row-deleted .el-tag) { opacity: .8; }
 .plain-pwd { font-family: monospace; font-weight: 600; }
+/* 明文遮罩态：只做视觉弱化，真正的门禁是"渲染层根本不输出明文" */
+.plain-masked { letter-spacing: 2px; color: var(--el-text-color-secondary); }
+.reveal-countdown { margin-left: 8px; font-size: 12px; }
+.plain-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; font-size: 12px; }
 /* 身份多选 */
 .identity-tip { margin-left: 10px; font-size: 12px; }
 .identity-hint-box { white-space: pre-line; line-height: 1.7; }

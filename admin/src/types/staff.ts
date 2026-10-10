@@ -94,9 +94,20 @@ export interface StaffPasswordView {
   name: string
   /** 登录入口提示：PC 商户控制台 / H5 核销页（店长内含核销能力）。 */
   entry: string
-  passwordPlain?: string
-  /** true = 历史账号 BCrypt 不可逆，无明文记录（展示 hint + 引导重置密码）。 */
-  noPlainRecord: boolean
+  /**
+   * 登录密码明文（契约：「历史账号可能无留档，此时为 null」）。
+   *
+   * ⚠️ 2026-10-10：类型放宽为 `string | null | undefined` 以**容忍字段消失** ——
+   * `docs/26/10.10/后端需求-入驻默认密码与首登改密-2026-10-10.md` §六（R5）建议后端
+   * 「停止新增明文留档」并撤掉该字段；字段一旦撤掉/改名，前端必须走「无留档」而不是渲染空白。
+   */
+  passwordPlain?: string | null
+  /**
+   * true = 历史账号 BCrypt 不可逆，无明文记录（展示 hint + 引导重置密码）。
+   * ⚠️ 同上：**字段本身可能不存在**（撤字段时它是第一个消失的）⇒ 调用方**不得**只依据它判断
+   * 「有没有明文」，必须以 `passwordPlain` 本体为准（见 `views/staff/index.vue` 的 `hasPlainPassword`）。
+   */
+  noPlainRecord?: boolean
   hint?: string
   updateTime?: string
 }
@@ -106,8 +117,10 @@ export interface StaffPasswordLog {
   id: number
   staffId: number
   username?: string
-  passwordBefore?: string
-  passwordAfter?: string
+  /** 改前密码（明文留档）。⚠️ 契约 R5 建议去掉明文 ⇒ 可能为 null / 字段消失（展示「无留档」）。 */
+  passwordBefore?: string | null
+  /** 改后密码（明文留档）。⚠️ 同上。 */
+  passwordAfter?: string | null
   changeType: 'CREATE' | 'RESET'
   operatorType: 'ADMIN' | 'MERCHANT_PC'
   operatorId?: number

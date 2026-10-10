@@ -102,7 +102,11 @@ export async function updateMerchant(id: string, payload: MerchantUpdateDTO): Pr
  * - 唯一查询参数 `limit`（int32，**可选，默认 20、最大 200**）；
  * - ⚠️ **没有分页** —— 契约里不存在 `page` / `pageSize` / `total`，本函数也**不伪造**它们；
  * - 200 → `ResultListMerchantCommissionRateLogEntity`，**按时间倒序**；
- *   契约写明 `data` 无数据时为 `null`（字段始终存在）⇒ 这里按空数组处理，不当成错误。
+ * - ⚠️ **2026-10-10 实测订正**：本条此前写「契约写明 `data` 无数据时为 `null`」，**与实测不符** ——
+ *   对 dev `192.168.1.4:8080` 的 **11 个商户逐一探针**
+ *   （`GET /api/admin/merchants/{id}/commission-rate-history?limit=200`）测到：
+ *   `data` 是**普通 JSON 数组**，**空就是 `[]`、不是 `null`**。
+ *   ⇒ 两种形态都按「没有记录」处理（下方 `data ?? []`），**都不是错误**、也不改变任何行为。
  *
  * ⚠️ 返回条数达到 `limit` 时**不代表数据完整**（更早的记录没有分页可翻）——
  *    「是否可能被截断」由调用方按 `limit` 自行提示，本函数不做任何"这是全部"的暗示。

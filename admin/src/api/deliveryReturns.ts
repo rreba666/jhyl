@@ -105,6 +105,10 @@ export function normalizeDeliveryReturnRow(value: unknown): DeliveryReturnRow {
     idRecognized: id !== null,
     taskNo: pickText(row, ['taskNo', 'taskNumber', 'taskCode']),
     orderNo: pickText(row, ['orderNo', 'orderNumber', 'orderSn']),
+    // ⚠️ 字段名就是 `merchantId`；`brandId` 只是**字段名兜底**（后端改名时不至于整列空白），
+    //    **不是**语义声明 —— 该值属于门店 id 还是品牌 id **未经后端确认**（2026-10-10 探针：
+    //    dev 该值是 90108，在 `/api/admin/shop/all` 里、门店 90108 自身的 merchantId 是 913），
+    //    故这里只原样取值，**不换算、不推断**。
     merchantId: pickNumber(row, ['merchantId', 'brandId']),
     deliveryPersonId: pickNumber(row, ['deliveryPersonId', 'riderId', 'courierId']),
     // 骑手任务状态：契约字段名就是 status（别与订单的 deliveryStatus 混用）

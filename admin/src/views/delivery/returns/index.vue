@@ -81,7 +81,11 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100]
 
 /** 返货状态筛选；`''` = **不传**（后端默认：未收口）。 */
 const statusFilter = ref<ReturnStatus | ''>('')
-/** 商户（品牌）ID 输入框原文（**空 = 不传 = 全平台**；绝不兜底成某个 id）。 */
+/**
+ * 门店/商户 ID 输入框原文（**空 = 不传 = 全平台**；绝不兜底成某个 id）。
+ * ⚠️ **ID 空间待后端确认**：2026-10-10 探针显示后端按**门店 id** 过滤（见模板里的口径说明）
+ * ⇒ 前端只原样透传 `?merchantId=`，**不做门店↔品牌换算、也不自动填充**。
+ */
 const merchantIdText = ref('')
 const pageSize = ref(DELIVERY_RETURNS_DEFAULT_PAGE_SIZE)
 const page = ref(1)
@@ -213,7 +217,7 @@ async function load(): Promise<void> {
     loadError.value = ''
     rows.value = []
     total.value = null
-    ElMessage.warning('商户 ID 只能是正整数（留空 = 不传 = 全平台）')
+    ElMessage.warning('门店/商户 ID 只能是正整数（留空 = 不传 = 全平台）')
     return
   }
   loading.value = true
@@ -369,7 +373,7 @@ onMounted(() => {
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="商户 ID">
+        <el-form-item label="门店/商户 ID">
           <el-input
             v-model="merchantIdText"
             style="width: 160px"
@@ -390,8 +394,17 @@ onMounted(() => {
       <p class="hint">
         「未收口」= 不传 <code>returnStatus</code>（后端默认只返回 <code>PENDING</code> + <code>RETURNED</code>，且
         <code>RETURNED</code> 优先）。契约里<strong>没有"全部状态"这个取值</strong>，故本页也不提供。
-        商户 ID 留空 = 不传 = 全平台；商户管理员（ADMIN）的数据范围由后端按绑定商户强制过滤
-        （<strong>前端不代传 merchantId、也不猜品牌/门店 ID 的语义</strong>）。
+        门店/商户 ID 留空 = 不传 = 全平台；商户管理员（ADMIN）的数据范围由后端按绑定商户强制过滤
+        （<strong>前端不代传 merchantId、也不自行判定这个 ID 属于哪个空间</strong>）。
+      </p>
+      <p class="hint">
+        ⚠️ <strong><code>merchantId</code> 的 ID 空间待后端确认</strong>（前端<strong>不下定论</strong>）：
+        2026-10-10 探针显示本参数实际按<strong>门店 id</strong> 过滤 —— dev 上唯一一条记录的
+        <code>merchantId</code> 是 <code>90108</code>，该值出现在门店列表 <code>/api/admin/shop/all</code> 里、
+        <strong>不在</strong>平台 11 个品牌 ID 之中，而门店 <code>90108</code> 自身的 <code>merchantId</code> 是
+        <code>913</code>；传 <code>?merchantId=90108</code> 命中该行，传 <code>?merchantId=913</code> 命中 0 行。
+        ⇒ 本页只把输入值<strong>原样</strong>作为 <code>?merchantId=</code> 传下去，
+        <strong>不自动填充、不做门店↔品牌换算</strong>；以契约为准，等后端确认后再改文案与校验。
       </p>
     </el-card>
 
@@ -484,9 +497,9 @@ onMounted(() => {
             <small class="sub">{{ assignmentTypeLabel(row.assignmentType) }}</small>
           </template>
         </el-table-column>
-        <el-table-column label="商户 / 骑手" min-width="150">
+        <el-table-column label="门店/商户 · 骑手" min-width="150">
           <template #default="{ row }">
-            <div>商户 ID：{{ row.merchantId ?? '—' }}</div>
+            <div>门店/商户 ID：{{ row.merchantId ?? '—' }}</div>
             <small class="sub">骑手 ID：{{ row.deliveryPersonId ?? '—' }}</small>
           </template>
         </el-table-column>
