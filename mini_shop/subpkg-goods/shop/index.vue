@@ -120,12 +120,15 @@
  *     （`ShopVO` 契约里 48 个字段含 `rating` / `onTimeRate` / `avgAcceptSeconds`，但真实响应里
  *     **没有这三个键**；`fansCount` 恒下发，实测 `0` ⇒ 页面如实显示「0 粉丝」）。
  *     ⇒ 属于「后端没数据」，页面**不编数字**（详见文件尾部 `RATING_LABEL` / `shop-metrics.ts`）。
- * (4) **随滚动收起的是「评分/粉丝行 + 服务表现」这一块**（用户逐字：「吸顶是除了星级评分，
- *     粉丝，口碑配置，发货时效，客服响应这块，卡片之前其他的都显示」）⇒ 收起的块 = 模板里的
- *     `shop-metrics-block`（评分/粉丝行 + 解释文案）与 `shop-service-row`（服务表现格），
- *     其余（导航栏 / logo+店名 / 收藏 / 资质条 / Tab / 筛选 / 网格）一律不动。
- *     ⚠️ 设计稿的**滚动帧**（`4050:6387`）只删了「服务表现」，仍保留 `Frame 117`（评分/粉丝行）
- *        —— 这一点以**用户口径**为准（用户把评分/粉丝也点进了那一块），见 `COLLAPSE_BLOCK_IDS`。
+ * (4) **随滚动收起的是「服务表现」这一块**（用户逐字：「吸顶是除了星级评分，粉丝，口碑配置，
+ *     发货时效，客服响应这块，卡片之前其他的都显示」）⇒ 收起的块 = 模板里的 `shop-service-row`
+ *     （服务表现格）；其余（导航栏 / logo+店名 / **评分粉丝行** / 收藏 / 资质条 / Tab / 筛选 / 网格）
+ *     一律不动。
+ *     ⚠️⚠️ **2026-10-10 第六轮更正**：用户另行明确「**吸顶的话店铺卡片是不收的**」——
+ *        评分/粉丝行**属于店铺卡片** ⇒ **保留**。第四轮按那句较早的措辞把评分/粉丝行也算进了
+ *        收起块，**现按这次更正收窄成"只收服务表现"**，与设计稿**滚动帧**（`4050:6387`：保留
+ *        `Frame 117` = 评分/粉丝行，只删「服务表现」）**完全一致** —— 也就是"设计稿的读法"
+ *        这次被用户**确认**了。见 `COLLAPSE_BLOCK_IDS`。
  */
 import { computed, nextTick, ref } from 'vue'
 import { onLoad, onPageScroll, onReachBottom } from '@dcloudio/uni-app'
@@ -136,6 +139,11 @@ import { followShop, getShopDetail, getShopFollowStatus, unfollowShop, type Enab
 import { getShopProducts, type ProductCard } from '@/api/product'
 // 评分 / 粉丝 / 服务表现的**共用口径**（与商品详情页进店卡片同源，见该模块头部注释）。
 import { RATING_LABEL, fansText, ratingStars, ratingText, shopServiceMetrics } from '@/utils/shop-metrics'
+// 商品卡「标题 / 卖点」的**共用口径**（与首页 `HomeProductCard` 同源）——
+// ⚠️ 2026-10-10 用户报障「店铺页商品卡展示的字段跟首页不一样」：本页手写卡原先取
+//    `descriptionTitle || name` + `description`，首页组件取 `name` + `descriptionTitle || tag`
+//    ⇒ 同一个商品两个页面两套文字。字段口径改由该模块统一下发，样式仍各按各的画板写。
+import { productCardSellingPoint, productCardShowSellingPoint, productCardTitle } from '@/utils/product-card'
 import { isLoggedIn } from '@/utils/auth'
 import LoginGuide from '@/components/LoginGuide.vue'
 import { isApiRequestError } from '@/utils/request'
@@ -327,20 +335,27 @@ const recommendedParam = computed(() => activeSort.value === 'reputation')
 const serviceMetrics = computed(() => shopServiceMetrics(shop.value))
 
 /**
- * ===== 随滚动收起的两块（用户 2026-10-10 第四条）=====
+ * ===== 随滚动收起的一块（用户 2026-10-10 第四条 + 第六轮更正）=====
  *
  * 用户逐字：「**吸顶是除了星级评分，粉丝，口碑配置，发货时效，客服响应这块，卡片之前其他的都显示**」
- * ⇒ 收起的 = 店铺卡里的**评分/粉丝行**（含「综合服务分（非用户评价）」那行解释文案）
- *    与**服务表现格**这两块；其余一律不动：
- *   导航栏 / logo + 店名 / 收藏 / 「店铺资质 · 经营资质」条 / Tab 栏 / 筛选行（后两者是吸顶带）/ 商品网格。
+ * ⚠️⚠️ 但用户随后另行明确「**吸顶的话店铺卡片是不收的**」⇒ 店铺卡片（含其中的**评分/粉丝行**）
+ *    **整体保留**；收起只剩**服务表现格**一块；其余一律不动：
+ *   导航栏 / logo + 店名 / 评分粉丝行 / 收藏 / 「店铺资质 · 经营资质」条 / Tab 栏 / 筛选行
+ *   （后两者是吸顶带）/ 商品网格。
  *
  * ⚠️ **块 id 必须与模板里的 `id="…"` 逐字一致**（`uni.createSelectorQuery` 按 id 量高；
  *    契约 `shop-page.contract.ps1` §11e 会把两边的字面量都钉住，改一处不改另一处会红）。
  * ⚠️ 设计稿的**滚动帧**（节点 `4050:6387`，店铺卡 390×72）只删了「服务表现」，
- *    仍保留 `Frame 117`（评分/粉丝行）—— 这一条**以用户口径为准**（用户把评分/粉丝也点进了那一块）；
- *    若要回到设计稿的滚动帧，只需把 `'shop-metrics-block'` 从本数组里去掉（一处即可）。
+ *    仍保留 `Frame 117`（评分/粉丝行）。
+ * ⚠️⚠️ 2026-10-10 第六轮：**用户明确「吸顶的话店铺卡片是不收的」** ⇒
+ *    **只收「服务表现」那一块**，评分/粉丝行（属于店铺卡片）**保留** ⇒ 与设计稿滚动帧一致。
+ *    （此前按用户较早的措辞把评分/粉丝也收了起来，现按这次的更正收窄。）
+ * ⚠️ **本数组是唯一真相**：模板里被折叠的元素必须带 `:style="collapseBlockStyle('<id>')"`
+ *    且 `<id>` 在本数组里；**评分/粉丝行例外** —— 它不在本数组里，也**不得**再挂折叠类/折叠样式
+ *    （第六轮之前它挂着 `:class` 折叠钩子 ⇒ 滚动后整块 `opacity: 0` 但仍占位，看着像坏掉）。
+ *    契约 §11e 两侧都有断言（正向 + 反向）。
  */
-const COLLAPSE_BLOCK_IDS = ['shop-metrics-block', 'shop-service-row'] as const
+const COLLAPSE_BLOCK_IDS = ['shop-service-row'] as const
 
 /**
  * 滚动折叠阈值（px，页面纵向滚动距离）。
@@ -359,7 +374,7 @@ const METRICS_COLLAPSE_THRESHOLD = 60
  */
 const METRICS_COLLAPSE_HYSTERESIS = 40
 
-/** 是否已滚过阈值 ⇒ 收起 `COLLAPSE_BLOCK_IDS` 里的两块（**可逆**：滚回去会恢复，见 `onPageScroll`）。 */
+/** 是否已滚过阈值 ⇒ 收起 `COLLAPSE_BLOCK_IDS` 里的块（**可逆**：滚回去会恢复，见 `onPageScroll`）。 */
 const metricsCollapsed = ref(false)
 
 /**
@@ -383,13 +398,13 @@ const collapseTries: Record<string, number> = {}
  * - **不吸店铺卡 / 资质条**：设计那一帧里店铺卡是被**裁到 72** 的（服务表现整块不在帧内）
  *   ⇒ 头部本来就该随滚动让位；把 143 高的卡常驻会在 667px 屏上吃掉约 22% 的高度。
  *
- * ## 与"两块收起"为什么不打架（三条硬约束）
+ * ## 与"收起"为什么不打架（三条硬约束）
  * 1. **偏移量只有一个来源 `navBarHeight`**（模板里绑成 `top`）：折叠块在吸顶带的**上方**，
  *    它收起只会把吸顶带**更早**顶到吸住位置，**不改变吸住后的位置**
  *    （`top` 是相对滚动视口的常量 ⇒ 折叠前后吸住位置逐像素相同）。
  * 2. **不切 `position`**：`.shop-head` 恒为 `sticky`，滚动只切阴影（可过渡）——
  *    `relative ↔ sticky` 切换会重算位置并抖动（见 `CLAUDE.md` §十二）。
- * 3. **判据同步折叠量**：两个折叠块的累计高度是**量出来的**（`collapseHeights`），它只把
+ * 3. **判据同步折叠量**：折叠块的累计高度是**量出来的**（`collapseHeights`），它只把
  *    "什么时候算吸住"的判据上移同样的像素数（见 `syncHeadStuck`），**不参与布局、不写回样式**。
  *
  * ⚠️ **偏移量必须是"真实状态栏高 + 44"**（`navBarHeight`）：固定导航栏盖住的正是这一段，
@@ -435,7 +450,7 @@ function measureHeadTop(): void {
 }
 
 /**
- * 两个折叠块的**累计真实高度**（px）：全部收起后，吸顶带整体上移这么多。
+ * 折叠块的**累计真实高度**（px，按 `COLLAPSE_BLOCK_IDS` 逐块求和）：全部收起后，吸顶带整体上移这么多。
  * ⚠️ 只对**已经量到**的块求和（量不到 = 那块根本不存在/还没量到 ⇒ 当作 0，绝不猜一个高度）。
  */
 const collapsedShiftPx = computed(() => COLLAPSE_BLOCK_IDS.reduce(
@@ -447,7 +462,7 @@ const collapsedShiftPx = computed(() => COLLAPSE_BLOCK_IDS.reduce(
  * 更新"是否已吸住"（**只影响阴影**）。
  *
  * 判据 = `scrollTop + 导航栏下沿 ≥ 吸顶带的页面顶边`；吸顶带在**折叠态**下整体上移了
- * `collapsedShiftPx`（两块都在它上方）⇒ 判据同步上移同样的像素数，折叠动画与吸顶**同源同量**，
+ * `collapsedShiftPx`（折叠块都在它上方）⇒ 判据同步上移同样的像素数，折叠动画与吸顶**同源同量**，
  * 不会出现"折叠完阴影滞后 / 提前"。
  * 量不到顶边（`headTopPx === 0`）⇒ 恒 `false`：**不猜阈值**，宁可没有阴影。
  */
@@ -475,7 +490,7 @@ const fans = computed(() => fansText(shop.value?.fansCount))
  *    可逆的、由同一个布尔驱动的过渡与它同构，不会出现"回滚时另一个分支又跳一下"。
  * ⚠️ **脱离阈值加缓冲带（60 / 40）**：阈值处手指微抖会反复穿越 ⇒ 过渡被反复打断（视觉上像抖动）。
  *    要真机上调的**第二个值**就是这个缓冲带（本文件取 `METRICS_COLLAPSE_HYSTERESIS`）。
- * ⚠️ 顺手在这里**量一次两个折叠块的真实高度**（`measureCollapseBlock`）：`onLoad` 时模板还没渲染完，
+ * ⚠️ 顺手在这里**量一次每个折叠块的真实高度**（`measureCollapseBlock`）：`onLoad` 时模板还没渲染完，
  *    量到的会是 0 ⇒ 必须在每次滚动里试着量，量到就记下、之后不再量。
  * ⚠️ **本回调要便宜**：每帧只做「几个缓存判空 + 两次数值比较」，**没有布局读取** ——
  *    每个 `createSelectorQuery` 都在量到之后立即短路（各自还有重试上限兜底，见那两个常量）。
@@ -496,10 +511,10 @@ onPageScroll((event) => {
 })
 
 /**
- * 两个折叠块上绑定的一次性内联高度（`Record<块 id, px>`）。
+ * 每个折叠块上绑定的一次性内联高度（`Record<块 id, px>`）。
  *
  * ⚠️ 为什么不用 CSS 里的固定高度：块高由内容决定（设计是 HUG）——
- *    服务表现格按实际存在的格数走，评分/粉丝行还可能是 0 行（没有真实评分又没有粉丝时整块不存在）。
+ *    服务表现格按实际存在的格数走（评分/粉丝行不折叠、不参与量高）。
  *    写死一个"看起来差不多"的数就是**在样式里编数据**。这里改为**首帧量一次真实高度**，
  *    之后 `height: 0 / N px` 的过渡两端都是**真实几何**。
  *    量不到（非微信环境 / 节点未渲染）时留空 ⇒ 模板退化为"不折叠"，**绝不用假高度顶上**。
@@ -573,19 +588,27 @@ const lastPageSize = ref(0)
 const hasMore = computed(() => lastPageSize.value >= PAGE_SIZE)
 
 /**
- * 网格卡片的**视图模型**：把后端价格拆成「整数段 / 小数段」两截（外加符号段）。
+ * 网格卡片的**视图模型**：把后端价格拆成「整数段 / 小数段」两截（外加符号段），
+ * 并把「标题 / 卖点」的文字位交给**共用字段口径**（`utils/product-card.ts`）。
  *
  * ⚠️ 设计稿的 `¥ 299.00` 是**一个** TEXT 节点配 `characterStyleOverrides`：
  *    `¥ ` = 12px/**500**、整数 `299` = **18px/500**、小数 `.00` = 14px/500 —— 三段**字号不同**。
  *    旧规格只记了"`¥` 与数字字号不同"，把数字整段按 14px/600 渲染 ⇒ 价格比设计小一圈、还粗了一档；
  *    2026-10-10 重新解析节点树才发现整数位是 **18px**（见文首对照表第 20 条）。
  *    WXML 模板里没法对同一条目反复调函数拆分，所以在这里一次算好。
+ *
+ * ⚠️ **标题 / 卖点也在这里一次算好**（模板里只读现成的字符串）：一是与价格同一套"视图模型"写法，
+ *    二是这两个字段的口径必须与首页卡片**逐字一致** —— 2026-10-10 用户报障的根因就是
+ *    "两个页面各取各的字段"（首页那条链在线上 0/78 有值，本页取 `description` 才有值）。
  */
 const gridProducts = computed(() => products.value.map((product) => {
   const text = formatAmount(Number(product.price))
   const dot = text.indexOf('.')
   return {
     ...product,
+    cardTitle: productCardTitle(product),
+    cardSellingPoint: productCardSellingPoint(product),
+    showSellingPoint: productCardShowSellingPoint(product),
     priceInt: dot < 0 ? text : text.slice(0, dot),
     priceDec: dot < 0 ? '' : text.slice(dot),
   }
@@ -872,11 +895,15 @@ function formatAmount(value: number): string {
           <view v-else class="shop-logo" />
           <view class="shop-card-main">
             <text class="shop-name">{{ shopNameText }}</text>
-            <!-- **折叠块 ①**：评分行 / 粉丝数（含下面那行解释文案）—— 用户 2026-10-10 第四条要
-                 「随滚动收起」的两块之一（见脚本 `COLLAPSE_BLOCK_IDS` / `collapseBlockStyle`）。
-                 ⚠️ `id` 必须与脚本里那个字面量**逐字一致**（契约 §11e 会把两边都钉住）。
-                 ⚠️ 内边距写在**本块自己**的 `padding-top` 上，不能用 `margin-top`：
-                    `boundingClientRect().height` 是边框盒、不含外边距 ⇒ 用 margin 会漏量一截。
+            <!-- 店铺卡内的**评分/粉丝行**（含下面那行解释文案）—— ⚠️ **不随滚动收起**：
+                 用户 2026-10-10 第六轮逐字「**吸顶的话店铺卡片是不收的**」⇒ 评分/粉丝行属于店铺卡片
+                 ⇒ **保留**（与设计稿滚动帧 `4050:6387` 保留 `Frame 117` 一致）。
+                 ⚠️ 它**不在** `COLLAPSE_BLOCK_IDS` 里，并且**不接**折叠类 / 折叠内联样式：契约
+                    §11e 对"本块没有折叠钩子"有反向断言。（第六轮之前这里挂着
+                    `:class="{ 'shop-metrics-block-collapsed': metricsCollapsed }"` ⇒ 滚动后整块
+                    `opacity: 0` **但仍占位** —— 看着就像页面坏了，故删掉。）
+                 ⚠️ `id` 只是结构锚点（不再参与高度测量）；与店名的间距仍是**本块自己**的
+                    `padding-top`，不写成 `margin-top`（间距归块所有，别再挪回行上）。
                  数据（**S4 起为真实字段**，2026-10-10 第四轮接线）：
                  评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
                  解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
@@ -890,8 +917,6 @@ function formatAmount(value: number): string {
             <view
               id="shop-metrics-block"
               class="shop-metrics-block"
-              :class="{ 'shop-metrics-block-collapsed': metricsCollapsed }"
-              :style="collapseBlockStyle('shop-metrics-block')"
             >
               <view v-if="rating || fans" class="shop-metrics-row">
                 <view v-if="rating" class="shop-rating">
@@ -942,15 +967,17 @@ function formatAmount(value: number): string {
                   「商品品质」—— 两张卡的设计文案本身不一致（旧需求单 §4-4 已记）。
                   因为服务表现的三项在契约里**都不存在**，我们改用契约真有的两项指标名，
                   这个不一致**不影响本页**（不再沿用设计填充文案）。
-               ⚠️ **滚动收起（折叠块 ②）**：用户 2026-10-10 第四条的答复是「吸顶是除了**星级评分，
-                  粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」
-                  ⇒ 收起的就是**评分/粉丝行**（折叠块 ①）与**本块**（见脚本 `COLLAPSE_BLOCK_IDS`），
-                  其余（导航栏 / logo+店名 / 收藏 / 资质条 / Tab / 筛选 / 网格）保持不动。
+               ⚠️ **滚动收起**：用户 2026-10-10 第四条的答复是「吸顶是除了**星级评分，
+                  粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」，
+                  但第六轮又明确「**吸顶的话店铺卡片是不收的**」⇒ **只有本块**（服务表现格，
+                  模板里那个 id 与脚本 `COLLAPSE_BLOCK_IDS` 里的一字不差）随滚动收起，
+                  评分/粉丝行属于店铺卡片、**保留**
+                  （见脚本 `COLLAPSE_BLOCK_IDS`）；其余（导航栏 / logo+店名 / 收藏 / 资质条 /
+                  Tab / 筛选 / 网格）保持不动。
                   过渡机制 = 显式 `height` + `opacity`（`display` 不可过渡），
                   高度取**首帧量到的真实值**（见 `measureCollapseBlock`）。
-                  ⚠️ 设计稿的**滚动帧**（`4050:6387`）其实只删了「服务表现」、保留了评分行
-                     （`Frame 117`），即折叠块 ① 是**按用户口径**加的；要去掉它只需从
-                     `COLLAPSE_BLOCK_IDS` 里删掉 `'shop-metrics-block'` 一处。 -->
+                  ⚠️ 这也正是设计稿**滚动帧**（`4050:6387`）的读法：它只删了「服务表现」、
+                     保留了评分行（`Frame 117`）—— 第六轮的用户更正与它**一致**。 -->
           <view
             id="shop-service-row"
             v-if="serviceMetrics.length"
@@ -1055,8 +1082,15 @@ function formatAmount(value: number): string {
                 <image class="goods-image" :src="product.mainImage" mode="aspectFill" />
               </view>
               <view class="goods-info">
-                <text class="goods-title">{{ product.descriptionTitle || product.name }}</text>
-                <text v-if="product.description" class="goods-selling">{{ product.description }}</text>
+                <!-- 标题 / 卖点：**字段口径与首页 `HomeProductCard` 完全一致**（共用
+                     `utils/product-card.ts`；2026-10-10 用户报障「跟首页商品卡片字段不一样」）。
+                     ⚠️ 文字在 `gridProducts` 里算好（与价格同一套视图模型）。
+                     ⚠️ 卖点行**恒渲染**：设计 `Frame 30` 的第三行是一条固定 20px 的行；
+                        没有真实文字时渲染**空行**保住行高（不塞通用文案、不让网格跳动），
+                        后台「推荐文本」关闭时同样只留空行（判据见共用模块）。 -->
+                <text class="goods-title">{{ product.cardTitle }}</text>
+                <text v-if="product.showSellingPoint && product.cardSellingPoint" class="goods-selling">{{ product.cardSellingPoint }}</text>
+                <text v-else class="goods-selling"></text>
                 <!-- 价格：设计里 `¥ 299.00` 是**一个 TEXT 节点 + `characterStyleOverrides`**，
                      `¥ ` = 12px/500、整数 = **18px**/500、小数 = 14px/500（三段**字号不同、字重都是 500**）
                      ⇒ 这里必须用嵌套 text 保持同一条行内基线，不能拼成一整串。 -->
@@ -1128,9 +1162,17 @@ page { background: #F2F3F7; overflow-x: hidden; }
    ⚠️ 这一层一旦漏掉 `position`，全页内容会**静默消失**（不报错、只是被渐变盖住）。 */
 .shop-body { position: relative; z-index: 1; }
 
-/* ② 导航栏（固定）：背景是上面那条渐变的 **0→92 切片**，
-   终点 `#804F40` = `#704138`→`#9A674D` 在 t=92/248 的线性插值（渲染图实测 #805041，差 1 为抗锯齿）。 */
-.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #704138 0%, #804F40 100%); box-sizing: border-box; }
+/* ② 导航栏（固定）的背景 —— ⚠️ 2026-10-10 第六轮修「导航栏底边那条亮线/白线」。
+   原先这里写的是 `linear-gradient(180deg, #704138 0%, #804F40 100%)`：
+   `.nav` 高度只有 ~88px，等于把「0→92 设计px 的切片」**拉伸铺满自己**，
+   于是它的**底边**停在 `#804F40`；而下面 `.shop-page` 那条渐变是以 **477rpx** 为尺度画的，
+   在**同一高度**（约 177rpx / 477rpx ≈ 19.3% 插值）只有 `#78483C`。
+   两者差约 (8, 7, 4) —— 在深棕渐变上就是**一条肉眼可见的亮线**（用户截图里那条"白线"）。
+   ⚠️ 上一轮加的「1 设备像素重叠」补的是**缝宽**，治不了**颜色对不上**，所以那条线还在。
+   正解：导航栏**用同一条渐变、同一个尺度**（`background-size: 100% 477rpx`），
+   只露出最上面一段 —— 这样它的底边颜色 = 页面渐变在同一高度的颜色，**逐像素连续**。
+   （`background-repeat: no-repeat` 必填，否则 477rpx 之外会平铺重复。） */
+.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background-image: linear-gradient(180deg, #704138 0rpx, #9A674D 477rpx); background-size: 100% 477rpx; background-repeat: no-repeat; box-sizing: border-box; }
 /* 返回热区 40×44，右内边距 12 / 左内边距 16（设计值 → 23rpx / 31rpx） */
 .nav-back { position: absolute; left: 0; bottom: 0; display: flex; align-items: center; width: 77rpx; height: 85rpx; padding-left: 31rpx; box-sizing: content-box; }
 /* 箭头：9×17 的白色折线（#FFFFFF@90%）—— 边框旋转 45° 画法，不引入切图。 */
@@ -1172,22 +1214,22 @@ page { background: #F2F3F7; overflow-x: hidden; }
    加个环或换色都属于"设计稿没有的视觉声明"；文案已由「收藏」变「已收藏」表达状态。 */
 .shop-fav-on { opacity: 0.72; }
 
-/* **折叠块 ①**（评分/粉丝行 + 解释文案）：与「服务表现」同属随滚动收起的两块（见脚本
-   `COLLAPSE_BLOCK_IDS` / `collapseBlockStyle`）。
+/* 评分/粉丝行所在的白卡块 —— ⚠️ **不随滚动收起**（用户 2026-10-10 第六轮「吸顶的话店铺卡片是不收的」）。
+   ⚠️ 它**不接**折叠类 / 折叠内联样式，也**不**在 `COLLAPSE_BLOCK_IDS` 里（契约 §11e 有反向断言）；
+      历史上它挂过折叠钩子：滚动后整块 `opacity: 0` 但**仍占位** —— 看着就是页面坏掉了，已删净。
    ⚠️ 与店名的间距写成**本块的 `padding-top`**（4rpx = 设计的 `margin-top` 4rpx），不是 `margin-top`：
-      `boundingClientRect().height` 是边框盒、**不含外边距** ⇒ 用 margin 时收起后会留下 4rpx 空隙。
-   ⚠️ 正因为间距变成了**内边距**，本块必须 `box-sizing: border-box`：
-      内联高度写的是**量到的边框盒高度**（已含内边距），content-box 下会把内边距再加一遍 ⇒
-      未折叠时会突然高一截、折叠后又会剩一条 4rpx 的空档。
-   ⚠️ `overflow: hidden` 把内容裁干净；过渡只用 `height` + `opacity`（见下面那段总注释）。 */
-.shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden; transition: height 240ms ease-out, opacity 240ms ease-out; }
-/* 折叠态：高度 0 + 完全透明（真实高度由 `collapseBlockStyle` 内联给出，两端都是真实几何）。 */
-.shop-metrics-block-collapsed { opacity: 0; }
+      间距归块自己所有（历史上是为了折叠量高，现在只是"间距在哪"的口径）—— 别再挪回行上。
+   ⚠️ `box-sizing: border-box` 留着：让本块的盒模型与折叠时代完全一致（改回 content-box 只会
+      改变这条规则的含义，没有任何收益）。
+   ⚠️ `overflow: hidden` 也留着：本块与块内元素（`.shop-metrics-row` / `.shop-rating` / 星串 /
+      分值 / 竖线 / 粉丝 / 解释文案）**都没有** `position` / `box-shadow` / 负外边距 / 变换，
+      块高由内容撑开 ⇒ 没有任何东西会被裁到，纯属无副作用的遗留（已逐条核对，见契约 §11e）。 */
+.shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden; }
 
 /* 评分行 / 粉丝数（设计 `Frame 117` 160×20，`gap=8`；星块 `Frame 116` 62×10 `gap=3`；
    分值 12px `#FFB200` 与星块间距 6；竖线 1×8 `#FFFFFF@70%`；粉丝 12px `#FFFFFF@80%`）。
    ⚠️ 只有真实字段有值时才渲染（见模板），这里只管排版。
-   ⚠️ 与店名的间距 4rpx 已挪到外面 `.shop-metrics-block` 的 `padding-top`（折叠时才会一起收掉）。 */
+   ⚠️ 与店名的间距 4rpx 归外面 `.shop-metrics-block` 的 `padding-top` 所有（不在本行上）。 */
 .shop-metrics-row { display: flex; align-items: center; }
 .shop-rating { display: flex; align-items: center; }
 /* 星串：设计每颗 10×10、间距 3 ⇒ 整块 62px。`★`/`☆` 字身都是 1em ⇒ 20rpx + 4rpx 字距
@@ -1217,12 +1259,12 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .shop-metric-name { color: rgba(255, 255, 255, 0.8); font-size: 23rpx; line-height: 38rpx; }
 .shop-metric-value { margin-top: 2rpx; color: #FFFFFF; font-size: 25rpx; line-height: 42rpx; }
 
-/* ===== 滚动折叠（用户 2026-10-10 第四条） =====
+/* ===== 滚动折叠（用户 2026-10-10 第四条 + 第六轮更正） =====
    「吸顶是除了**星级评分，粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」
-   ⇒ 随滚动**收起**的是**两块**：① 店铺卡里的评分/粉丝行（含解释文案，`.shop-metrics-block`）；
-     ② 服务表现格（`.shop-service-row`）。见脚本 `COLLAPSE_BLOCK_IDS`。
-     另外一条随滚动**吸顶**的是 `.shop-head`（Tab 栏 + 筛选行，见那条注释），两者互不干涉：
-     两个折叠块都在吸顶带**上方**，收起只会让吸顶带更早顶到吸住位置，不改变吸住后的位置。
+   ⚠️⚠️ 但用户随后另行明确「**吸顶的话店铺卡片是不收的**」⇒ 店铺卡片里的评分/粉丝行**保留**，
+   ⇒ 随滚动**收起**的只有**一块**：服务表现格（`.shop-service-row`）。见脚本 `COLLAPSE_BLOCK_IDS`。
+      另外一条随滚动**吸顶**的是 `.shop-head`（Tab 栏 + 筛选行，见那条注释），两者互不干涉：
+      折叠块在吸顶带**上方**，收起只会让吸顶带更早顶到吸住位置，不改变吸住后的位置。
 
    ⚠️ 过渡只用**可过渡属性**：`height` + `opacity`（外加 `overflow: hidden` 把内容裁干净）。
       · **不能**用 `display: none` —— 不可过渡，会变成硬切；
@@ -1230,8 +1272,8 @@ page { background: #F2F3F7; overflow-x: hidden; }
         （前 80% 动画时间只走很小的视觉变化，看起来"先卡一下再突然收完"）；
       · 高度取**首帧量到的真实值**（`measureCollapseBlock` 用 `uni.createSelectorQuery`），
         量不到就不折叠 —— 不用一个"看起来差不多"的假高度（那是样式里编数据）；
-      · 间距写在块的 `padding-top` 上（**不是** `margin-top`）—— 量到的是边框盒高度，见上两条规则。
-      · **不切 `position`**：两块自始至终都是普通流内元素（`position` 不可过渡，切换必抖，
+      · 间距写在块的 `padding-top` 上（**不是** `margin-top`）—— 量到的是边框盒高度，见上一条规则。
+      · **不切 `position`**：折叠块自始至终都是普通流内元素（`position` 不可过渡，切换必抖，
         见 `CLAUDE.md` §十二）；页面级滚动由 `onPageScroll` 驱动一个布尔，不换滚动容器。 */
 .shop-service-row { overflow: hidden; transition: height 240ms ease-out, opacity 240ms ease-out; }
 /* 折叠态：高度 0 + 完全透明（真实高度由 `collapseBlockStyle` 内联给出，两端都是真实几何）。 */
@@ -1318,8 +1360,11 @@ page { background: #F2F3F7; overflow-x: hidden; }
 .goods-info { display: flex; flex-direction: column; margin-top: 15rpx; }
 /* 标题 14px/600/行高 22，两行截断（设计高 44 = 2×22）；截断用仓库既有的 line-clamp 写法 */
 .goods-title { display: -webkit-box; overflow: hidden; color: #1D2129; font-size: 27rpx; font-weight: 600; line-height: 42rpx; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-/* 卖点 13px/400/行高 20，`#FF7B2E`，一行 */
-.goods-selling { display: -webkit-box; overflow: hidden; margin-top: 8rpx; color: #FF7B2E; font-size: 25rpx; line-height: 38rpx; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+/* 卖点 13px/400/行高 20，`#FF7B2E`，一行。
+   ⚠️ `min-height: 38rpx`（= 1 行）是**必需**的：这一行现在**恒渲染**（字段口径与首页一致），
+   没有真实文字时模板给的是**空节点** —— 空的 `-webkit-box` 会塌成 0 高，行高就保不住、
+   网格会随"有没有卖点"跳动。加上它就与设计里那条固定的 20px 行**逐像素同高**。 */
+.goods-selling { display: -webkit-box; overflow: hidden; min-height: 38rpx; margin-top: 8rpx; color: #FF7B2E; font-size: 25rpx; line-height: 38rpx; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
 /* 价格行：设计是**一个 TEXT 节点**（`Frame 33`，h=22，`main=SPACE_BETWEEN` 但只有一个子节点）
    + `characterStyleOverrides` 三段：`¥ ` 12px/500、整数 18px/500、小数 14px/500，全部 `#FF5500`、lh22。
    ⇒ 用**嵌套 text**（同一条行内基线），字号分别 23/35/27rpx，字重统一 **500**（旧实现是 600）。 */

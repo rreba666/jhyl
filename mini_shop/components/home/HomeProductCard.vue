@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { ProductCard } from '@/api/product'
+// ⚠️ 标题 / 卖点行的**字段口径**统一在这个共用模块里（与店铺页网格卡、分类页卡片同一套，
+//    见该模块头部注释：2026-10-10 用户报障「店铺页商品卡展示的字段跟首页不一样」的根因）。
+import { productCardSellingPoint, productCardShowSellingPoint, productCardTitle } from '@/utils/product-card'
 
 type LayoutMode = 'grid' | 'list'
 
@@ -26,17 +29,26 @@ function onImageSettled(): void {
 }
 
 const imageUrl = computed(() => props.product.mainImage || 'https://jinhuayou.com/fengling/2026-09-17-jinhuayouli/mini-static/figma-home/product-default.jpg')
-const description = computed(() => props.product.descriptionTitle || props.product.tag || '精选好物，安心品质')
 /**
- * 后台「推荐文本」开关：关闭时不渲染描述行。
+ * 卡片**标题**：`descriptionTitle || name`（契约逐字，见 `utils/product-card.ts`）。
+ * ⚠️ 原先这里是 `product.name || '精选商品'` —— 与店铺页网格卡取的不是同一个字段，
+ *    同一个商品在两个页面显示两套标题（2026-10-10 用户报障）。
+ */
+const title = computed(() => productCardTitle(props.product))
+/**
+ * 卡片**卖点行**：`description || tag`（契约「小程序商品卡下方 = description || subtitle」）。
+ * ⚠️ 原先这里是 `descriptionTitle || tag || '精选好物，安心品质'`：
+ *    线上 `descriptionTitle` / `tag` **0/78 有值** ⇒ 那句兜底会出现在**每一张**卡片上
+ *    （编出来的文案，违反「绝不伪造数据」）；现在改为取真有的 `description`（实测 75/78 有值），
+ *    真没有就渲染**空行**（`v-else` 占位节点保住高度），不再塞通用好话。
+ */
+const description = computed(() => productCardSellingPoint(props.product))
+/**
+ * 后台「推荐文本」开关：关闭时不渲染描述行（判据同样来自共用模块；未下发按开启）。
  * 兼容后端可能下发的 0/1、'0'/'1'、boolean；**未下发（undefined/null/空串）按开启处理**，
  * 避免老接口或字段缺失时把描述行整片隐藏。
  */
-const showDescription = computed(() => {
-  const flag = props.product.recommendTextEnabled
-  if (flag === undefined || flag === null || flag === '') return true
-  return flag === 1 || flag === '1' || flag === true
-})
+const showDescription = computed(() => productCardShowSellingPoint(props.product))
 const price = computed(() => {
   const value = props.product.price
   return Number.isFinite(value) ? value.toFixed(2) : '0.00'
@@ -71,11 +83,15 @@ function selectProduct(): void {
       />
     </view>
     <view class="product-copy">
-      <text class="product-title">{{ product.name || '精选商品' }}</text>
+      <!-- ⚠️ 标题与卖点行都走**共用字段口径**（`utils/product-card.ts`）：与店铺页网格卡、
+           分类页卡片取同一对字段，几何/字号仍各自按自己的画板写。 -->
+      <text class="product-title">{{ title }}</text>
       <!-- 描述行：后台关闭「推荐文本」时不渲染文字，但仍留一个等高占位节点 ——
            若直接把节点摘掉，「有描述」与「无描述」的卡片会相差一行高度，
-           双栏瀑布流（左右两列各自 v-for）里同样会错位。 -->
-      <text v-if="showDescription" class="product-description">{{ description }}</text>
+           双栏瀑布流（左右两列各自 v-for）里同样会错位。
+           ⚠️ 文本为空（后端 `description` 与 `tag` 都没值）时也走这条占位分支 ——
+              绝不用一句通用文案顶上（那是伪造数据）。 -->
+      <text v-if="showDescription && description" class="product-description">{{ description }}</text>
       <text v-else class="product-description"></text>
       <view class="product-price-row">
         <view class="product-price"><text class="price-symbol">¥</text><text class="price-number">{{ price }}</text></view>

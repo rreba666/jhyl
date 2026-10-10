@@ -170,9 +170,9 @@
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
-        "desc":  "nav gradient slice endpoint #804F40 -\u003e the old eyeballed #704138",
-        "find":  "background: linear-gradient(180deg, #704138 0%, #804F40 100%); box-sizing: border-box; }",
-        "replace":  "background: linear-gradient(180deg, #704138 0%, #704138 100%); box-sizing: border-box; }"
+        "desc":  "the nav goes back to its own stretched gradient slice (its bottom edge stops matching the page gradient - the bright seam)",
+        "find":  "background-image: linear-gradient(180deg, #704138 0rpx, #9A674D 477rpx)",
+        "replace":  "background-image: linear-gradient(180deg, #704138 0%, #804F40 100%)"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
@@ -596,25 +596,55 @@
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
-        "desc":  "the collapsing scope drops the rating/fans row (design scrolled frame instead of the user)",
-        "find":  "const COLLAPSE_BLOCK_IDS = ['shop-metrics-block', 'shop-service-row'] as const",
-        "replace":  "const COLLAPSE_BLOCK_IDS = ['shop-service-row'] as const"
+        "desc":  "the collapsing scope swallows the shop card's rating/fans row again (user: the shop card does not collapse)",
+        "find":  "const COLLAPSE_BLOCK_IDS = ['shop-service-row'] as const",
+        "replace":  "const COLLAPSE_BLOCK_IDS = ['shop-metrics-block', 'shop-service-row'] as const"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
-        "desc":  "the rating/fans block id drifts from the measured id (query would never resolve)",
+        "desc":  "the rating/fans block leaves the shop-card markup (its id drifts)",
         "find":  "id=\"shop-metrics-block\"",
         "replace":  "id=\"shop-metrics-block-typo\""
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
-        "desc":  "the rating/fans block spacing goes back to a margin (height measurement would miss it)",
+        "desc":  "the measured collapsing id drifts (its selector query would never resolve)",
+        "find":  "id=\"shop-service-row\"",
+        "replace":  "id=\"shop-service-row-typo\""
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the shop-card rating/fans block gets the collapsed-state class back (the row fades out while still holding its height)",
+        "find":  "class=\"shop-metrics-block\"",
+        "replace":  "class=\"shop-metrics-block\" :class=\"{ 'shop-metrics-block-collapsed': metricsCollapsed }\""
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the shop-card rating/fans block takes the collapse inline style again (the card would collapse)",
+        "find":  "class=\"shop-metrics-block\"",
+        "replace":  "class=\"shop-metrics-block\" :style=\"collapseBlockStyle('shop-metrics-block')\""
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the rating/fans ROW itself is handed the collapse style (the row would vanish on scroll)",
+        "find":  "<view v-if=\"rating || fans\" class=\"shop-metrics-row\">",
+        "replace":  "<view v-if=\"rating || fans\" class=\"shop-metrics-row\" :style=\"collapseBlockStyle('shop-service-row')\">"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the dead shop-metrics-block-collapsed rule comes back (a hook nothing binds would work silently again)",
+        "find":  ".shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden;",
+        "replace":  ".shop-metrics-block-collapsed { opacity: 0; }\r\n.shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden;"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the rating/fans row takes the block's spacing over as a margin (the gap stops belonging to the pinned card block)",
         "find":  ".shop-metrics-row { display: flex; align-items: center; }",
         "replace":  ".shop-metrics-row { display: flex; align-items: center; margin-top: 4rpx; }"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
-        "desc":  "the sticky shift stops summing every collapsing block (shadow would lag)",
+        "desc":  "the sticky shift stops summing the WHOLE collapsing list (a second block would be ignored)",
         "find":  "COLLAPSE_BLOCK_IDS.reduce(",
         "replace":  "COLLAPSE_BLOCK_IDS.slice(0, 1).reduce("
     },
@@ -626,7 +656,7 @@
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
-        "desc":  "the rating/fans block loses border-box (its padding would be added twice)",
+        "desc":  "the shop-card block stops being the pinned border-box padding-top rule (content box would double-count the padding)",
         "find":  ".shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden;",
         "replace":  ".shop-metrics-block { padding-top: 4rpx; overflow: hidden;"
     },
@@ -635,5 +665,59 @@
         "desc":  "the service-metric block spacing goes back to a margin (gap left when collapsed)",
         "find":  ".shop-service-row { display: flex; align-items: center; box-sizing: border-box; padding-top: 23rpx; }",
         "replace":  ".shop-service-row { display: flex; align-items: center; margin-top: 23rpx; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the collapsing row goes content-box (its padding would be added on top of the measured border-box height)",
+        "find":  ".shop-service-row { display: flex; align-items: center; box-sizing: border-box; padding-top: 23rpx; }",
+        "replace":  ".shop-service-row { display: flex; align-items: center; padding-top: 23rpx; }"
+    },
+    {
+        "file":  "mini_shop/utils/product-card.ts",
+        "desc":  "the card title drops descriptionTitle (the contract's title chain: descriptionTitle || name)",
+        "find":  "return trimmed(product.descriptionTitle) || trimmed(product.name)",
+        "replace":  "return trimmed(product.name)"
+    },
+    {
+        "file":  "mini_shop/utils/product-card.ts",
+        "desc":  "the card selling point goes back to the home card's old chain (empty on EVERY live product: descriptionTitle/tag are 0/78 populated)",
+        "find":  "return trimmed(product.description) || trimmed(product.tag)",
+        "replace":  "return trimmed(product.tag) || trimmed(product.description)"
+    },
+    {
+        "file":  "mini_shop/utils/product-card.ts",
+        "desc":  "the recommend-text switch defaults to OFF when the field is absent (an unsent field would blank every selling-point row)",
+        "find":  "if (flag === undefined || flag === null || flag === '') return true",
+        "replace":  "if (flag === undefined || flag === null || flag === '') return false"
+    },
+    {
+        "file":  "mini_shop/components/home/HomeProductCard.vue",
+        "desc":  "the home card fabricates selling-point copy again for a missing field (that placeholder rendered on every live product)",
+        "find":  "const description = computed(() => productCardSellingPoint(props.product))",
+        "replace":  "const description = computed(() => productCardSellingPoint(props.product) || '\u7cbe\u9009\u597d\u7269\uff0c\u5b89\u5fc3\u54c1\u8d28')"
+    },
+    {
+        "file":  "mini_shop/components/home/HomeProductCard.vue",
+        "desc":  "the home card stops using the shared field mapper (its own title chain again)",
+        "find":  "productCardTitle(props.product)",
+        "replace":  "props.product.name"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the shop grid card goes back to its own title chain (the per-page drift the user reported)",
+        "find":  "cardTitle: productCardTitle(product),",
+        "replace":  "cardTitle: product.descriptionTitle || product.name,"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the shop grid card drops the always-present selling-point line (its row height would jump when a product has no text)",
+        "find":  "<text v-else class=\"goods-selling\"></text>",
+        "replace":  "<!-- no height keeper -->"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the shop grid card drops the backend recommend-text switch (the row would ignore the admin toggle)",
+        "find":  "<text v-if=\"product.showSellingPoint && product.cardSellingPoint\" class=\"goods-selling\">{{ product.cardSellingPoint }}</text>",
+        "replace":  "<text v-if=\"product.cardSellingPoint\" class=\"goods-selling\">{{ product.cardSellingPoint }}</text>"
     }
 ]
