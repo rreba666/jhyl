@@ -18,17 +18,31 @@
 #   pwsh -File tools/same-city-flow.ps1
 #   pwsh -File tools/same-city-flow.ps1 -Base http://192.168.1.5:8080
 #   pwsh -File tools/same-city-flow.ps1 -SkipExceptionBranch   # 不跑异常上报分支
+#
+# Credentials (NEVER hard-coded in this tracked file -- read from the environment):
+#   LONPIN_ADMIN_PASS : REQUIRED, admin-console login password. There is NO default on purpose;
+#                       the script stops with a clear error when it is unset.
+#   LONPIN_ADMIN_USER : optional, falls back to 'root'.
+#   LONPIN_APP_KEY    : optional, falls back to the public brand key sent as the X-App-Key header
+#                       (same class of value as the VITE_APP_KEY committed in mini_shop/.env,
+#                       i.e. an identifier shipped to clients -- not a secret).
+#   Example:  $env:LONPIN_ADMIN_PASS = '<your-password>'; pwsh -File tools/same-city-flow.ps1
 # =============================================================================
 param(
   [string]$Base = 'http://192.168.1.4:8080',
-  [string]$AdminUser = 'root',
-  [string]$AdminPass = 'root123',
+  [string]$AdminUser = $(if ($env:LONPIN_ADMIN_USER) { $env:LONPIN_ADMIN_USER } else { 'root' }),
+  [string]$AdminPass = $env:LONPIN_ADMIN_PASS,
   [string]$Stamp = (Get-Date -Format 'MMddHHmmss'),
-  [string]$AppKey = 'jinhua',
+  [string]$AppKey = $(if ($env:LONPIN_APP_KEY) { $env:LONPIN_APP_KEY } else { 'jinhua' }),
   [switch]$SkipExceptionBranch
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Fail fast (and loudly) before any request: no credential is baked into this file.
+if ([string]::IsNullOrWhiteSpace($AdminPass)) {
+  throw "admin password is not set: set the LONPIN_ADMIN_PASS environment variable (or pass -AdminPass explicitly)."
+}
 $script:Base = $Base
 $script:Fail = 0
 $script:Step = 0
