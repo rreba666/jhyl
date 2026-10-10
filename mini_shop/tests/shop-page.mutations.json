@@ -104,8 +104,8 @@
     {
         "file":  "mini_shop/utils/shop-metrics.ts",
         "desc":  "the star run is hardcoded to five solid stars again (ANY rating shows 5)",
-        "find":  "  return \u0027★\u0027.repeat(filled) + \u0027☆\u0027.repeat(5 - filled)",
-        "replace":  "  return \u0027★★★★★\u0027"
+        "find":  "  return \u0027\u2605\u0027.repeat(filled) + \u0027\u2606\u0027.repeat(5 - filled)",
+        "replace":  "  return \u0027\u2605\u2605\u2605\u2605\u2605\u0027"
     },
     {
         "file":  "mini_shop/components/goods/ShopEntryCard.vue",
@@ -164,8 +164,8 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc":  "honest \u0027images not published\u0027 state replaced by a generic label",
-        "find":  "\u003ctext class=\"qual-empty-text\"\u003e证照图片暂未公示\u003c/text\u003e",
-        "replace":  "\u003ctext class=\"qual-empty-text\"\u003e暂无\u003c/text\u003e"
+        "find":  "\u003ctext class=\"qual-empty-text\"\u003e\u8bc1\u7167\u56fe\u7247\u6682\u672a\u516c\u793a\u003c/text\u003e",
+        "replace":  "\u003ctext class=\"qual-empty-text\"\u003e\u6682\u65e0\u003c/text\u003e"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
@@ -254,14 +254,14 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "qualification vector label copy replaced by the old design-pending placeholder",
-        "find":  "\u003ctext class=\"qualification-label\"\u003e店铺资质\u003c/text\u003e",
-        "replace":  "\u003ctext class=\"qualification-label\"\u003e待设计提供文案\u003c/text\u003e"
+        "find":  "\u003ctext class=\"qualification-label\"\u003e\u5e97\u94fa\u8d44\u8d28\u003c/text\u003e",
+        "replace":  "\u003ctext class=\"qualification-label\"\u003e\u5f85\u8bbe\u8ba1\u63d0\u4f9b\u6587\u6848\u003c/text\u003e"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "cert badge back to the hand-made CSS circle + check glyph (design is an exported scalloped seal)",
         "find":  "\u003cimage class=\"cert-badge\" src=\"/subpkg-goods/static/shop/cert-badge.png\" mode=\"aspectFit\" /\u003e",
-        "replace":  "\u003cview class=\"cert-badge\"\u003e\u003ctext class=\"cert-check\"\u003e✓\u003c/text\u003e\u003c/view\u003e"
+        "replace":  "\u003cview class=\"cert-badge\"\u003e\u003ctext class=\"cert-check\"\u003e\u2713\u003c/text\u003e\u003c/view\u003e"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
@@ -350,14 +350,14 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc":  "honest empty state copy replaced",
-        "find":  "\u003ctext class=\"qual-empty-text\"\u003e资质信息暂未公示\u003c/text\u003e",
-        "replace":  "\u003ctext class=\"qual-empty-text\"\u003e暂无\u003c/text\u003e"
+        "find":  "\u003ctext class=\"qual-empty-text\"\u003e\u8d44\u8d28\u4fe1\u606f\u6682\u672a\u516c\u793a\u003c/text\u003e",
+        "replace":  "\u003ctext class=\"qual-empty-text\"\u003e\u6682\u65e0\u003c/text\u003e"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc":  "shop-name row label replaced",
-        "find":  "\u003ctext class=\"qual-row-label\"\u003e商家店铺名称\u003c/text\u003e",
-        "replace":  "\u003ctext class=\"qual-row-label\"\u003e店铺名称\u003c/text\u003e"
+        "find":  "\u003ctext class=\"qual-row-label\"\u003e\u5546\u5bb6\u5e97\u94fa\u540d\u79f0\u003c/text\u003e",
+        "replace":  "\u003ctext class=\"qual-row-label\"\u003e\u5e97\u94fa\u540d\u79f0\u003c/text\u003e"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
@@ -368,7 +368,7 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc":  "empty merchant entity renders blank instead of \"not published\"",
-        "find":  "\u003e{{ businessName || \u0027未公示\u0027 }}\u003c",
+        "find":  "\u003e{{ businessName || \u0027\u672a\u516c\u793a\u0027 }}\u003c",
         "replace":  "\u003e{{ businessName }}\u003c"
     },
     {
@@ -380,13 +380,175 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc":  "shop-gone state stops rendering the documented copy",
-        "find":  "\u003ctext\u003e店铺不存在或已停用\u003c/text\u003e",
-        "replace":  "\u003ctext\u003e加载失败\u003c/text\u003e"
+        "find":  "\u003ctext\u003e\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528\u003c/text\u003e",
+        "replace":  "\u003ctext\u003e\u52a0\u8f7d\u5931\u8d25\u003c/text\u003e"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/qualification.vue",
         "desc":  "licence legal note rendered even without a licence image",
         "find":  "\u003ctext v-if=\"section.note\" class=\"qual-note\"\u003e{{ section.note }}\u003c/text\u003e",
         "replace":  "\u003ctext class=\"qual-note\"\u003e{{ section.note }}\u003c/text\u003e"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "sticky band switched from sticky to relative (state-dependent position => jitter)",
+        "find":  "position: sticky; z-index: 20; background: #FFFFFF; transition: box-shadow 200ms ease-out; }",
+        "replace":  "position: relative; z-index: 20; background: #FFFFFF; transition: box-shadow 200ms ease-out; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "stuck state switches position to fixed (position is not transitionable => jitter)",
+        "find":  ".shop-head-stuck { box-shadow: 0 2rpx 16rpx rgba(29, 33, 41, 0.08); }",
+        "replace":  ".shop-head-stuck { position: fixed; top: 0; box-shadow: 0 2rpx 16rpx rgba(29, 33, 41, 0.08); }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "sticky band z-index raised above the fixed nav (would cover the back arrow/title)",
+        "find":  "position: sticky; z-index: 20;",
+        "replace":  "position: sticky; z-index: 200;"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "sticky band loses its opaque background (grid shows through while scrolled)",
+        "find":  "z-index: 20; background: #FFFFFF; transition: box-shadow",
+        "replace":  "z-index: 20; background: transparent; transition: box-shadow"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "sticky band transitions a layout prop instead of the shadow",
+        "find":  "transition: box-shadow 200ms ease-out; }",
+        "replace":  "transition: height 200ms ease-out; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "sticky offset hardcoded instead of the real nav height (tabs hidden under the nav)",
+        "find":  "const headStyle = computed(() => ({ top: `${navHeight.value}px` }))",
+        "replace":  "const headStyle = computed(() => ({ top: '92px' }))"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "band position measured in viewport coords instead of page coords (threshold nonsense)",
+        "find":  "headTopPx.value = top + lastScrollTop",
+        "replace":  "headTopPx.value = top"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "stuck state stops being driven by the page scroll handler",
+        "find":  "syncHeadStuck(top)",
+        "replace":  "syncHeadStuck(0)"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "an overflow on .shop-content turns it into the sticky scrollport (sticky dies silently)",
+        "find":  ".shop-content { margin-top: -23rpx; padding-bottom: 77rpx;",
+        "replace":  ".shop-content { overflow: hidden; margin-top: -23rpx; padding-bottom: 77rpx;"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the .shop-page overflow guard comes back on the sticky ancestor (silent sticky death)",
+        "find":  ".shop-page { position: relative; min-height: 100vh; background: #F2F3F7; }",
+        "replace":  ".shop-page { position: relative; min-height: 100vh; background: #F2F3F7; overflow-x: hidden; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the 4th chip sends an undocumented sortBy value (contract enum is new_desc)",
+        "find":  "if (activeSort.value === 'new') return 'new_desc'",
+        "replace":  "if (activeSort.value === 'new') return 'new_asc'"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the 4th chip state is not declared (the chip could never be selected)",
+        "find":  "const activeSort = ref<'sold' | 'price' | 'new' | 'reputation'>('sold')",
+        "replace":  "const activeSort = ref<'sold' | 'price' | 'reputation'>('sold')"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "selectSort no longer accepts the 4th chip (tap would be a no-op)",
+        "find":  "function selectSort(sort: 'sold' | 'price' | 'new' | 'reputation'): void {",
+        "replace":  "function selectSort(sort: 'sold' | 'price' | 'reputation'): void {"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the 4th chip is appended AFTER the reputation chip (design order is between them)",
+        "find":  "              <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'new' }\" @click=\"selectSort('new')\">\r\n                <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'new' }\">\u65b0\u54c1</text>\r\n              </view>\r\n              <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'reputation' }\" @click=\"selectSort('reputation')\">\r\n                <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'reputation' }\">\u53e3\u7891\u4f18\u54c1</text>\r\n              </view>",
+        "replace":  "              <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'new' }\" @click=\"selectSort('new')\">\r\n                <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'new' }\">\u53e3\u7891\u4f18\u54c1</text>\r\n              </view>\r\n              <view class=\"filter-chip\" :class=\"{ 'filter-chip-active': activeSort === 'reputation' }\" @click=\"selectSort('reputation')\">\r\n                <text class=\"filter-text\" :class=\"{ 'filter-text-active': activeSort === 'reputation' }\">\u65b0\u54c1</text>\r\n              </view>"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the sticky band loses its closing tag (the grid would end up inside the sticky band)",
+        "find":  "          </view>\r\n\r\n          <!-- \u2463 \u5546\u54c1\u7f51\u683c",
+        "replace":  "\r\n          <!-- \u2463 \u5546\u54c1\u7f51\u683c"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "content layer loses its positioning (the absolute gradient paints over the whole card)",
+        "find":  ".shop-body { position: relative; z-index: 1; }",
+        "replace":  ".shop-body { z-index: 1; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "gradient takes an explicit z-index (back on top of the content layer)",
+        "find":  ".hero-gradient { position: absolute; top: 0; left: 0; right: 0; height: 477rpx;",
+        "replace":  ".hero-gradient { position: absolute; z-index: 3; top: 0; left: 0; right: 0; height: 477rpx;"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "content layer z-index above the fixed nav (the card would cover the back arrow)",
+        "find":  ".shop-body { position: relative; z-index: 1; }",
+        "replace":  ".shop-body { position: relative; z-index: 100; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the shop card is gated again (a failed archive request erases it)",
+        "find":  "<view class=\"shop-card\">",
+        "replace":  "<view v-if=\"shop.value\" class=\"shop-card\">"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the qualification bar is gated again (it does not depend on the archive at all)",
+        "find":  "<view class=\"qualification-bar\">",
+        "replace":  "<view v-if=\"shop.value\" class=\"qualification-bar\">"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the 8000 status line loses its own branch (state silently falls through)",
+        "find":  "<view v-else-if=\"shopUnavailable\" class=\"shop-status\"><text>\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528</text></view>",
+        "replace":  "<view v-if=\"false\" class=\"shop-status\"><text>\u5e97\u94fa\u4e0d\u5b58\u5728\u6216\u5df2\u505c\u7528</text></view>"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the loading status line is replaced by a bare ellipsis (state no longer stated)",
+        "find":  "<view v-if=\"loading\" class=\"shop-status\"><text>\u5e97\u94fa\u4fe1\u606f\u52a0\u8f7d\u4e2d\u2026</text></view>",
+        "replace":  "<view v-if=\"loading\" class=\"shop-status\"><text>\u2026</text></view>"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the failure retry stops re-running the archive load",
+        "find":  "<text class=\"shop-status-retry\" @click=\"loadShop\">\u91cd\u8bd5</text>",
+        "replace":  "<text class=\"shop-status-retry\">\u91cd\u8bd5</text>"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the card name drops the name the entry already knew (blank card on archive failure)",
+        "find":  "const shopNameText = computed(() => String(shop.value?.name || '').trim() || knownShopName.value)",
+        "replace":  "const shopNameText = computed(() => String(shop.value?.name || '').trim())"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the URL param is no longer decoded (an encoded shop name renders as %E4%BB%8A...)",
+        "find":  "return decodeURIComponent(raw).trim()",
+        "replace":  "return raw"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the tab/filter/grid surface renders even for a shop that does not exist",
+        "find":  "<view v-if=\"!shopUnavailable\" class=\"shop-content\">",
+        "replace":  "<view class=\"shop-content\">"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/detail/detail.vue",
+        "desc":  "the entry stops passing the shop name it already has (shop page loses its content)",
+        "find":  "query.push(`shopName=${encodeURIComponent(name)}`)",
+        "replace":  ""
     }
 ]

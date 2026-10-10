@@ -273,11 +273,29 @@ const SHOP_ENTRY_GAP = '20rpx'
  */
 const shopMetrics = ref<EnabledShop | null>(null)
 
-/** 点「进店」→ 进店铺页；id 由卡片（= 商品详情里那个真实门店）给出，这里再挡一次空值。 */
+/**
+ * 点「进店」→ 进店铺页；id 由卡片（= 商品详情里那个真实门店）给出，这里再挡一次空值。
+ *
+ * ⚠️ **把已经拿到的店名 / 门头图一起带过去**（用户 2026-10-10：
+ *    「就算是没有相应的字段也是有内容的啊」）：店铺页要另外打一次门店档案（S3），
+ *    那次请求慢/失败/门店已停用的时候，店名不该跟着丢 —— 它是**进店这一刻就已经拿到的真实数据**
+ *    （`ProductDetailV2VO.shopName` / `shopImage`，S1 下发）。
+ *    ⇒ 店铺页用它们只做**回退**（档案到了永远优先），因此**必须有 `encodeURIComponent`**：
+ *      店名可能带 `&` `#` 等字符，直接拼会把后面的参数截断。
+ * ⚠️ 只带**同一个**主门店的字段（`shopEntryShop` 已按 `shopId` 匹配过，不按位置取第一家）。
+ */
 function onEnterShop(shopId: string | number): void {
   const id = String(shopId ?? '').trim()
   if (!id) return
-  uni.navigateTo({ url: `/subpkg-goods/shop/index?shopId=${encodeURIComponent(id)}` })
+  const known = shopEntryShop.value
+  const query = [`shopId=${encodeURIComponent(id)}`]
+  if (known && String(known.id) === id) {
+    const name = String(known.name || '').trim()
+    const image = String(known.shopImage || '').trim()
+    if (name) query.push(`shopName=${encodeURIComponent(name)}`)
+    if (image) query.push(`shopImage=${encodeURIComponent(image)}`)
+  }
+  uni.navigateTo({ url: `/subpkg-goods/shop/index?${query.join('&')}` })
 }
 
 /**

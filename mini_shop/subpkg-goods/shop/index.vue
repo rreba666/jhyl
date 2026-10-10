@@ -92,15 +92,22 @@
  * - **「收藏」按钮** → S4 的 `POST/DELETE /api/shop/{shopId}/follow`（详见 `onFavoriteTap`）。
  * 展示口径（文案 / 单位 / 缺省）统一走 `utils/shop-metrics.ts`，与商品详情页的进店卡片**同源**。
  *
- * ## 滚动形态（节点 `4050:6387` `店铺_首页_滚动`，2026-10-10 补充）
- * 该节点**整棵树每个元素都标了 `scrollBehavior=SCROLLS`**（设计侧明确"随页面滚动"，
- * 没有任何 FIXED/sticky 标记）⇒ **本页不需要吸顶 / 折叠 / 视差**，让内容自然滚过即可。
- * 它与 `4045:5815` 的差异是"滚到底"的一帧：渐变头图仍 248 高但被 92 高的父框裁掉，
- * 店铺卡从 143 压到 72（评分行 / 服务表现行**在卡外被裁掉**）、Tab 选中态换成「商品」、
+ * ## 滚动形态（节点 `4050:6387` `店铺_首页_滚动`，2026-10-10 补充；同日追加**吸顶**决定）
+ * 该节点**整棵树每个元素都标了 `scrollBehavior=SCROLLS`**（设计侧**没有** FIXED/sticky 标记）。
+ * 它与首屏帧 `4045:5815` 的差异是"滚到某处"的一帧：渐变头图仍 248 高但被 92 高的父框裁掉、
+ * 店铺卡从 143 压到 72（服务表现整块不在这一帧里）、Tab 选中态换成「商品」、
  * 筛选行多了个「新品」。逐帧对照与推断见
  * `docs/26/10.10/店铺页滚动形态-4050-6387-推断与实现-2026-10-10.md`。
+ *
+ * 用户 2026-10-10 对三条开放问题的答复 = 本节的口径：
+ * 1. **吸顶（答「2. 吸顶」）**：设计没给吸顶标记，但用户要吸顶 ⇒ 吸的是**内容区的控制带**
+ *    （Tab 栏 + 筛选行，模板里的 `.shop-head`）。顶层导航栏本来就是 `position: fixed`
+ *    （返回 + 标题一直可点）⇒ 该吸的就只剩这一条；偏移量与取舍见 `headStuck` 与 `.shop-head`。
+ * 2. **筛选行第 4 个 chip「新品」（答「3. 加」）**：按节点几何插在「价格」与「口碑优品」
+ *    **之间**（不是追加到末尾），映射 `sortBy=new_desc`。
+ * 3. 服务表现三项的后端需求另立文档：`docs/26/10.10/后端需求-店铺服务表现三项-2026-10-10.md`。
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { onLoad, onPageScroll, onReachBottom } from '@dcloudio/uni-app'
 import { followShop, getShopDetail, getShopFollowStatus, unfollowShop, type EnabledShop } from '@/api/shop'
 // ⚠️ 用 `getShopProducts`（= `GET /api/shop/{shopId}/products`，S2b）而**不是**
@@ -119,7 +126,10 @@ import { isApiRequestError } from '@/utils/request'
  */
 const SHOP_NOT_FOUND_CODE = 8000
 
-/** 页面入参：`/subpkg-goods/shop/index?shopId=…`（进店卡片跳转过来）。 */
+/**
+ * 页面入参：`/subpkg-goods/shop/index?shopId=…&shopName=…&shopImage=…`
+ * （进店卡片跳转过来；后两个是**可选的"已知信息"**，见 `knownShopName`）。
+ */
 const shopId = ref('')
 /** 店铺档案；`null` = 未加载/未命中。 */
 const shop = ref<EnabledShop | null>(null)
@@ -128,6 +138,35 @@ const loading = ref(true)
 const errorMessage = ref('')
 /** 门店**不存在 / 已停用 / 已被删除**（接口业务码 `8000`，或页面压根没带 `shopId`）。 */
 const shopUnavailable = ref(false)
+
+/**
+ * **进店时就已经知道**的店名 / 门头图（由进店卡片随 URL 带过来，来源是商品详情 S1 下发的
+ * `ProductDetailV2VO.shopName` / `shopImage` —— **真实字段，不是编的**）。
+ *
+ * ## 为什么要带
+ * 用户 2026-10-10 的原话：「**就算是没有相应的字段也是有内容的啊**」——
+ * 门店档案（`GET /api/shop/{shopId}`）慢、失败、或门店已停用时，整页**不该变成一片渐变空白**：
+ * 店名是**进店那一刻就已经拿到的真实数据**，没有任何理由因为"档案没取到"而丢掉。
+ * ⇒ 这两个值只做**占位/回退**：档案一旦到达，`shop.value` 的字段**永远优先**（见下面两个 computed）。
+ * ⚠️ 它们是**回退**，不是兜底造数：拿不到就为空，绝不编一个店名/一张图。
+ */
+const knownShopName = ref('')
+const knownShopImage = ref('')
+
+/**
+ * 解一个 URL 查询参数（进店卡片那边用 `encodeURIComponent` 编的）。
+ * ⚠️ 小程序**不会**自动解码 query（仓库既有口径，见 `subpkg-goods/category/index.vue`）⇒ 必须显式解；
+ *    非法编码时保持原值（不抛错、不把页面搞挂）。
+ */
+function decodeParam(value: unknown): string {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    return decodeURIComponent(raw).trim()
+  } catch {
+    return raw
+  }
+}
 
 /**
  * 「收藏」= **关注门店**（S4 §12.4 新增能力）。
@@ -157,9 +196,17 @@ const favText = computed(() => (followed.value === true ? '已收藏' : '收藏'
 const statusBarHeight = ref(0)
 const navHeight = computed(() => statusBarHeight.value + 44)
 
-/** 导航标题：优先店铺名（真实数据），未加载时用设计稿写的平台标题。 */
-const navTitle = computed(() => String(shop.value?.name || '').trim() || '非遗老号')
-const logo = computed(() => String(shop.value?.shopImage || '').trim())
+/**
+ * 卡片上的店名：**档案优先**，取不到时退回进店时已知的店名（见 `knownShopName`）。
+ * ⚠️ 拿不到就渲染空串（白字占位由卡片自己的版式决定），**不编一个店名**。
+ */
+const shopNameText = computed(() => String(shop.value?.name || '').trim() || knownShopName.value)
+
+/** 导航标题：优先店铺名（真实数据），其次进店时已知的店名，都没有时才用设计稿写的平台标题。 */
+const navTitle = computed(() => shopNameText.value || '非遗老号')
+/** 门头图：档案优先，其次进店时已知的图；都没有 ⇒ 模板画**中性方块**（不塞占位图）。 */
+const logo = computed(() => String(shop.value?.shopImage || '').trim() || knownShopImage.value)
+
 
 /**
  * 当前 Tab（`首页` / `商品`）。
@@ -171,16 +218,20 @@ const logo = computed(() => String(shop.value?.shopImage || '').trim())
 const activeTab = ref<'home' | 'goods'>('home')
 
 /**
- * 当前筛选档（设计给了三个 chip，映射关系见 `sortByParam` / `recommendedParam`）：
+ * 当前筛选档（设计给了四个 chip，映射关系见 `sortByParam` / `recommendedParam`）：
  * - `销量` → `sortBy=sold_desc` ✅；
  * - `价格` → `sortBy=price_asc|price_desc` ✅（图标上三角=升序、下三角=降序）；
+ * - `新品` → **`sortBy=new_desc`** ✅（用户 2026-10-10 答「3. 加」；
+ *   取材：节点 `4050:6387` 的筛选行有 4 个 chip，第 3 个逐字为「新品」，
+ *   几何 `x=612`（在 `价格` x=550 与 `口碑优品` x=660 **之间**）、未选中态 `#F6F7F9` + `#1D2129`；
+ *   取值：契约 `sortBy` 的 `new_desc` 逐字描述是「**新品**降序（按创建时间）」⇒ 与设计文案同义）；
  * - `口碑优品` → **`recommended=true`**（✅ 2026-10-10 S4 §12.5 起支持）。
  *   ⚠️ 口径变了：它**不是** `sortBy` 的新枚举，而是**"只看推荐商品"的布尔筛选**
  *   （契约原文「是否只看推荐商品（店铺页「口碑优品」栏位用）：true ⇒ isRecommended=1 的在售商品」）
  *   ⇒ 因此它**可以**进选中态（旧实现在这里"只给一句中性提示、不切换选中态"，
  *   理由是"契约没有对应枚举"—— 那个理由**已作废**，见 §12.5）。
  */
-const activeSort = ref<'sold' | 'price' | 'reputation'>('sold')
+const activeSort = ref<'sold' | 'price' | 'new' | 'reputation'>('sold')
 /** 价格排序方向：`asc` = 从低到高（设计稿渲染图里**上三角为深色** ⇒ 默认升序）。 */
 const priceOrder = ref<'asc' | 'desc'>('asc')
 
@@ -189,13 +240,15 @@ const priceOrder = ref<'asc' | 'desc'>('asc')
  *
  * ⚠️ `sortBy` 在契约里是**可选**参数（`sold_desc / price_asc / price_desc / new_desc / sort_order`），
  *    不传 = 后端默认排序。两个价格档**各自**给出自己的枚举值（升/降序不可互相顶替）；
- *    「销量」档给出 `sold_desc`（设计里「销量」= 销量倒序，映射关系见 `activeSort` 注释）。
+ *    「销量」档给出 `sold_desc`（设计里「销量」= 销量倒序，映射关系见 `activeSort` 注释）；
+ *    「新品」档给出 `new_desc`（契约逐字：「`new_desc` — **新品**降序（按创建时间）」）。
  *    「口碑优品」档**沿用 `sold_desc`**：契约明写该接口带 `recommended` 时
  *    「排序与分页与不带该参数一致」⇒ 改的只有筛选，不另编一个排序值。
  */
-const sortByParam = computed<'sold_desc' | 'price_asc' | 'price_desc'>(() => {
-  if (activeSort.value !== 'price') return 'sold_desc'
-  return priceOrder.value === 'desc' ? 'price_desc' : 'price_asc'
+const sortByParam = computed<'sold_desc' | 'price_asc' | 'price_desc' | 'new_desc'>(() => {
+  if (activeSort.value === 'price') return priceOrder.value === 'desc' ? 'price_desc' : 'price_asc'
+  if (activeSort.value === 'new') return 'new_desc'
+  return 'sold_desc'
 })
 
 /**
@@ -232,6 +285,87 @@ const SERVICE_COLLAPSE_HYSTERESIS = 40
 const serviceCollapsed = ref(false)
 
 /**
+ * 量高度的**重试上限**：量到就停；**量不到也要停**。
+ * ⚠️ 门店没有任何可计算指标时这一行根本不存在（`v-if="serviceMetrics.length"`）⇒ 查询永远返回
+ *    null；没有这个上限，`onPageScroll` 每触发一次就发一次 `createSelectorQuery`（= 每帧一次布局读取）。
+ */
+const SERVICE_ROW_MEASURE_MAX_TRIES = 5
+let serviceRowMeasureTries = 0
+
+/**
+ * ===== 吸顶（用户 2026-10-10 答复「2. 吸顶」）=====
+ *
+ * ## 吸什么、为什么不吸别的
+ * - **吸顶对象 = 内容区的控制带**：Tab 栏（首页 / 商品）+ 筛选行（销量 / 价格 / 新品 / 口碑优品），
+ *   模板里包成 `.shop-head`。它是本页**唯一的控制面** —— 往下滚之后还要能换 Tab、换筛选，
+ *   否则只能滚回顶部才能操作（"吸顶"要解决的正是这件事）。
+ * - **顶层导航栏不在这里做**：它本来就是 `position: fixed`（见 `.nav`），返回与标题**一直可点**；
+ *   再叠一层 sticky 只会和 fixed 打架。
+ * - **不吸店铺卡 / 资质条**：设计那一帧里店铺卡是被**裁到 72** 的（服务表现整块不在帧内）
+ *   ⇒ 头部本来就该随滚动让位；把 143 高的卡常驻会在 667px 屏上吃掉约 22% 的高度。
+ *
+ * ## 与"服务表现折叠"为什么不打架（三条硬约束）
+ * 1. **偏移量只有一个来源 `navHeight`**（模板里绑成 `top`）：折叠块在吸顶带的**上方**，
+ *    它收起只会把吸顶带**更早**顶到吸住位置，**不改变吸住后的位置**
+ *    （`top` 是相对滚动视口的常量 ⇒ 折叠前后吸住位置逐像素相同）。
+ * 2. **不切 `position`**：`.shop-head` 恒为 `sticky`，滚动只切阴影（可过渡）——
+ *    `relative ↔ sticky` 切换会重算位置并抖动（见 `CLAUDE.md` §十二）。
+ * 3. **判据同步折叠量**：折叠行的高度是**量出来的**（`serviceRowHeights`），它只把
+ *    "什么时候算吸住"的判据上移同样的像素数（见 `syncHeadStuck`），**不参与布局、不写回样式**。
+ *
+ * ⚠️ **偏移量必须是"真实状态栏高 + 44"**（`navHeight`）：固定导航栏盖住的正是这一段，
+ *    写死一个"看起来差不多"的值 ⇒ 刘海屏 / 不同状态栏高度下 Tab 被压在导航栏底下（**点不到**）。
+ */
+
+/** 吸顶带的**页面坐标**顶边（px）；`0` = 还没量到（量不到就不显示"已吸住"的阴影，绝不猜一个阈值）。 */
+const headTopPx = ref(0)
+/** 是否已吸在导航栏下方 —— **只驱动阴影**，不参与定位（定位恒由 `sticky` + `top` 决定）。 */
+const headStuck = ref(false)
+/** 吸顶带 `top` 的内联样式：**真实导航栏高**（`px`），由 `uni.getSystemInfoSync().statusBarHeight` 算出。 */
+const headStyle = computed(() => ({ top: `${navHeight.value}px` }))
+/** 量吸顶带位置的重试上限（`onLoad` 时模板可能还没渲染完；量到就停）。 */
+const HEAD_MEASURE_MAX_TRIES = 5
+let headMeasureTries = 0
+/** 最近一次 `onPageScroll` 的纵向滚动量（px）—— 视口坐标换算成页面坐标要靠它。 */
+let lastScrollTop = 0
+
+/**
+ * 量一次吸顶带的**页面坐标**顶边（量到就缓存，之后**零开销**）。
+ *
+ * ⚠️ `uni.createSelectorQuery().boundingClientRect` 给的是**视口坐标** ⇒ 要加回当前滚动量
+ *    （`lastScrollTop`）才是页面坐标。
+ * ⚠️ **已经吸住时不能量**：那时视口坐标恒等于 `navHeight`，加回去得到的是"吸住位置"而不是
+ *    "自然位置" ⇒ 用它算判据永远算不出吸住点。这一档直接丢弃（下次在非吸住位置再量）。
+ * @see https://uniapp.dcloud.net.cn/api/ui/nodes-info.html
+ */
+function measureHeadTop(): void {
+  if (headTopPx.value > 0 || headMeasureTries >= HEAD_MEASURE_MAX_TRIES) return
+  headMeasureTries++
+  uni.createSelectorQuery()
+    .select('#shop-head')
+    .boundingClientRect((rect) => {
+      const top = Number((rect as { top?: number } | null)?.top)
+      if (!Number.isFinite(top) || top <= navHeight.value + 1) return
+      headTopPx.value = top + lastScrollTop
+    })
+    .exec()
+}
+
+/**
+ * 更新"是否已吸住"（**只影响阴影**）。
+ *
+ * 判据 = `scrollTop + 导航栏高 ≥ 吸顶带的页面顶边`；吸顶带在**折叠态**下整体上移了
+ * `serviceRowHeights[0]`（折叠行在它上方）⇒ 判据同步上移同样的像素数，折叠动画与吸顶**同源同量**，
+ * 不会出现"折叠完阴影滞后 / 提前"。
+ * 量不到顶边（`headTopPx === 0`）⇒ 恒 `false`：**不猜阈值**，宁可没有阴影。
+ */
+function syncHeadStuck(scrollTop: number): void {
+  if (headTopPx.value <= 0) return
+  const headTop = headTopPx.value - (serviceCollapsed.value ? (serviceRowHeights.value[0] || 0) : 0)
+  headStuck.value = scrollTop + navHeight.value >= headTop
+}
+
+/**
  * 店铺客观指标的展示值（真实字段，口径见 `utils/shop-metrics.ts`）：
  * 评分 / 星串 / 粉丝 / 服务表现，四项**各自独立**地在没有真实值时为空。
  */
@@ -251,17 +385,22 @@ const fans = computed(() => fansText(shop.value?.fansCount))
  *    要真机上调的**第二个值**就是这个缓冲带（本文件取 `SERVICE_COLLAPSE_HYSTERESIS`）。
  * ⚠️ 顺手在这里**量一次服务表现行的真实高度**（`measureServiceRow`）：`onLoad` 时模板还没渲染完，
  *    量到的会是 0 ⇒ 必须在每次滚动里试着量，量到就记下、之后不再量。
+ * ⚠️ **本回调要便宜**：每帧只做「两个缓存判空 + 两次数值比较」，**没有布局读取** ——
+ *    两个 `createSelectorQuery` 都在量到之后立即短路（各自还有重试上限兜底，见那两个常量）。
  */
 onPageScroll((event) => {
-  measureServiceRow(0)
   const top = Number(event?.scrollTop) || 0
+  lastScrollTop = top
+  measureServiceRow(0)
+  // 吸顶带的页面坐标只在"还没吸住"时量得到（见 `measureHeadTop`）；量到即缓存，之后零开销。
+  if (headTopPx.value <= 0) measureHeadTop()
   if (!serviceCollapsed.value && top >= SERVICE_COLLAPSE_THRESHOLD) {
     serviceCollapsed.value = true
-    return
-  }
-  if (serviceCollapsed.value && top <= SERVICE_COLLAPSE_THRESHOLD - SERVICE_COLLAPSE_HYSTERESIS) {
+  } else if (serviceCollapsed.value && top <= SERVICE_COLLAPSE_THRESHOLD - SERVICE_COLLAPSE_HYSTERESIS) {
     serviceCollapsed.value = false
   }
+  // 放在折叠判定**之后**：同一帧里折叠与吸顶判据用的是同一份几何（见 `syncHeadStuck`）。
+  syncHeadStuck(top)
 })
 
 /**
@@ -275,9 +414,15 @@ onPageScroll((event) => {
  */
 const serviceRowHeights = ref<Record<number, number>>({})
 
-/** 量一次服务表现行的真实高度（仅在折叠时用得到；量过就不重复量）。 */
+/**
+ * 量一次服务表现行的真实高度（仅在折叠时用得到；量过就不重复量）。
+ * ⚠️ **量不到也要停**（`SERVICE_ROW_MEASURE_MAX_TRIES`）：该店没有任何可计算指标时这一行不存在
+ *    （`v-if="serviceMetrics.length"`）⇒ 查询恒返回 null；不加预算就会**每个滚动事件发一次查询**。
+ */
 function measureServiceRow(index: number): void {
   if (serviceRowHeights.value[index] !== undefined) return
+  if (serviceRowMeasureTries >= SERVICE_ROW_MEASURE_MAX_TRIES) return
+  serviceRowMeasureTries++
   uni.createSelectorQuery()
     .select(`#shop-service-row-${index}`)
     .boundingClientRect((rect) => {
@@ -408,10 +553,42 @@ onReachBottom(() => {
 })
 
 /**
+ * 取门店档案（S3）。
+ *
+ * ⚠️ **失败不擦页面**（用户 2026-10-10：「就算是没有相应的字段也是有内容的啊」）：
+ *    档案拿不到时只把**状态行**点亮（加载中 / 8000 / 加载失败 + 重试），
+ *    卡片主体（logo 槽 / 店名 / 收藏 / 资质条）照常渲染 —— 店名还是**进店时就已知**的那个（`knownShopName`）。
+ * ⚠️ `8000` 是**独立状态**（门店不存在/停用/软删），不是通用错误：契约 §七 给的建议文案就是
+ *    「门店不存在或已停用」；其余异常（网络/5xx/其它业务码）走通用失败分支（可重试）。
+ */
+async function loadShop(): Promise<void> {
+  if (!shopId.value) {
+    // 没带 shopId 就没法定位门店：如实说"门店不存在"，不编一个默认店。
+    shopUnavailable.value = true
+    loading.value = false
+    return
+  }
+  loading.value = true
+  errorMessage.value = ''
+  try {
+    shop.value = await getShopDetail(shopId.value)
+  } catch (error) {
+    if (isApiRequestError(error) && Number(error.code) === SHOP_NOT_FOUND_CODE) {
+      shopUnavailable.value = true
+    } else {
+      errorMessage.value = error instanceof Error ? error.message : '店铺信息加载失败'
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+/**
  * 读页面参数 → 取门店档案（S3）→ 再取该门店的在售商品（S2b）。
  *
  * ⚠️ 两个接口**串行**：商品接口对停用门店同样返回 `8000`，但"门店没了"这个结论应当由
  *    门店档案接口给出（它是门店维度的事实来源）；先档案后商品，语义最直白。
+ * ⚠️ 商品请求**只在档案真的取到时**才发（门店已停用 ⇒ 问了也只有 `8000`）。
  */
 onLoad(async (options) => {
   try {
@@ -421,28 +598,19 @@ onLoad(async (options) => {
     // 非微信环境拿不到系统信息：退化为仅 44px 标题栏。
     statusBarHeight.value = 0
   }
-  shopId.value = String(options?.shopId || '').trim()
-  if (!shopId.value) {
-    // 没带 shopId 就没法定位门店：如实说"门店不存在"，不编一个默认店。
-    shopUnavailable.value = true
-    loading.value = false
-    return
-  }
-  try {
-    shop.value = await getShopDetail(shopId.value)
-  } catch (error) {
-    // ⚠️ `8000` 是**独立状态**（门店不存在/停用），不是通用错误：契约 §七 给的建议文案就是
-    //    「门店不存在或已停用」。其余异常（网络/5xx/其它业务码）一律走通用错误分支。
-    if (isApiRequestError(error) && Number(error.code) === SHOP_NOT_FOUND_CODE) {
-      shopUnavailable.value = true
-    } else {
-      errorMessage.value = error instanceof Error ? error.message : '店铺信息加载失败'
-    }
-  } finally {
-    loading.value = false
-  }
+  const params = (options || {}) as Record<string, unknown>
+  shopId.value = String(params.shopId || '').trim()
+  // 进店卡片带来的"已知信息"（真实字段，只作回退）：见 `knownShopName`。
+  knownShopName.value = decodeParam(params.shopName)
+  knownShopImage.value = decodeParam(params.shopImage)
+  await loadShop()
   // 门店不存在 ⇒ 不再去问商品（问了也只有 8000）。
   if (shop.value) {
+    // ⚠️ 吸顶带的**页面坐标**要趁"页面还在顶部、且还没吸住"时量一次（见 `measureHeadTop`）：
+    //    等一拍让模板把 `loading=false` 后的真实内容（含吸顶带）渲染出来，否则节点还不存在。
+    //    量一次就缓存；万一这次没量到，`onPageScroll` 里还有限次兜底（不猜阈值、也不每帧读布局）。
+    await nextTick()
+    measureHeadTop()
     await loadProducts(true)
     // ⚠️ 关注状态**必须登录**才查（未登录时该接口 401，见 `followed` 注释）：
     //    放在商品之后、且不 await 进关键路径 —— 它只影响按钮上的一个词，不该拖慢首屏。
@@ -523,11 +691,12 @@ function switchTab(tab: 'home' | 'goods'): void {
  *
  * - 点「销量」：切到销量档（已在该档则什么都不做，两个参数都不变 ⇒ 不发重复请求）；
  * - 点「价格」：未在价格档 ⇒ 切过去并回到**升序**（设计默认）；已在价格档 ⇒ **反转升降序**；
+ * - 点「新品」：切到该档（`sortBy=new_desc`）；已在该档则什么都不做（同一档没有第二种含义）；
  * - 点「口碑优品」：切到该档（`recommended=true`，S4 §12.5）；已在该档则什么都不做。
  * ⚠️ 重查走 `loadProducts(true)`：它会用 token 作废在飞的旧请求（见该函数注释），
  *    所以连着点也不会出现"列表回到上一个排序"。
  */
-function selectSort(sort: 'sold' | 'price' | 'reputation'): void {
+function selectSort(sort: 'sold' | 'price' | 'new' | 'reputation'): void {
   if (sort === activeSort.value) {
     // 「价格」是唯一"同一档再点有第二种含义"的档（反转升降序）；其余两档再点即无操作。
     if (sort !== 'price') return
@@ -583,25 +752,23 @@ function formatAmount(value: number): string {
       <text class="nav-title">{{ navTitle }}</text>
     </view>
 
-    <!-- 内容层：顶部让出导航栏高度（= 设计里店铺卡的起点 y=92）。 -->
+    <!-- 内容层：顶部让出导航栏高度（= 设计里店铺卡的起点 y=92）。
+         ⚠️ `position: relative; z-index: 1`（见样式表 `.shop-body`）：**压住上面的绝对定位渐变层**，
+            否则整页内容会被渐变盖住 —— 2026-10-10 实机就是这样（只有渐变 + 资质条那枚 `›`）。 -->
     <view class="shop-body" :style="{ paddingTop: `${navHeight}px` }">
-      <view v-if="loading" class="page-state"><text>加载中...</text></view>
-      <view v-else-if="errorMessage" class="page-state"><text>{{ errorMessage }}</text></view>
-      <!-- ⚠️ `8000 SHOP_NOT_FOUND`（门店不存在/停用/软删）**独立于**上面的通用错误：
-           契约 §七 给的建议文案就是这句；不要用 `errorMessage` 兜住它。 -->
-      <view v-else-if="shopUnavailable" class="page-state"><text>店铺不存在或已停用</text></view>
-
-      <template v-else>
-        <!-- ① 店铺卡：**透明卡**（产品已定）——白字直接压在渐变上，不画白底。
-             圆角 12、内边距 上12/右12/下16/左12、纵向间距 16（设计值）。 -->
-        <view class="shop-card">
-          <view class="shop-card-head">
-            <image v-if="logo" class="shop-logo" :src="logo" mode="aspectFill" />
-            <!-- 没有 `shopImage` 时画**中性方块**（`.shop-logo` 自带的 10% 白底），不塞占位图：
-                 设计稿的 logo 是 IMAGE 填充（平台自己的品牌图），拿它顶 = 伪造门店归属。 -->
-            <view v-else class="shop-logo" />
-            <view class="shop-card-main">
-              <text class="shop-name">{{ shop?.name }}</text>
+      <!-- ① 店铺卡：**无论数据到没到都渲染**（用户 2026-10-10：「就算是没有相应的字段也是有内容的啊」）。
+           ⚠️ 这里**没有** `v-if`/`v-else`：卡里**不依赖后端字段**的部分（logo 槽 / 店名 / 收藏按钮 /
+              资质条）必须恒在；只有**数据位**（评分行 / 粉丝 / 服务表现三格）各自判空不渲染。
+           ⚠️ 档案取不到时，店名退回**进店时就已知**的那个（`shopNameText` ← `knownShopName`），
+              并在卡内用一行**如实的状态**说明（加载中 / 门店不存在 / 加载失败可重试）。 -->
+      <view class="shop-card">
+        <view class="shop-card-head">
+          <image v-if="logo" class="shop-logo" :src="logo" mode="aspectFill" />
+          <!-- 没有 `shopImage` 时画**中性方块**（`.shop-logo` 自带的 10% 白底），不塞占位图：
+               设计稿的 logo 是 IMAGE 填充（平台自己的品牌图），拿它顶 = 伪造门店归属。 -->
+          <view v-else class="shop-logo" />
+          <view class="shop-card-main">
+            <text class="shop-name">{{ shopNameText }}</text>
               <!-- 评分行 / 粉丝数（**S4 起为真实字段**，2026-10-10 第四轮接线）：
                    评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
                    解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
@@ -633,6 +800,19 @@ function formatAmount(value: number): string {
               <text class="shop-fav-text">{{ favText }}</text>
             </view>
           </view>
+
+          <!-- **状态行**（如实、且**不再擦掉整张卡**）：
+               档案没到 / 门店不存在 / 档案取失败时，用一种**互斥**的说法点明"现在缺的是什么"，
+               而不是把卡片换成一句提示（旧实现在这里会整块消失 ⇒ 实机看着像"这页坏了"）。
+               ⚠️ 顺序与判据与原实现一致（加载中 → 通用失败 → 8000）；
+               ⚠️ `8000` 文案是契约 §七 的建议文案，逐字保留。 -->
+          <view v-if="loading" class="shop-status"><text>店铺信息加载中…</text></view>
+          <view v-else-if="errorMessage" class="shop-status">
+            <text>店铺信息加载失败：{{ errorMessage }}</text>
+            <!-- 重试：档案请求是幂等的只读 GET，重试不产生任何副作用（否则这个错误态是死路）。 -->
+            <text class="shop-status-retry" @click="loadShop">重试</text>
+          </view>
+          <view v-else-if="shopUnavailable" class="shop-status"><text>店铺不存在或已停用</text></view>
 
           <!-- **服务表现**（设计 `服务表现` 390×55：三格 `#FFFFFF@10%`、圆角 6、
                名 12px `#FFFFFF@80%` / 值 13px `#FFFFFF`）——
@@ -688,37 +868,56 @@ function formatAmount(value: number): string {
         <!-- ③ 白内容区：圆角 12/12/0/0，`padding-bottom` 40px（设计值），
              ⚠️ `margin-top: -23rpx` 就是 `Frame 130` 的 **`gap: -12`**（负间距）在本平台的等价实现：
                小程序 flex 的 `gap` 不支持负值，只能用负外边距让白卡压住资质条 12 设计 px。
-               层级靠**文档顺序**（资质条先渲染 = 在下层）。 -->
-        <view class="shop-content">
-          <!-- Tab 栏：390×42，底部 1px `#F1F2F4`（INSIDE）；两个等宽 195。 -->
-          <view class="tab-bar">
-            <view class="tab" @click="switchTab('home')">
-              <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'home' }">首页</text>
-              <view v-if="activeTab === 'home'" class="tab-underline" />
-            </view>
-            <view class="tab" @click="switchTab('goods')">
-              <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'goods' }">商品</text>
-              <view v-if="activeTab === 'goods'" class="tab-underline" />
-            </view>
-          </view>
-
-          <!-- 筛选行：390×48，内边距 12，横向间距 8。 -->
-          <view class="filter-row">
-            <!-- 选中态：`#FFF4E8` 底 + 1px `#FF5500` 描边，文案 `#FF5500` -->
-            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'sold' }" @click="selectSort('sold')">
-              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'sold' }">销量</text>
-            </view>
-            <!-- 未选中态：`#F6F7F9` 底、无描边；`价格` 带 12×12 排序双三角
-                 （上三角 `#1D2129` = 升序生效中，下三角 `#86909C` = 未生效）。 -->
-            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'price' }" @click="selectSort('price')">
-              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'price' }">价格</text>
-              <view class="sort-arrows">
-                <view class="sort-arrow-up" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'asc' }" />
-                <view class="sort-arrow-down" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'desc' }" />
+               层级靠**文档顺序**（资质条先渲染 = 在下层）。
+             ⚠️ **门店不存在/已停用时整块不渲染**：Tab / 筛选 / 网格都是"这家店的商品"的操作面，
+               店都没了还画一排能点的筛选器是**假装有内容**（状态行已经如实说了原因）。 -->
+        <view v-if="!shopUnavailable" class="shop-content">
+          <!-- **吸顶带**（用户 2026-10-10 答「2. 吸顶」）：Tab 栏 + 筛选行**包成一个**元素吸顶。
+               ⚠️ 它**恒为 `position: sticky`**（`.shop-head`），滚动只切 `.shop-head-stuck`（阴影，可过渡）：
+                  `relative ↔ sticky` 切换会重算位置并抖动（`CLAUDE.md` §十二）。
+               ⚠️ `top` 由 `headStyle` 绑成**真实状态栏高 + 44**（固定导航栏盖住的正是这一段），
+                  写死数值会在刘海屏/不同状态栏高度下把 Tab 压到导航栏底下。
+               ⚠️ `id` 是给 `measureHeadTop` 量"页面坐标顶边"用的（用它算"什么时候算吸住"）。 -->
+          <view id="shop-head" class="shop-head" :class="{ 'shop-head-stuck': headStuck }" :style="headStyle">
+            <!-- Tab 栏：390×42，底部 1px `#F1F2F4`（INSIDE）；两个等宽 195。 -->
+            <view class="tab-bar">
+              <view class="tab" @click="switchTab('home')">
+                <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'home' }">首页</text>
+                <view v-if="activeTab === 'home'" class="tab-underline" />
+              </view>
+              <view class="tab" @click="switchTab('goods')">
+                <text class="tab-text" :class="{ 'tab-text-active': activeTab === 'goods' }">商品</text>
+                <view v-if="activeTab === 'goods'" class="tab-underline" />
               </view>
             </view>
-            <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'reputation' }" @click="selectSort('reputation')">
-              <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'reputation' }">口碑优品</text>
+
+            <!-- 筛选行：390×48，内边距 12，横向间距 8；**四个** chip，顺序 = 设计节点 `4050:6387` 的几何顺序
+                 （销量 x=502 / 价格 x=550 / **新品 x=612** / 口碑优品 x=660 —— 新品在**中间**，不是末尾）。 -->
+            <view class="filter-row">
+              <!-- 选中态：`#FFF4E8` 底 + 1px `#FF5500` 描边，文案 `#FF5500` -->
+              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'sold' }" @click="selectSort('sold')">
+                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'sold' }">销量</text>
+              </view>
+              <!-- 未选中态：`#F6F7F9` 底、无描边；`价格` 带 12×12 排序双三角
+                   （上三角 `#1D2129` = 升序生效中，下三角 `#86909C` = 未生效）。 -->
+              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'price' }" @click="selectSort('price')">
+                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'price' }">价格</text>
+                <view class="sort-arrows">
+                  <view class="sort-arrow-up" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'asc' }" />
+                  <view class="sort-arrow-down" :class="{ 'sort-arrow-on': activeSort === 'price' && priceOrder === 'desc' }" />
+                </view>
+              </view>
+              <!-- **新品**（用户 2026-10-10 答「3. 加」）：节点 `4050:6387` 的第 3 个 chip，
+                   逐字文案「新品」、40×24（= 8 + 24 + 8，与「销量」同宽）、未选中态 `#F6F7F9` + `#1D2129`
+                   ⇒ 与既有 chip 完全同一套处理，不新增样式。
+                   取值 `sortBy=new_desc`：契约逐字「`new_desc` — **新品**降序（按创建时间）」，
+                   且 `GET /api/shop/{shopId}/products` 的 `sortBy` 取值枚举里就有它（契约已核）。 -->
+              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'new' }" @click="selectSort('new')">
+                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'new' }">新品</text>
+              </view>
+              <view class="filter-chip" :class="{ 'filter-chip-active': activeSort === 'reputation' }" @click="selectSort('reputation')">
+                <text class="filter-text" :class="{ 'filter-text-active': activeSort === 'reputation' }">口碑优品</text>
+              </view>
             </view>
           </view>
 
@@ -752,7 +951,7 @@ function formatAmount(value: number): string {
           <view v-else-if="productsError" class="goods-empty">
             <text class="goods-empty-text">{{ productsError }}</text>
           </view>
-          <view v-else-if="productsLoading" class="goods-empty">
+          <view v-else-if="productsLoading || loading" class="goods-empty">
             <text class="goods-empty-text">加载中...</text>
           </view>
           <!-- 诚实空态：门店**真实存在**但没有任何在售商品（`total=0`）——
@@ -768,7 +967,6 @@ function formatAmount(value: number): string {
             <text class="goods-more-text">没有更多了</text>
           </view>
         </view>
-      </template>
     </view>
 
     <!-- 登录引导（未登录点「收藏」时打开）——与商品详情页同一组件、同一口径：
@@ -780,13 +978,28 @@ function formatAmount(value: number): string {
 <style>
 /* 页面根：底色 `#F2F3F7`（设计值），并给渐变头图层一个**定位上下文**（`position: relative`），
    否则绝对定位的背景层会挂到初始包含块上、行为依赖平台实现。
-   `overflow-x: hidden` 是仓库既有的 iOS 横向溢出兜底。 */
+   ⚠️ 横向溢出兜底在 `page` 上（本文件 + `App.vue` 各一条），**不放在 `.shop-page`**：
+      `overflow-x: hidden` 会让该元素成为"滚动容器"（另一轴由 visible 计算成 auto）⇒
+      里面的 `position: sticky` 会**静默失效**（吸顶带不再吸顶，且不报错）。
+      本页没有超宽元素（无负 left/right、无固定宽度、无 100vw）⇒ 兜底放 `page` 已足够。 */
 page { background: #F2F3F7; overflow-x: hidden; }
-.shop-page { position: relative; min-height: 100vh; background: #F2F3F7; overflow-x: hidden; }
+.shop-page { position: relative; min-height: 100vh; background: #F2F3F7; }
 
 /* ① 渐变头图层（设计 0→248 设计 px）。色值 = 节点树的 GRADIENT_LINEAR 端点，
-   且与渲染图逐点取色核对一致（实现说明 §1.2 表）。 */
+   且与渲染图逐点取色核对一致（实现说明 §1.2 表）。
+   ⚠️ **这层是绝对定位（`z-index: auto`）⇒ 它在绘制顺序里高于"流内静态内容"**
+      （CSS 2.1 附录 E：定位/带 transform 的后代晚于流内块与行内内容绘制）——
+      所以内容层 `.shop-body` **必须自己成为定位层**（见下），否则整张店铺卡被这层盖住。
+      2026-10-10 实机现象：卡里**什么都看不见**、只有渐变，唯一的例外是资质条那枚 `›`
+      （`.qualification-arrow` 带 `transform` ⇒ 自成层 ⇒ 它是当时**唯一**能画到渐变之上的墨迹）。 */
 .hero-gradient { position: absolute; top: 0; left: 0; right: 0; height: 477rpx; background: linear-gradient(180deg, #704138 0%, #9A674D 100%); }
+
+/* 内容层：既要给导航栏高度让位（内联 `paddingTop`），也要**压住上面那层渐变**。
+   ⚠️ `position: relative` + `z-index: 1` 不是装饰、是**必需**：
+      `z-index` 必须是正数（`-1` 会被 `.shop-page` 的背景盖住），且必须**小于导航栏的 100**
+      （导航栏要盖在内容之上，否则返回键会被卡片压住）。
+   ⚠️ 这一层一旦漏掉 `position`，全页内容会**静默消失**（不报错、只是被渐变盖住）。 */
+.shop-body { position: relative; z-index: 1; }
 
 /* ② 导航栏（固定）：背景是上面那条渐变的 **0→92 切片**，
    终点 `#804F40` = `#704138`→`#9A674D` 在 t=92/248 的线性插值（渲染图实测 #805041，差 1 为抗锯齿）。 */
@@ -798,7 +1011,13 @@ page { background: #F2F3F7; overflow-x: hidden; }
 /* 标题：17px/600/行高 23.8，`#FFFFFF`，水平居中（实现说明 §1.3 导航栏） */
 .nav-title { max-width: 420rpx; overflow: hidden; color: #FFFFFF; font-size: 33rpx; font-weight: 600; line-height: 46rpx; white-space: nowrap; text-overflow: ellipsis; }
 
-.page-state { padding: 200rpx 32rpx; color: #86909C; text-align: center; font-size: 26rpx; }
+/* 卡片内的**状态行**（加载中 / 门店不存在 / 档案加载失败 + 重试）：压在同一层渐变上的白字，
+   与店名同一族配色（不引入新色值）。它只在真的"缺东西"时出现，
+   而且**不再把整张卡换掉**（旧实现在这里让卡片整块消失 ⇒ 实机看着像"这页坏了"）。 */
+.shop-status { display: flex; align-items: center; flex-wrap: wrap; margin-top: 15rpx; color: rgba(255, 255, 255, 0.75); font-size: 23rpx; line-height: 34rpx; }
+/* 重试：可点，且给一个**看得见的点击面**（不靠"这行字大概能点"这种猜）。
+   低透明白底与 `.shop-logo` 的中性方块同一手法，不新增色值。 */
+.shop-status-retry { margin-left: 15rpx; padding: 2rpx 15rpx; border-radius: 8rpx; background: rgba(255, 255, 255, 0.18); color: #FFFFFF; font-size: 23rpx; line-height: 34rpx; }
 
 /* ③ 店铺卡：**透明**（产品决策，设计稿的白填充 visible:false 不画）。
    内边距 上12/右12/下16/左12（23/23/31/23rpx），纵向间距 16（31rpx）。 */
@@ -855,7 +1074,9 @@ page { background: #F2F3F7; overflow-x: hidden; }
 
 /* ===== 滚动折叠（用户 2026-10-10 对节点 `4050:6387` 的澄清） =====
    「图中**这块内容滚动后不显示**，其他的固定，**中间要有过渡动画**」
-   ⇒ 只有上面那一块随滚动收起，其余全部不动（不吸顶、不视差、不折叠头图）。
+   ⇒ 随滚动**收起**的只有上面那一块（服务表现三格）—— 另外两条随滚动**吸顶**的是
+     `.shop-head`（Tab 栏 + 筛选行，见那条注释），两者互不干涉：
+     折叠块在吸顶带**上方**，收起只会让吸顶带更早顶到吸住位置，不改变吸住后的位置。
 
    ⚠️ 过渡只用**可过渡属性**：`height` + `opacity`（外加 `overflow: hidden` 把内容裁干净）。
       · **不能**用 `display: none` —— 不可过渡，会变成硬切；
@@ -891,6 +1112,22 @@ page { background: #F2F3F7; overflow-x: hidden; }
 /* ⑤ 白内容区：圆角 12/12/0/0 + 底部留白 40px（77rpx）。
    ⚠️ `margin-top: -23rpx` = 设计里 `Frame 130` 的 `gap: -12`（小程序 gap 不支持负值）。 */
 .shop-content { margin-top: -23rpx; padding-bottom: 77rpx; border-radius: 23rpx 23rpx 0 0; background: #FFFFFF; }
+
+/* **吸顶带**（用户 2026-10-10 答「2. 吸顶」）：Tab 栏 + 筛选行合成一条控制带吸在导航栏下。
+   ⚠️ **恒定 `position: sticky`**：`position` 不可过渡，按滚动在 `relative ↔ sticky` 之间切会重算位置、
+      必然抖（`CLAUDE.md` §十二）⇒ 滚动**只**切 `.shop-head-stuck`（阴影）。
+   ⚠️ `top` **不写在这里**：由模板绑定 `headStyle`（= 真实状态栏高 + 44），见脚本里那段注释。
+   ⚠️ 必须有**不透明底**：吸顶后内容从它下面滑过，透明底会透出商品图。
+   ⚠️ `z-index: 20` 必须**小于导航栏的 100**（否则吸顶带会盖住返回键与标题）；商品网格没有定位，
+      所以它会被这条带子正常压住。
+   ⚠️ 祖先链上不能有 `overflow: hidden`：那会成为 sticky 的"滚动容器"、让吸顶**静默失效**
+      （见 `.shop-page` 那条注释）。 */
+.shop-head { position: sticky; z-index: 20; background: #FFFFFF; transition: box-shadow 200ms ease-out; }
+/* 已吸住时给一条**可过渡**的分隔：用 `box-shadow` 而不是 `border-bottom` —— 边框会占布局，
+   切换时整条带子跳 1px。取值沿用仓库既有的吸顶口径（`pages/index/index.vue` 的 `.top-shell.scrolled`）：
+   设计稿没有吸顶状态（节点 `4050:6387` 全部 `SCROLLS`），这里只为"内容从下面滑过去"提供边界感，
+   不引入新配色、也不动任何设计值。 */
+.shop-head-stuck { box-shadow: 0 2rpx 16rpx rgba(29, 33, 41, 0.08); }
 
 /* Tab 栏：390×42（81rpx），底部 **0.5px** `#F1F2F4`（INSIDE，0.5 设计 px = 1rpx）；两个等宽。 */
 .tab-bar { display: flex; align-items: stretch; height: 81rpx; border-bottom: 1rpx solid #F1F2F4; box-sizing: border-box; }
