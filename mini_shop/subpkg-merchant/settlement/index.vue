@@ -20,6 +20,9 @@
  * 6. 时间只做字符串规范化（api 层 `formatSettlementTime`），**不用 `new Date`**（会时区漂移）；
  * 7. ⚠️ 2026-10-08（W8 §1）**换码**：提现被「品牌有未完结售后」拦下 = **`13025`**
  *    （旧码 `13023` 已归「商品不支持线下自提」，**那个码在本页与本文件里一律不处理**）。
+ * 8. ⚠️ 2026-10-10（用户要求「说明太冗余，收进按钮后的弹框」）：本页**只留入口**，
+ *    三块说明长文案的正文在 `components/WithdrawRulesSheet.vue`（三个话题共用，按 `mode` 切换）。
+ *    ⇒ 改这些文案时去组件里改，**别抄回本页**（抄回来就又有两份会漂的正文了）。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
@@ -59,18 +62,20 @@ import {
   parseMerchantCommissionRateInput,
   validateMerchantCommissionRate,
 } from '@/utils/product-commission'
-// ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）
+// ⚠️ 2026-10-03 新增提现说明弹层（微信审核要求「提现页需清晰展示提现规则」）；
+//    ⚠️ 2026-10-10 扩展为**三个话题共用一个组件**（`mode` = withdraw / release / rate）：
+//    本页原来的三块说明长文案（资金释放时间 / 提现规则 / 让利比例说明）**已原样搬进该组件**，
+//    页面只留入口行（用户要求：「说明太冗余了，放在几个按钮后点击弹框出现」）。
+//    ⇒ ⛔ 别把这些文案再抄回本页，正文的单一来源是那个组件。
 import WithdrawRulesSheet from '@/components/WithdrawRulesSheet.vue'
 // ⚠️ 2026-10-10（真机反馈）：品牌级比例的**自助调整**从原生可编辑弹窗（`uni.showModal`）换成自建输入弹层
 //    —— 原生弹窗的输入框控不了聚焦、也没有可控的占位（用户要求占位只写「3~20」），
 //    还没有小数键盘（`type="digit"`）。弹层只负责采集**原文**，校验/提交全在本页（口径只有一处）。
 import CommissionRateSheet from '@/components/CommissionRateSheet.vue'
-// ⚠️ 2026-10-08 Step2：同城资金释放口径改为「送达次日 0 点起，普通 +7 天 / 生鲜 +3 天」，并**按档位分叉**。
-//    文案取自 `utils/timing-category`（与 C 端「售后窗口」同一份口径来源，避免两处漂移）。
-import { SETTLEMENT_RELEASE_TEXT_SAME_CITY } from '@/utils/timing-category'
-
-/** 同城资金释放规则文案（模板用；单一来源见 `utils/timing-category`）。 */
-const RELEASE_RULE_SAME_CITY = SETTLEMENT_RELEASE_TEXT_SAME_CITY
+// ⚠️ 2026-10-08 Step2：同城资金释放口径 = 「送达次日 0 点起，普通 +7 天 / 生鲜 +3 天」，**按档位分叉**。
+//    ⚠️ 2026-10-10：该口径的文案常量（`SETTLEMENT_RELEASE_TEXT_SAME_CITY`）**已随「钱什么时候能提现？」
+//    整段搬进 `components/WithdrawRulesSheet.vue`**（页面只留入口行）⇒ 本页**不再** import 它。
+//    单一来源仍是 `utils/timing-category`（与 C 端「售后窗口」同一份），改口径时改那里。
 
 const statusBarHeight = ref(0)
 /** 内容区顶部留白 = 状态栏 + 自定义导航栏高度（与 bill/index.vue 同口径）。 */
@@ -85,11 +90,30 @@ const submitting = ref(false)
 /** 非品牌主体（13016）：整页只显示提示，不渲染账户与表单（店长/店员误入）。 */
 const notMerchantOwner = ref(false)
 /**
- * 「提现说明」弹层显隐（2026-10-03）。
+ * 说明弹层显隐（2026-10-03 新增）。
  * ⚠️ 微信审核要求提现页**清晰展示提现规则**（可提现额度 / 每日提现次数 / 提现时间 / 到账时间）
  * ⇒ 入口放在「可提现余额」右侧，点开是 `WithdrawRulesSheet`（完整规则 + 规则速览）。
  */
 const withdrawRulesVisible = ref(false)
+
+/**
+ * 说明弹层的**当前话题**（2026-10-10 新增）。
+ * ⚠️ 本页三个说明入口共用**同一个**弹层组件（`components/WithdrawRulesSheet.vue`），靠这个
+ *    值切换正文 —— 不再为每个话题各建一个弹层（弹层语言/滚动只有一份实现，多一份必然漂）。
+ */
+const rulesSheetMode = ref<'withdraw' | 'release' | 'rate'>('withdraw')
+
+/**
+ * 打开说明弹层到指定话题（三个入口的唯一入口函数）。
+ *
+ * - `'withdraw'`：「提现说明」（余额卡右侧）与「提现规则」（说明与规则卡）；
+ * - `'release'` ：「钱什么时候能提现？」；
+ * - `'rate'`     ：「让利比例说明」。
+ */
+function openRulesSheet(mode: 'withdraw' | 'release' | 'rate'): void {
+  rulesSheetMode.value = mode
+  withdrawRulesVisible.value = true
+}
 
 // ===== 提现申请表单（**金额只有一个输入框**） =====
 const amountText = ref('')
@@ -457,7 +481,7 @@ function handleSubmitError(error: unknown): void {
   }
 
   // 13025（2026-10-08 W8 §1 换码，旧码 13023）：品牌有未完结售后 → 展示原因并刷新账户与规则，
-  // 让「提现规则」卡里的阻断原因与「售后处理完成后即可提现」补充说明（isAfterSaleBlock）立刻生效。
+  // 让「说明与规则」卡里的阻断原因与「售后处理完成后即可提现」补充说明（isAfterSaleBlock）立刻生效。
   // ⚠️ 13023 是「商品不支持线下自提」（下单侧），**与本处无关**，绝不要在此处理它。
   if (code === SETTLEMENT_CODE_AFTER_SALE_BLOCK) {
     uni.showToast({ title: resolveSettlementErrorMessage(error, SETTLEMENT_ERROR_TEXT[SETTLEMENT_CODE_AFTER_SALE_BLOCK]), icon: 'none' })
@@ -598,10 +622,11 @@ function goBack(): void {
         <view class="account-card">
           <text class="account-subject">{{ account.subjectName || '我的商户' }}</text>
           <!-- ⚠️ 2026-10-03 新增：微信审核要求「提现页面清晰展示提现规则（可提现额度、每日提现次数、
-               提现时间、到账时间等）」⇒ 在「可提现余额」**右侧**加「提现说明」入口，点开是完整规则弹层。 -->
+               提现时间、到账时间等）」⇒ 在「可提现余额」**右侧**加「提现说明」入口，点开是完整规则弹层。
+               ⚠️ 2026-10-10：入口改为走 `openRulesSheet('withdraw')`（弹层现在有三个话题，见其注释）。 -->
           <view class="account-label-row">
             <text class="account-label">可提现余额（元）</text>
-            <view class="account-rules-entry" @click="withdrawRulesVisible = true">
+            <view class="account-rules-entry" @click="openRulesSheet('withdraw')">
               <text class="account-rules-text">提现说明</text>
             </view>
           </view>
@@ -625,42 +650,38 @@ function goBack(): void {
           </view>
         </view>
 
-        <!-- ⚠️ 2026-10-02 新增（P1P2 §二.1 明确要求「前端文案请相应说明，避免商家以为钱丢了」）：
-             用户实测反馈「钱过了一天还躺在待结算、提不出来，不知道为什么」⇒ 这里把释放期讲清楚。
-             ⚠️⚠️ 2026-10-02 晚 **口径变更**（后端《给前端的反馈-契约缺口补充》§四，业务定案
-             「**不能退款才能到账**」）⇒ 释放期与订单的退款窗口对齐。
-             ⚠️⚠️ **2026-10-08 Step2 再次修订「同城」那一行**（《前端对接-Step2-同城时效与资金口径》§一/§三-3）：
-               ① 起算点由「订单完成」改为「**送达次日 0 点**」；
-               ② 并按档位分叉：普通 +7 天 / 生鲜（`timingCategory=1`）+3 天；
-               ③ 后端同时修掉"同城送达即可提现"的缺陷 ⇒ **送达后不会立即入账是预期**。
-             ⚠️ **物流与自提两行未变**（Step2 §二 明确要求"不要跟着改"）。 -->
+        <!-- ⚠️⚠️ 2026-10-10（用户要求：「这个商家提现页的说明太冗余了，放在几个按钮后点击弹框出现」）：
+             本卡原先是「钱什么时候能提现？」的**内联长文案**（物流/同城/自提三种起算点 + 三句规则注解），
+             现已**原样搬进** `components/WithdrawRulesSheet.vue` 的 `release` 话题；本页只留**入口行**。
+             ⚠️ 同城那一行的起算点/天数口径**唯一来源**仍是 `utils/timing-category`（组件里取常量渲染），
+                本页**不得**再写一遍天数或旧口径的起算基准（否则两处必然漂）。
+             ⚠️ 这里同时收拢了原「提现规则」卡片的入口：那张卡片的七条要点与本弹层「一~六」节**逐条重复**
+                （其中两条**逐字相同**：无手续费那句、发票图张数与发票金额那句；其余是同义改写或
+                拆到了不同小节）⇒ 内联重复项已删除。
+                仅**保留阻断原因**——它是「现在能不能提」的状态信息（后端原文），不是说明文案。 -->
         <view class="card">
-          <text class="card-title">钱什么时候能提现？</text>
-          <!-- ⚠️ 2026-10-08 修（自相矛盾）：首句原来用"订单完成后"统摄三种配送方式，
-               但下面「同城配送」那一行 Step2 已把起算点改成「**送达次日 0 点**」
-               ⇒ 再用"订单完成后"就等于和同城那一行打架（同城根本不看订单完成）。
-               现改为只说"不立刻可提现 + 先进待结算"，起算点交给下面逐行说明（三种方式本就不同）。 -->
-          <text class="rule-lead">钱不会立刻可提现，而是先进「待结算」，过了释放期才转成「可提现」—— 三种配送方式的起算点不同，分别如下：</text>
-          <view class="release-list">
-            <view class="release-item">
-              <text class="release-form">物流单</text>
-              <text class="release-rule">订单完成后 7 天</text>
-            </view>
-            <text class="release-hint">若签收晚于订单完成，则按「签收后 7 天」计算（只会更晚）；查不到签收轨迹时按发货后 15 天估算</text>
-            <view class="release-item">
-              <text class="release-form">同城配送</text>
-              <text class="release-rule">{{ RELEASE_RULE_SAME_CITY }}</text>
-            </view>
-            <text class="release-hint">同城的起算点是「送达的次日 0 点」（不是订单完成），按档位分叉的天数见上方规则；且不早于售后窗口关闭</text>
-            <view class="release-item">
-              <text class="release-form">门店自提</text>
-              <text class="release-rule">核销后 1 天</text>
-            </view>
-            <text class="release-hint">自提未核销不会释放</text>
+          <text class="card-title">说明与规则</text>
+          <!-- 阻断原因：后端原文直接展示（它决定"现在能不能提"，比任何规则都该先被看到） -->
+          <view v-if="submitBlockReason" class="block-banner">
+            <text class="block-text">{{ submitBlockReason }}</text>
+            <!-- Step3 §一：附一句"什么时候恢复"。
+                 ⚠️ 只在原因是「未完结售后」时显示 —— 非售后原因（欠款 / 在途提现 / 未绑微信 / 余额为 0）
+                    写这句会误导用户以为要等售后（见 `isAfterSaleBlock` 注释）。 -->
+            <text v-if="isAfterSaleBlock" class="block-hint">{{ WITHDRAW_AFTER_SALE_RESUME_HINT }}</text>
           </view>
-          <text class="rule-note">释放期到点后由系统自动入账，最长约 5 分钟到账。</text>
-          <text class="rule-note">⚠️ 规则本质是「不能退款之后，钱才能提现」—— 释放期与订单的退款窗口对齐，避免出现「钱提走了又发生退款」。</text>
-          <text class="rule-note">⚠️ 只有「可提现余额」能提现；「待结算」的钱还没到期，暂时提不出来 —— 它不会丢，到期后会自动转入可提现。</text>
+          <!-- 入口行（三个话题共用一个弹层，按 `mode` 切换正文；正文不再内联） -->
+          <view class="doc-entry" @click="openRulesSheet('withdraw')">
+            <text class="doc-entry-label">提现规则</text>
+            <text class="doc-entry-arrow">›</text>
+          </view>
+          <view class="doc-entry" @click="openRulesSheet('release')">
+            <text class="doc-entry-label">钱什么时候能提现？</text>
+            <text class="doc-entry-arrow">›</text>
+          </view>
+          <view class="doc-entry" @click="openRulesSheet('rate')">
+            <text class="doc-entry-label">让利比例说明</text>
+            <text class="doc-entry-arrow">›</text>
+          </view>
         </view>
 
         <!-- 累计口径（净额口径） -->
@@ -713,37 +734,20 @@ function goBack(): void {
               <text class="rate-edit-text">{{ MERCHANT_COMMISSION_RATE_EDIT_ENTRY_TEXT }}</text>
             </view>
           </view>
-          <text class="rule-note">平台从每笔订单中抽取的比例，按商品金额计算；⚠️ 配送费全额归商家，不参与抽成。</text>
-          <text class="rule-note">⚠️ 比例调整只对之后新下的订单生效；已完成订单按「下单当时」的比例结算，不会被追溯修改。</text>
+          <!-- ⚠️ 2026-10-10：本卡原来的四段说明里，**三段已搬进** `components/WithdrawRulesSheet.vue`
+               的 `rate` 话题（抽取口径/不抽配送费、快照语义、商品级去哪设）—— 用户要求页面只留入口。
+               ⚠️ 只留下面这一句：它是对**右侧「自助调整」按钮本体**的就地注解（含"点右侧入口"），
+                  搬进弹层就会变成"点右侧入口却看不到入口"的死指引。 -->
           <!-- ⚠️ 这里展示的是**品牌（商户）级**比例；「自助调整」走的正是改它的那个端点
                （写品牌级 `wx_merchant.commission_rate`）。留空的语义由 OMIT_NOTE 说清（= 不修改）。 -->
           <text class="rule-note">⚠️ 这里展示的是「品牌（商户）级」比例，点右侧入口即可自助修改（3%~20%）。{{ MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE }}</text>
-          <text class="rule-note">⚠️ 想只给某个商品单独设比例？在「商品管理 → 编辑商品 → 商品让利比例」里设置即可（3%~20%，留空 = 不修改）。</text>
         </view>
 
-        <!-- 提现规则 + 阻断原因（原因直接展示后端原文） -->
-        <view class="card">
-          <text class="card-title">提现规则</text>
-          <!-- ⚠️ 2026-10-08（spec §3）：**商家提现无手续费**（用户提现才收 5%，且可配）——
-               商家端此前一个字都没写，商家会拿用户端的"5% 手续费"来问"我是不是也被扣了"
-               ⇒ 这里必须显式写明"金额即打款金额"。 -->
-          <text class="rule-line">· 商家提现不收取手续费，提现金额即实际打款金额</text>
-          <!-- ⚠️ 2026-10-08（spec §3）：到账**无系统 SLA** —— 平台人工审核 + 人工打款，
-               不能写成"自动到账"或承诺固定时限（详见「提现说明」弹层）。 -->
-          <text class="rule-line">· 提现经平台人工审核后由平台人工打款（非自动到账，无系统固定到账时限）</text>
-          <text class="rule-line">· 无最低金额、无上限；金额最多两位小数</text>
-          <text class="rule-line">· 发票图 {{ imageMin }}~{{ imageMax }} 张；发票金额须等于申请金额（本页只填一个金额）</text>
-          <text class="rule-line">· 同一张发票图不能重复使用，每次提现都要重新上传发票</text>
-          <text class="rule-line">· 同一时间只允许一笔在途提现；申请即冻结，驳回/打款失败会解冻回余额</text>
-          <text class="rule-line">· 提现前需在个人中心绑定微信；账户有欠款时不可提现</text>
-          <view v-if="submitBlockReason" class="block-banner">
-            <text class="block-text">{{ submitBlockReason }}</text>
-            <!-- Step3 §一：附一句"什么时候恢复"。
-                 ⚠️ 只在原因是「未完结售后」时显示 —— 非售后原因（欠款 / 在途提现 / 未绑微信 / 余额为 0）
-                    写这句会误导用户以为要等售后（见 `isAfterSaleBlock` 注释）。 -->
-            <text v-if="isAfterSaleBlock" class="block-hint">{{ WITHDRAW_AFTER_SALE_RESUME_HINT }}</text>
-          </view>
-        </view>
+        <!-- ⚠️⚠️ 2026-10-10：原「提现规则」卡片已**整卡删除**（用户要求说明收进弹层）。
+             它的七条要点与「提现说明」弹层的「一~六」节**逐条重复**（两条逐字相同，其余同义改写）——
+             重复的正文只留弹层那一份；阻断原因已上移到「说明与规则」卡（入口行上方），
+             提交按钮下方仍有一处 `submit-reason`（同一状态、同一常量，见 `isAfterSaleBlock`）。
+             ⛔ 别把这些要点抄回本页：正文单一来源是 `components/WithdrawRulesSheet.vue`。 -->
 
         <!-- 提现申请表单 -->
         <view class="card">
@@ -803,7 +807,7 @@ function goBack(): void {
             {{ submitting ? '提交中…' : '提交提现申请' }}
           </view>
           <text v-if="submitBlockReason" class="submit-reason">{{ submitBlockReason }}</text>
-          <!-- 与上方「提现规则」卡里的补充说明**同源**（同一常量、同一渲染条件 `isAfterSaleBlock`）——
+          <!-- 与上方「说明与规则」卡里的补充说明**同源**（同一常量、同一渲染条件 `isAfterSaleBlock`）——
                两处若各写一份条件必然漂。 -->
           <text v-if="isAfterSaleBlock" class="submit-reason-hint">{{ WITHDRAW_AFTER_SALE_RESUME_HINT }}</text>
         </view>
@@ -831,9 +835,13 @@ function goBack(): void {
 
     <!-- ⚠️ 2026-10-03 新增：提现说明弹层（微信审核要求，详见 WithdrawRulesSheet.vue 顶部说明）。
          放在 scroll-view **之外** —— 它是 fixed 定位的全屏遮罩，脱离滚动容器更稳定。
-         ⚠️ 可提现额度传的是**真实余额**（computed），不是写死的文案。 -->
+         ⚠️ 可提现额度传的是**真实余额**（computed），不是写死的文案。
+         ⚠️ 2026-10-10：本页**三个入口共用这一个弹层**（`mode` 决定正文话题，见 `openRulesSheet`）——
+            点「提现说明」/「提现规则」= withdraw、「钱什么时候能提现？」= release、
+            「让利比例说明」= rate。⛔ 别再为某个话题单独挂第二个弹层（弹层语言会漂）。 -->
     <WithdrawRulesSheet
       v-model="withdrawRulesVisible"
+      :mode="rulesSheetMode"
       :available-balance="availableBalance"
       :invoice-image-min="imageMin"
       :invoice-image-max="imageMax"
@@ -1034,43 +1042,32 @@ function goBack(): void {
   font-size: 29rpx;
   font-weight: 600;
 }
-/* ⚠️ 2026-10-02 新增：释放期说明卡（商家最容易困惑的地方 —— 「钱为什么还不能提」） */
-.rule-lead {
-  display: block;
-  margin-top: 16rpx;
-  color: #4e5969;
-  font-size: 25rpx;
-  line-height: 40rpx;
-}
-.release-list {
-  margin-top: 18rpx;
-}
-.release-item {
+/* ⚠️ 2026-10-10：`.rule-lead` / `.release-list` / `.release-item` / `.release-form` /
+   `.release-rule` / `.release-hint`（原「钱什么时候能提现？」的内联版式）与 `.rule-line`
+   （原「提现规则」卡片的条目）都随正文搬进 `components/WithdrawRulesSheet.vue` 而**删除** ——
+   页面不再有这些节点；样式留在页面上只会让下一个人以为还有内联正文。 */
+
+/* 「说明与规则」入口行（2026-10-10 新增）：浅灰底 + 右侧箭头，点开对应话题的弹层 */
+.doc-entry {
   display: flex;
   align-items: center;
-  margin-top: 14rpx;
+  justify-content: space-between;
+  min-height: 92rpx;
+  margin-top: 16rpx;
+  padding: 0 23rpx;
+  border-radius: 15rpx;
+  background: #f7f8fa;
 }
-.release-form {
-  flex-shrink: 0;
-  width: 150rpx;
+.doc-entry-label {
   color: #1d2129;
-  font-size: 25rpx;
-  font-weight: 600;
+  font-size: 27rpx;
 }
-.release-rule {
-  flex: 1;
-  color: #4e5969;
-  font-size: 25rpx;
-  line-height: 38rpx;
+.doc-entry-arrow {
+  color: #c9cdd4;
+  font-size: 34rpx;
+  line-height: 1;
 }
-.release-hint {
-  display: block;
-  margin-top: 4rpx;
-  padding-left: 150rpx;
-  color: #86909c;
-  font-size: 22rpx;
-  line-height: 34rpx;
-}
+
 .rule-note {
   display: block;
   margin-top: 14rpx;
@@ -1115,13 +1112,6 @@ function goBack(): void {
   margin-top: 6rpx;
   color: #86909c;
   font-size: 23rpx;
-}
-.rule-line {
-  display: block;
-  margin-top: 12rpx;
-  color: #4e5969;
-  font-size: 24rpx;
-  line-height: 38rpx;
 }
 /* 阻断原因：直接展示后端原文，样式上必须显眼（商家要一眼看到为什么不能提） */
 .block-banner {

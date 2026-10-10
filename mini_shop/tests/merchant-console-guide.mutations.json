@@ -1,0 +1,110 @@
+[
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the console address is copy-pasted into the workbench template (two sources of truth for the domain)",
+        "find": "{{ MERCHANT_CONSOLE_URL }}",
+        "replace": "https://ylapi.jinhuayou365.com"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the exported console address no longer matches the agreed host",
+        "find": "export const MERCHANT_CONSOLE_URL = 'https://ylapi.jinhuayou365.com'",
+        "replace": "export const MERCHANT_CONSOLE_URL = 'https://example.invalid'"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the address row is gated on the account state (a failed lookup would hide \"where do I log in\")",
+        "find": "<text class=\"console-url\">{{ MERCHANT_CONSOLE_URL }}</text>",
+        "replace": "<text v-if=\"consoleAccount.state === 'issued'\" class=\"console-url\">{{ MERCHANT_CONSOLE_URL }}</text>"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the password-rule block is gated on the account state (a merchant without an account still needs the rule)",
+        "find": "<view class=\"console-block\">",
+        "replace": "<view v-if=\"consoleLoaded\" class=\"console-block\">"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the address row label is gated (the static half must render unconditionally)",
+        "find": "<text class=\"console-label\">",
+        "replace": "<text v-if=\"consoleLoaded\" class=\"console-label\">"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the password RULE sentence is duplicated into the template instead of using the shared constant",
+        "find": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text>",
+        "replace": "<text class=\"console-block-text\">{{ MERCHANT_CONSOLE_PASSWORD_RULE }}</text><text class=\"console-block-text\">手机号后 4 位 + 身份证后 4 位</text>"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the console entry is no longer gated to the brand owner (shop managers cannot sign in to the PC console)",
+        "find": "v-if=\"isMerchantOwner\" class=\"console-entry\" @click=\"openConsoleGuide\"",
+        "replace": "class=\"console-entry\" @click=\"openConsoleGuide\""
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the entry no longer fetches the account state (the account cell would always be blank)",
+        "find": "getMyMerchantApply()",
+        "replace": "Promise.resolve(null)"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/apply/apply.vue",
+        "desc": "the onboarding page grows a second console entry (the workbench owns it; share the module instead)",
+        "find": "<text class=\"hint\">{{ statusHint }}</text>",
+        "replace": "<text class=\"hint\">{{ statusHint }}</text><text class=\"hint\">MERCHANT_CONSOLE_ENTRY_TITLE</text>"
+    },
+    {
+        "file": "mini_shop/pages/mine/mine.vue",
+        "desc": "the onboarding entry is no longer hidden for users who already have a business identity (the surface decision needs revisiting)",
+        "find": "item.key === 'merchant-apply' && identity.value?.hasBusinessIdentity",
+        "replace": "item.key === 'merchant-apply' && false"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "a failed account lookup is reported as if the merchant had no account at all",
+        "find": "账号信息查询失败",
+        "replace": "查询失败"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "an un-issued console account is no longer stated in words",
+        "find": "value: '尚未发放',",
+        "replace": "value: '待定',"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the default-rule copy drops its condition (a merchant whose password was hand-set would keep retyping a default that is not his)",
+        "find": "若客服未单独设置",
+        "replace": ""
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the \"issued but no work number came back\" case is blanked out (that is where a guessed account would appear)",
+        "find": "value: '已发放，工号未返回',",
+        "replace": "value: '已发放',"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the \"the mini program does not show the password\" notice is dropped",
+        "find": "小程序不显示密码",
+        "replace": "密码请咨询客服"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the workbench reads a `password` field from the application payload",
+        "find": "const consoleApply = ref<MerchantApplyVO | null>(null)",
+        "replace": "const consoleApply = ref<MerchantApplyVO | null>(null)\r\nconst consolePwd = computed(() => String((consoleApply.value as any)?.password || ''))"
+    },
+    {
+        "file": "mini_shop/subpkg-merchant/home/index.vue",
+        "desc": "the mini program calls the central-console password endpoint",
+        "find": "const consoleApply = ref<MerchantApplyVO | null>(null)",
+        "replace": "const consoleApply = ref<MerchantApplyVO | null>(null)\r\nconst consolePwdUrl = '/api/admin/staff/{id}/login-password'"
+    },
+    {
+        "file": "mini_shop/utils/merchant-console.ts",
+        "desc": "the copy sends merchants to the H5 verification route instead of the PC console",
+        "find": "export const MERCHANT_CONSOLE_SHEET_SUB = ",
+        "replace": "export const MERCHANT_CONSOLE_H5_NOTE = '店长请用 H5 核销页'\r\nexport const MERCHANT_CONSOLE_SHEET_SUB = "
+    }
+]

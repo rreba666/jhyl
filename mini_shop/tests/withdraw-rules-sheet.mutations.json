@@ -1,0 +1,92 @@
+[
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": ":mode=\"rulesSheetMode\"",
+    "replace": ":mode=\"'withdraw'\"",
+    "desc": "M1 page hardcodes the sheet mode (every entry would open 提现说明)"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<view class=\"doc-entry\" @click=\"openRulesSheet('rate')\">",
+    "replace": "<view class=\"doc-entry\" @click=\"openRulesSheet('withdraw')\">",
+    "desc": "M2 the 让利比例说明 entry opens the wrong topic"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "type SheetMode = 'withdraw' | 'release' | 'rate'",
+    "replace": "type SheetMode = 'withdraw' | 'release'",
+    "desc": "M3 the mode union loses the rate topic"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "mode?: SheetMode",
+    "replace": "mode?: string",
+    "desc": "M4 the mode prop stops being typed"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "mode: 'withdraw',",
+    "replace": "mode: 'release',",
+    "desc": "M5 the default topic is no longer 提现说明"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "release: '钱什么时候能提现？',",
+    "replace": "release: '提现说明',",
+    "desc": "M6 the release topic title is wrong"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "v-if=\"mode === 'release'\"",
+    "replace": "v-if=\"true\"",
+    "desc": "M7 the release topic renders unconditionally (copy leaks into every topic)"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "v-else-if=\"mode === 'rate'\"",
+    "replace": "v-else",
+    "desc": "M8 the rate topic loses its own gate"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "钱不会立刻可提现",
+    "replace": "资金不会立刻可提现",
+    "desc": "M9 the moved release copy is not in the sheet's visible text"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "平台从每笔订单中抽取的比例",
+    "replace": "平台从每笔订单收取的比例",
+    "desc": "M10 the moved rate copy is not in the sheet's visible text"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "商品让利比例",
+    "replace": "商品级比例",
+    "desc": "M11 the moved rate copy loses the product-level pointer"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "<scroll-view class=\"wrs-body\" scroll-y :enhanced=\"true\"",
+    "replace": "<scroll-view class=\"wrs-body\" :enhanced=\"true\"",
+    "desc": "M12 the sheet body is no longer a scroller"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": ".wrs-body { max-height: 62vh",
+    "replace": ".wrs-body { max-height: none",
+    "desc": "M13 the scroller loses its explicit max-height"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "<view v-if=\"visible\" class=\"wrs-mask\"",
+    "replace": "<view v-show=\"visible\" class=\"wrs-mask\"",
+    "desc": "M15 the sheet root falls back to v-show (scroll position survives between topics)"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"doc-entry-label\">提现规则</text>",
+    "replace": "<text class=\"doc-entry-label\">规则本质是「不能退款之后，钱才能提现」</text>",
+    "desc": "M14 the moved copy is pasted back inline on the settlement page"
+  }
+]

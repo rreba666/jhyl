@@ -1,0 +1,33 @@
+[
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"doc-entry-label\">提现规则</text>",
+    "replace": "<text class=\"doc-entry-label\">提现规则</text>\n            <text class=\"rule-note\">商家提现不收取手续费，提现金额即实际打款金额</text>",
+    "desc": "W1 the no-fee sentence is duplicated back onto the settlement page"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"doc-entry-label\">提现规则</text>",
+    "replace": "<text class=\"doc-entry-label\">提现规则</text>\n            <text class=\"rule-note\">提现经平台人工审核后由平台人工打款</text>",
+    "desc": "W2 the manual-payout sentence is duplicated back onto the settlement page"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "订单完成后 7 天",
+    "replace": "订单完成后 8 天",
+    "desc": "W3 the logistics release window moved in the sheet"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "核销后 1 天",
+    "replace": "核销后 2 天",
+    "desc": "W4 the self-pickup release window moved in the sheet"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "RELEASE_RULE_SAME_CITY",
+    "replace": "RULE_TEXT",
+    "all": true,
+    "desc": "W5 the sheet stops carrying the same-city constant name at all"
+  }
+]

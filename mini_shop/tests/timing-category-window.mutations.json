@@ -1,0 +1,50 @@
+[
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "import { SETTLEMENT_RELEASE_TEXT_SAME_CITY } from '@/utils/timing-category'",
+    "replace": "// MUTATION: same-city release constant no longer imported",
+    "desc": "T1 the sheet stops importing the single-source release constant"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "const RELEASE_RULE_SAME_CITY = SETTLEMENT_RELEASE_TEXT_SAME_CITY",
+    "replace": "const RELEASE_RULE_SAME_CITY = '送达次日 0 点起，普通 +7 天 / 生鲜 +3 天'",
+    "desc": "T2 the sheet hardcodes the same-city text instead of using the constant"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "{{ RELEASE_RULE_SAME_CITY }}",
+    "replace": "送达次日 0 点起，普通 +7 天 / 生鲜 +3 天",
+    "desc": "T3 the sheet no longer renders the constant in its template"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "<text class=\"wrs-release-form\">同城配送</text>",
+    "replace": "<text class=\"wrs-release-form\">同城配送</text>\n              <text class=\"wrs-release-rule\">订单完成后 7 天</text>",
+    "desc": "T4 the old same-city literal (订单完成后 7 天) comes back while the constant stays"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "按档位分叉的天数见上方规则",
+    "replace": "普通商品 +7 天、生鲜·鲜活易腐商品 +3 天",
+    "desc": "T5 the hint re-states the tier day counts (second source of truth)"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"card-title\">说明与规则</text>",
+    "replace": "<text class=\"card-title\">说明与规则</text>\n          <view class=\"release-list\"></view>",
+    "desc": "T6 the release block is pasted back inline on the settlement page"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"card-title\">说明与规则</text>",
+    "replace": "<text class=\"card-title\">说明与规则</text>\n          <text class=\"release-rule\">订单完成后 7 天</text>",
+    "desc": "T7 an inline release row is pasted back on the settlement page"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"card-title\">说明与规则</text>",
+    "replace": "<text class=\"card-title\">说明与规则</text>\n          <text class=\"rule-line\">· 商家提现不收取手续费</text>",
+    "desc": "T8 the inline rule bullet list is pasted back on the settlement page"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "配送费全额归商家，不参与抽成",
+    "replace": "配送费也参与抽成",
+    "desc": "F1 the sheet loses the \"delivery fee is not commissioned\" statement"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "只对之后新下的订单生效",
+    "replace": "对所有订单生效",
+    "desc": "F2 the sheet loses the order-snapshot rule"
+  },
+  {
+    "file": "components/WithdrawRulesSheet.vue",
+    "find": "商品让利比例",
+    "replace": "商品级比例",
+    "desc": "F3 the sheet loses the product-level pointer wording"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"card-title\">让利比例（平台抽成）</text>",
+    "replace": "<text class=\"card-title\">让利比例（平台抽成）</text>\n          <text class=\"rule-note\">平台从每笔订单中抽取的比例；配送费全额归商家，不参与抽成。</text>",
+    "desc": "F4 the rate explanation is pasted back inline on the settlement page (commission part)"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "<text class=\"card-title\">让利比例（平台抽成）</text>",
+    "replace": "<text class=\"card-title\">让利比例（平台抽成）</text>\n          <text class=\"rule-note\">比例调整只对之后新下的订单生效。</text>",
+    "desc": "F5 the rate explanation is pasted back inline on the settlement page (snapshot part)"
+  },
+  {
+    "file": "subpkg-merchant/settlement/index.vue",
+    "find": "{{ MERCHANT_COMMISSION_RATE_EDIT_OMIT_NOTE }}",
+    "replace": "留空 = 本次不修改",
+    "desc": "F6 the in-place note next to the 自助调整 entry is inlined away"
+  }
+]
