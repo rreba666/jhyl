@@ -40,6 +40,13 @@ export interface StaffAccount {
   boundUserId?: number | null
   boundNickname?: string
   boundOpenidMasked?: string
+  /**
+   * 绑定用户的微信号（人工登记值，**未登记为 null**）。
+   * 契约 `StaffAccountVO.boundWechatId` 描述原文：「**绑定用户的微信号（人工登记值，未登记为 null）**」。
+   * 注意：它是**用户档案上的登记值**（`wx_user.wx_id`），不是本账号自己填的；
+   * 为 null 时用微信号做绑定 key 必然失败，列表必须能看出来（见页面「微信绑定」列）。
+   */
+  boundWechatId?: string | null
   status: number
   delFlag?: number
   createTime?: string
@@ -60,10 +67,26 @@ export interface StaffAccountSaveDTO {
   /** 密码：需要密码的身份（MANAGER / VERIFIER）必填。 */
   password?: string
   phone?: string
-  /** 绑定微信用户 ID（与 openid 二选一；店长/骑手必填）。 */
+  /**
+   * 绑定微信用户 ID。
+   * 契约 `StaffAccountCreateDTO.userId` 描述原文：「**微信用户ID（店长/骑手必填）**」。
+   * 三个微信标识 key 的优先级见 `@/utils/staffWechat`（契约原文：优先 userId > 微信号 > openid）。
+   */
   userId?: number | string
-  /** 绑定微信 openid（与 userId 二选一）。 */
+  /**
+   * 绑定微信 openid。
+   * 契约 `StaffAccountCreateDTO.openid` 描述原文：「**微信 openid（与 userId 二选一）**」。
+   * ⚠️ 这里**只接受 openid 本身**，**不得**把微信号塞进这个 key —— 2026-10-10 的
+   * 「微信标识不匹配」事故就是这么来的（微信号被当成 openid 提交）。
+   */
   openid?: string
+  /**
+   * 绑定微信号（**人工登记值**，不是 openid）。
+   * 契约 `StaffAccountCreateDTO.wechatId` 描述原文：「**微信号（人工登记值，服务端反查；
+   * 与 userId/openid 三选一，优先 userId）**」；绑定接口的描述进一步写明：
+   * 「微信号是人工登记值（小程序拿不到微信号），**需先在「用户管理」里登记，否则报 2000 并提示去登记**」。
+   */
+  wechatId?: string
   gender?: number
   idCard?: string
 }
@@ -116,10 +139,22 @@ export interface StaffIdentityUpdateDTO {
   password?: string
 }
 
-/** 绑定微信入参（D4b）。 */
+/**
+ * 绑定微信入参（D4b `POST /api/admin/staff/{id}/bind` / C5 商家 PC 同形）。
+ *
+ * ⚠️ 契约 `StaffBindWechatDTO` 是**三个各自独立的 key**（逐字原文）：
+ * - `userId`：「**C端用户ID（wx_user.id）**」；
+ * - `wechatId`：「**微信号（人工登记值，服务端据此反查 userId；与 userId/openid 三选一，优先 userId）**」；
+ * - `openid`：「**微信 openid（没有 userId 时可只给 openid，服务端反查）**」。
+ *
+ * 接口描述给出的**完整优先级**（原文）：「微信标识三选一，**优先 userId > 微信号 > openid**；
+ * 微信号是人工登记值（小程序拿不到微信号），需先在「用户管理」里登记，否则报 2000 并提示去登记。」
+ * ⇒ 前端**必须**按 key 分派，不能让一个输入框兼着三个 key 用（见 `@/utils/staffWechat`）。
+ */
 export interface StaffBindDTO {
   userId?: number | string
   openid?: string
+  wechatId?: string
 }
 
 /** 查看登录明文（D2，仅中控）。 */

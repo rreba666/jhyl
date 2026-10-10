@@ -44,6 +44,8 @@ async function showDetail(row: User): Promise<void> {
     await store.fetchDetail(detailUserId.value)
     if (!store.detail) throw new Error('用户详情为空')
     syncWalletForm(store.detail)
+    // 微信号（`AdminUserDetailVO.wxId`，null=未登记）同样以详情响应为准
+    wechatIdForm.value = store.detail.wxId || ''
   } catch (error) {
     detailVisible.value = false
     ElMessage.error(error instanceof Error ? error.message : '用户详情查询失败')
@@ -179,6 +181,49 @@ async function restoreUser(user: User): Promise<void> {
   }
 }
 
+/**
+ * 微信号登记（`PUT /api/admin/user/{userId}/wechat-id`，2026-10-10 新增入口）。
+ *
+ * ⚠️ 为什么用户管理页需要这个动作：人员绑定的**三个 key 之一就是微信号**，而契约写明
+ * 「微信号是人工登记值（小程序拿不到微信号），**需先在「用户管理」里登记，否则报 2000 并提示去登记**」。
+ * 本仓库此前**没有任何界面**调这条接口（三个前端全文检索 `wechat-id` 均 0 命中）⇒
+ * 运营在「新增人员」里选微信号这条路**必然报错**。此入口把这条链路接上。
+ *
+ * ⚠️ 放在**详情抽屉**里而不是表格操作列：① 它是"用户资料属性"（与手机号同级），不是行级动作；
+ * ② 表格操作列宽度被 `tests/user-wallet.contract.ps1` 的 `width="280"` 钉住，加第 4 个按钮会挤爆
+ * （**不去改别人的断言**，也不去撑宽列）。
+ *
+ * `wechatId` 传**空串 = 清空登记**（契约：「入参：`wechatId` 非空=登记；空串/null=清空登记（纠正手误）」）
+ * ⇒ 输入框预填当前值，人工清空即清空（**不是**靠前端自己判断"要不要清"）。
+ */
+const wechatIdForm = ref('')
+
+/** 保存微信号登记 / 清空。 */
+async function saveWechatId(): Promise<void> {
+  const userId = detailUserId.value
+  if (!userId) return
+  const next = wechatIdForm.value.trim()
+  // 契约 `AdminUserWxIdDTO.wechatId` 只有 maxLength 64 —— 前端只做这一条，不发明别的规则
+  if (next.length > 64) {
+    ElMessage.error('微信号最长 64 个字符')
+    return
+  }
+  if (next === (store.detail?.wxId || '')) {
+    ElMessage.warning('微信号没有变化')
+    return
+  }
+  try {
+    await store.registerWechatId(userId, next)
+    // 详情接口（`AdminUserDetailVO.wxId`）同样回传该字段 ⇒ 重新拉一次，
+    // 让输入框显示**后端真值**而不是本地提交值（本项目硬原则：不拿本地值冒充后端状态）
+    await store.fetchDetail(userId)
+    wechatIdForm.value = store.detail?.wxId || ''
+    ElMessage.success(next ? '微信号已登记（该用户现在可以用微信号绑定人员）' : '已清空该用户的微信号登记')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '微信号登记失败')
+  }
+}
+
 onMounted(() => { void loadList() })
 </script>
 
@@ -235,6 +280,14 @@ onMounted(() => { void loadList() })
         <el-table-column prop="identity" label="身份" width="100">
           <template #default="{ row }">{{ row.identity === 1 ? '注册用户' : '游客' }}</template>
         </el-table-column>
+        <!-- 微信号（人工登记值）：`AdminUserListVO.wxId` 描述原文「微信号（人工登记；null=未登记）」
+             —— 它决定该用户能不能用**微信号**做人员绑定的 key，所以必须可见（未登记 = 用微信号绑不上）。 -->
+        <el-table-column label="微信号" min-width="160">
+          <template #default="{ row }">
+            <span v-if="row.wxId">{{ row.wxId }}</span>
+            <span v-else class="muted-cell">未登记</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }"><el-tag v-if="isDeleted(row)" type="info">已删除</el-tag><el-tag v-else :type="normalizeBanStatus(row.banStatus) ? 'danger' : 'success'">{{ normalizeBanStatus(row.banStatus) ? '封禁' : '正常' }}</el-tag></template>
         </el-table-column>
@@ -271,10 +324,22 @@ onMounted(() => { void loadList() })
             <el-input-number v-model="walletForm.balance" :min="0" :precision="2" :step="0.01" controls-position="right" />
           </el-form-item>
         </el-form>
+        <el-divider>微信号登记</el-divider>
+        <el-alert type="info" :closable="false" show-icon>
+          <p class="muted">
+            微信号是<strong>人工登记值</strong>（小程序拿不到微信号）。登记后，人员管理里就能用「微信号」作为绑定标识；
+            <strong>留空保存 = 清空登记</strong>。同一微信号只能登记到一个用户。
+          </p>
+        </el-alert>
+        <el-form label-width="130px" class="wallet-form">
+          <el-form-item label="用户微信号">
+            <el-input v-model="wechatIdForm" maxlength="64" show-word-limit clearable placeholder="如 wxid_tn2b7yddlyed22（留空 = 清空登记）" />
+          </el-form-item>
+        </el-form>
       </template>
       <el-empty v-else description="暂无用户详情" />
       <template #footer>
-        <div class="drawer-footer"><el-button @click="detailVisible = false">取消</el-button><el-button type="primary" :loading="store.walletLoading" :disabled="store.detailLoading || !walletOriginal" @click="saveWallet">保存余额</el-button></div>
+        <div class="drawer-footer"><el-button @click="detailVisible = false">取消</el-button><el-button type="warning" plain :loading="store.actionLoading" :disabled="store.detailLoading || !store.detail" @click="saveWechatId">保存微信号</el-button><el-button type="primary" :loading="store.walletLoading" :disabled="store.detailLoading || !walletOriginal" @click="saveWallet">保存余额</el-button></div>
       </template>
     </el-drawer>
   </section>
@@ -297,4 +362,6 @@ onMounted(() => { void loadList() })
 .user-tab--deleted { color: var(--el-text-color-secondary); }
 .user-tab--banned { color: var(--el-color-danger); }
 .search-input { width: 220px; }
+.muted { color: var(--el-text-color-secondary); }
+.muted-cell { color: var(--el-text-color-secondary); }
 </style>

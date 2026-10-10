@@ -7,6 +7,13 @@ export interface User {
   nickname: string
   avatarUrl: string
   phone: string
+  /**
+   * 微信号（**人工登记值**）。
+   * 契约 `AdminUserListVO.wxId` 描述原文：「微信号（人工登记；**null=未登记**。
+   * 修改走 `PUT /api/admin/user/{userId}/wechat-id`）」。
+   * ⇒ 它决定该用户能不能用**微信号**作为人员绑定的 key（未登记就必然失败）。
+   */
+  wxId?: string | null
   identity: UserIdentity
   banStatus: UserBanStatusValue
   delFlag: 0 | 1

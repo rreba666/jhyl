@@ -14,6 +14,14 @@ import type {
   StaffPasswordLog,
   StaffPasswordView,
 } from '@/types/staff'
+import { getUsers } from '@/api/user'
+import type { User } from '@/types/user'
+import {
+  STAFF_WECHAT_LABELS,
+  WECHAT_ID_NEEDS_REGISTRATION_HINT,
+  resolveStaffWechatBinding,
+  staffWechatRoutingHint,
+} from '@/utils/staffWechat'
 import { Edit, Key, MoreFilled, RefreshLeft } from '@element-plus/icons-vue'
 
 const store = useStaffStore()
@@ -74,7 +82,28 @@ function toFormIdentities(row: StaffAccount): string[] {
 const formVisible = ref(false)
 const editingRow = ref<StaffAccount | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive<{ identities: string[]; name: string; phone: string; shopId: string; username: string; password: string; wechatUserId: string; wechatOpenid: string }>({
+/**
+ * 表单模型。
+ *
+ * ⚠️ 2026-10-10：微信标识**从 2 个字段拆成 3 个**（`wechatUserId` / `wechatId` / `wechatOpenid`），
+ * 因为它们对应契约里**三个各自独立的 key**（`userId` / `wechatId` / `openid`，见 `@/utils/staffWechat`）。
+ * 旧实现是「微信用户ID」+「微信号 或 openid」两个框，而后者**永远被塞进 `openid`** ⇒
+ * 运营按标签填微信号就必然失败（「微信标识不匹配」的真实成因）。
+ */
+const form = reactive<{
+  identities: string[]
+  name: string
+  phone: string
+  shopId: string
+  username: string
+  password: string
+  /** 契约 `userId`：微信用户 ID（`wx_user.id`），**运营唯一能查到的标识**（按手机号搜用户）。 */
+  wechatUserId: string
+  /** 契约 `wechatId`：微信号（**人工登记值**，需先在「用户管理」登记）。 */
+  wechatId: string
+  /** 契约 `openid`：微信 openid（运营通常拿不到，保留作为兜底）。 */
+  wechatOpenid: string
+}>({
   identities: ['MANAGER'],
   name: '',
   phone: '',
@@ -82,6 +111,7 @@ const form = reactive<{ identities: string[]; name: string; phone: string; shopI
   username: '',
   password: '',
   wechatUserId: '',
+  wechatId: '',
   wechatOpenid: '',
 })
 /** 是否编辑模式（编辑 = D4 改身份；新增 = D1 建号）。 */
@@ -90,6 +120,63 @@ const isEditing = computed(() => Boolean(editingRow.value))
 const needAccount = computed(() => form.identities.includes('MANAGER') || form.identities.includes('VERIFIER'))
 /** 需要绑定微信的身份：含店长或骑手。 */
 const needWechat = computed(() => form.identities.includes('MANAGER') || form.identities.includes('RIDER'))
+
+// ===== 微信标识三选一（契约：优先 userId > 微信号 > openid）=====
+/**
+ * 新增表单的微信标识解析结果。
+ * ⚠️ 提交时**只发这一个 key**（契约原文「微信标识三选一」），多填时按契约优先级取一个，
+ * 并把被忽略的那些**显式告诉运营**（不静默丢弃）。
+ */
+const wechatResolution = computed(() => resolveStaffWechatBinding({
+  userId: form.wechatUserId,
+  wechatId: form.wechatId,
+  openid: form.wechatOpenid,
+}))
+/** 「将以 X 绑定」提示（多填时附上忽略项）。 */
+const wechatRoutingHint = computed(() => staffWechatRoutingHint(wechatResolution.value))
+
+// ===== 微信用户ID 怎么拿到：按手机号 / 昵称在「用户管理」同一数据源里搜 =====
+/**
+ * ⚠️ 这是本次修复的**关键**：运营**不可能知道 openid**，但**可以**按手机号查到用户的 `wx_user.id`
+ * （契约 `GET /api/admin/user/list` 的 `keyword` 原文：「搜索关键词（纯数字按用户ID精确匹配，
+ * 否则按昵称/手机号模糊匹配）」）⇒ 把 `userId` 变成运营拿得到的东西，
+ * 「微信号 或 openid」那种"要求运营知道微信内部标识"的输入框就不需要了。
+ */
+const userSearching = ref(false)
+const userOptions = ref<User[]>([])
+/** 防竞态：只有最后一次搜索的结果才允许写回（远程搜索是连打的）。 */
+let userSearchToken = 0
+
+/** 远程搜索 C 端用户（新增弹窗与绑定弹窗共用这一份结果，同一时刻只有一个弹窗可见）。 */
+async function searchBindUsers(keyword: string): Promise<void> {
+  const query = keyword.trim()
+  const token = ++userSearchToken
+  if (!query) {
+    userSearching.value = false
+    userOptions.value = []
+    return
+  }
+  userSearching.value = true
+  try {
+    const result = await getUsers(1, 20, query)
+    if (token !== userSearchToken) return
+    userOptions.value = result.list
+  } catch (error) {
+    if (token !== userSearchToken) return
+    userOptions.value = []
+    ElMessage.error(error instanceof Error ? error.message : '用户搜索失败')
+  } finally {
+    if (token === userSearchToken) userSearching.value = false
+  }
+}
+
+/** 下拉项文案：昵称 / 手机号 / 用户ID，并**如实标注该用户的微信号有没有登记**（决定微信号能不能用来绑定）。 */
+function userOptionLabel(user: User): string {
+  const nickname = user.nickname || '（无昵称）'
+  const phone = user.phone || '无手机号'
+  const wx = user.wxId ? `微信号 ${user.wxId}` : '微信号未登记'
+  return `${nickname} / ${phone} / 用户ID ${user.id} / ${wx}`
+}
 
 const rules = computed<FormRules>(() => {
   const base: FormRules = {
@@ -106,7 +193,7 @@ const rules = computed<FormRules>(() => {
 /** 打开新增（D1）。 */
 async function openCreate(): Promise<void> {
   editingRow.value = null
-  Object.assign(form, { identities: ['MANAGER'], name: '', phone: '', shopId: '', username: '', password: '', wechatUserId: '', wechatOpenid: '' })
+  Object.assign(form, { identities: ['MANAGER'], name: '', phone: '', shopId: '', username: '', password: '', wechatUserId: '', wechatId: '', wechatOpenid: '' })
   await shopStore.fetchEnabled()
   formVisible.value = true
 }
@@ -122,6 +209,7 @@ async function openEditIdentity(row: StaffAccount): Promise<void> {
     username: row.username || '',
     password: '',
     wechatUserId: row.boundUserId ? String(row.boundUserId) : '',
+    wechatId: '',
     wechatOpenid: '',
   })
   await shopStore.fetchEnabled()
@@ -131,10 +219,18 @@ async function openEditIdentity(row: StaffAccount): Promise<void> {
 /** 校验并提交：新增走建号，编辑走改身份（可一步式发号）；微信字段编辑时单独走绑定接口。 */
 async function submitForm(): Promise<void> {
   if (!(await formRef.value?.validate().catch(() => false))) return
-  // 微信绑定校验：店长 / 骑手至少填一个微信标识（userId / openid / 微信号 三选一）
-  if (needWechat.value && !isEditing.value && !form.wechatUserId.trim() && !form.wechatOpenid.trim()) {
-    ElMessage.error('含店长 / 骑手身份时必须填写微信用户 ID、openid 或微信号（填其一即可）')
-    return
+  // 微信标识校验：含店长 / 骑手时**三选一**必须填一个（契约：微信标识三选一）
+  // ⚠️ 文案必须与**实际提交行为**一致：旧文案写「三选一」，代码却只把值塞进 `openid` 一个 key。
+  if (needWechat.value && !isEditing.value) {
+    if (wechatResolution.value.key === null) {
+      ElMessage.error(`含店长 / 骑手身份时必须填写${STAFF_WECHAT_LABELS.userId}、${STAFF_WECHAT_LABELS.wechatId} 或 ${STAFF_WECHAT_LABELS.openid}（三选一）`)
+      return
+    }
+    // userId 是 integer(int64)：填了非正整数就**阻断**，绝不自动降级到次优先级的 key（那是替运营猜）
+    if (wechatResolution.value.invalid) {
+      ElMessage.error(`${STAFF_WECHAT_LABELS.userId} 必须是正整数（wx_user.id，可用上面的搜索框按手机号查）`)
+      return
+    }
   }
   // 身份会互相影响，提交前再确认一次（尤其"取消店长会同时取消骑手能力"）
   if (isEditing.value && editingRow.value) {
@@ -166,8 +262,10 @@ async function submitForm(): Promise<void> {
         shopId: form.shopId,
         phone: form.phone || undefined,
         ...(needAccount.value ? { username: form.username.trim(), password: form.password } : {}),
-        ...(needWechat.value && form.wechatUserId.trim() ? { userId: form.wechatUserId.trim() } : {}),
-        ...(needWechat.value && form.wechatOpenid.trim() ? { openid: form.wechatOpenid.trim() } : {}),
+        // 微信标识三选一：**只发解析出来的那一个 key**（契约：优先 userId > 微信号 > openid）。
+        // ⚠️ 旧实现把「微信号 或 openid」框的值一律发成 `openid` ⇒ 微信号被当成 openid 提交 ⇒
+        //    后端报「微信标识不匹配: 填的值既不是用户#90010 的 openid，也不是其微信号(登记的微信号: 未登记)」。
+        ...(needWechat.value ? wechatResolution.value.payload : {}),
       }
       await store.create(payload)
       ElMessage.success('人员已创建')
@@ -434,6 +532,26 @@ async function viewPassword(row: StaffAccount): Promise<void> {
 const historyVisible = ref(false)
 const historyLoading = ref(false)
 const historyList = ref<StaffPasswordLog[]>([])
+
+// ===== 绑定微信（D4b）弹窗状态 =====
+/**
+ * ⚠️ 这三个声明必须**早于**下面的 `watch(bindVisible, ...)` 与 `onBeforeUnmount(...)`
+ * （它们要在关窗 / 卸载时清空表单）—— 否则是 TDZ 错误（vue-tsc: TS2448 "used before its declaration"）。
+ * 弹窗的**行为函数**（`openBind` / `confirmBind`）仍在下面「绑定 / 解绑微信」小节里。
+ *
+ * ⚠️ 这里**没有**把 `bindVisible` 加进 `watch(() => route.fullPath, ...)`：全站是裸 `<RouterView />`
+ * （无 keep-alive）⇒ 换路由必然卸载组件 ⇒ `onBeforeUnmount` 已经关掉它；
+ * 而那条 watch 的**逐字形态**被 `tests/staff-password-reveal.contract.ps1` 钉住（明文门禁的清理断言），
+ * 不去动它（**不改别人的断言**，也不做重复的第二个 route watcher）。
+ */
+const bindVisible = ref(false)
+const bindRow = ref<StaffAccount | null>(null)
+const bindForm = reactive<{ userId: string; wechatId: string; openid: string }>({ userId: '', wechatId: '', openid: '' })
+/** 与提交同源的解析结果（契约：优先 userId > 微信号 > openid）。 */
+const bindResolution = computed(() => resolveStaffWechatBinding(bindForm))
+/** 「将以 X 绑定」提示（多填时附忽略项）。 */
+const bindRoutingHint = computed(() => staffWechatRoutingHint(bindResolution.value))
+
 /** 隐藏留痕里的改前/改后明文。 */
 function hideHistoryPlaintext(): void {
   historyRevealed.value = false
@@ -489,6 +607,11 @@ watch(historyVisible, (visible) => {
   hideHistoryPlaintext()
   historyList.value = []
 })
+// 绑定弹窗关闭 ⇒ 清掉尚未提交的微信标识（避免下次打开残留上一次的输入）
+watch(bindVisible, (visible) => {
+  if (visible) return
+  Object.assign(bindForm, { userId: '', wechatId: '', openid: '' })
+})
 watch(() => route.fullPath, () => {
   passwordVisible.value = false
   historyVisible.value = false
@@ -496,6 +619,7 @@ watch(() => route.fullPath, () => {
 onBeforeUnmount(() => {
   passwordVisible.value = false
   historyVisible.value = false
+  bindVisible.value = false
   // 发号结果里也有明文 ⇒ 卸载时同样立刻清掉（watch 会顺手清空结果对象）
   issueVisible.value = false
   hidePasswordPlaintext()
@@ -504,14 +628,44 @@ onBeforeUnmount(() => {
 })
 
 // ===== 绑定 / 解绑微信（D4b / D4c）=====
-async function bindWechat(row: StaffAccount): Promise<void> {
+/**
+ * 「绑定微信」弹窗（**替代原来的单行 prompt**）。
+ *
+ * ⚠️ 旧实现是 `ElMessageBox.prompt` + 按"值形状"路由：
+ * `/^\d+$/.test(value) ? { userId: value } : { openid: value }` ——
+ * 三选一里**根本没有 `wechatId` 这一支** ⇒ 任何非纯数字的值（= 微信号，如 `Yimu9783`）
+ * 都会被当成 `openid` 提交 ⇒ 必然「微信标识不匹配」。
+ * 而契约写的优先级是 **userId > 微信号 > openid**（`POST /api/admin/staff/{id}/bind` 描述原文）。
+ * ⇒ 改为三个**各自独立标注**的输入，各走自己的 key，由 `resolveStaffWechatBinding` 统一解析。
+ * （弹窗状态 `bindVisible` / `bindRow` / `bindForm` 声明在「改密留痕」小节之前，供路由与卸载的清理使用。）
+ */
+/** 打开「绑定微信」（D4b；契约里本接口的定位是「补绑 / 换绑」）。 */
+function openBind(row: StaffAccount): void {
+  bindRow.value = row
+  // 不回填当前绑定值：本入口是"补绑 / 换绑"，回填旧值容易被误读成"确认绑定原值"
+  Object.assign(bindForm, { userId: '', wechatId: '', openid: '' })
+  bindVisible.value = true
+}
+
+/** 提交绑定：只发解析出的那一个 key。 */
+async function confirmBind(): Promise<void> {
+  const row = bindRow.value
+  if (!row) return
+  if (bindResolution.value.key === null) {
+    ElMessage.error(bindRoutingHint.value)
+    return
+  }
+  if (bindResolution.value.invalid) {
+    ElMessage.error(`${STAFF_WECHAT_LABELS.userId} 必须是正整数（wx_user.id，可用搜索框按手机号查）`)
+    return
+  }
   try {
-    const result = await ElMessageBox.prompt('请输入微信用户 ID、openid 或微信号（填其一即可）', '绑定微信', { inputPattern: /^\S+$/, inputErrorMessage: '不能为空' })
-    const value = result.value.trim()
-    await store.bindWechat(row.id, /^\d+$/.test(value) ? { userId: value } : { openid: value })
+    await store.bindWechat(row.id, bindResolution.value.payload)
     ElMessage.success('微信绑定成功')
+    bindVisible.value = false
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error instanceof Error ? error.message : '微信绑定失败')
+    // ⚠️ 失败时**保留弹窗**：运营可就地换 key 重试；后端错误原文（如「微信标识不匹配」）直接展示
+    ElMessage.error(error instanceof Error ? error.message : '微信绑定失败')
   }
 }
 async function unbindWechat(row: StaffAccount): Promise<void> {
@@ -736,9 +890,15 @@ watch(() => route.query.shopId, (value) => {
         </el-table-column>
         <el-table-column prop="phone" label="手机号" width="130" />
         <el-table-column prop="shopName" label="所属门店" min-width="140" />
-        <el-table-column label="微信绑定" min-width="150">
+        <el-table-column label="微信绑定" min-width="190">
           <template #default="{ row }">
-            <span v-if="row.boundUserId || row.boundNickname || row.boundOpenidMasked">{{ row.boundNickname || row.boundUserId || row.boundOpenidMasked }}</span>
+            <template v-if="row.boundUserId || row.boundNickname || row.boundOpenidMasked">
+              <div>{{ row.boundNickname || row.boundUserId || row.boundOpenidMasked }}</div>
+              <!-- 微信号是**人工登记**值（`wx_user.wx_id`，契约 `StaffAccountVO.boundWechatId`
+                   「未登记为 null」）——没登记时，用微信号做绑定 key 必然失败，
+                   所以列表必须把这一格显示出来，而不是等运营踩一次错。 -->
+              <div class="muted wechat-cell-tip">微信号：{{ row.boundWechatId || '未登记' }}</div>
+            </template>
             <span v-else class="muted">未绑定</span>
           </template>
         </el-table-column>
@@ -758,7 +918,7 @@ watch(() => route.query.shopId, (value) => {
               <template v-else>
                 <el-button size="small" type="primary" @click="openEditIdentity(row)"><el-icon><Edit /></el-icon>改身份</el-button>
                 <el-button v-if="rowNeedsAccount(row) && !row.accountIssued" size="small" type="warning" plain @click="openIssue(row)">发号</el-button>
-                <el-dropdown trigger="click" @command="(cmd: string) => { if (cmd === 'password') viewPassword(row); else if (cmd === 'history') viewHistory(row); else if (cmd === 'bind') bindWechat(row); else if (cmd === 'unbind') unbindWechat(row); else if (cmd === 'reset') resetPassword(row); else if (cmd === 'delete') removeRow(row) }">
+                <el-dropdown trigger="click" @command="(cmd: string) => { if (cmd === 'password') viewPassword(row); else if (cmd === 'history') viewHistory(row); else if (cmd === 'bind') openBind(row); else if (cmd === 'unbind') unbindWechat(row); else if (cmd === 'reset') resetPassword(row); else if (cmd === 'delete') removeRow(row) }">
                   <el-button size="small">更多<el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
@@ -810,16 +970,93 @@ watch(() => route.query.shopId, (value) => {
           <el-form-item :label="isEditing && editingRow?.accountIssued ? '密码（留空不改）' : '密码'" prop="password"><el-input v-model="form.password" type="password" show-password /></el-form-item>
         </template>
         <template v-if="needWechat && !isEditing">
-          <el-form-item label="微信用户ID"><el-input v-model="form.wechatUserId" placeholder="wx_user.id（与下面二选一，必填其一）" /></el-form-item>
-          <!-- ⚠️ 2026-09-29 第十二批：后端该字段**同时接受 openid 与微信号**（通过条件任一：= 该用户 openid / = 其登记的 wx_id / 形如 wxid_）。
-               此前标签写「微信号/openid」而**后端只比对 openid** ⇒ 运营按标签填微信号会被拒（B 端反馈的"微信号不匹配"就是这个）。 -->
-          <el-form-item label="微信号 或 openid"><el-input v-model="form.wechatOpenid" placeholder="openid 或微信号（形如 wxid_xxx）均可，与上面二选一" /></el-form-item>
+          <!-- 微信标识**三选一**（契约原文：「微信标识三选一，优先 userId > 微信号 > openid」）。
+               ⚠️ 拆成三个独立输入，是因为它们对应契约里三个**各自独立**的 key：
+                  `userId`（微信用户ID）/ `wechatId`（微信号 · 人工登记值）/ `openid`。
+               旧实现只有一个「微信号 或 openid」输入框，且值**永远以 `openid` 提交** ⇒
+               运营按标签填微信号必然被拒（2026-10-10「微信标识不匹配」的真实成因）。
+               ⇒ 现在每个 key 一个输入、各走各的 key；多填时按契约优先级取一个并**如实显示忽略项**，
+                  既不静默丢弃、也不按"值的形状"猜 key。 -->
+          <el-form-item :label="STAFF_WECHAT_LABELS.userId">
+            <el-select
+              v-model="form.wechatUserId"
+              class="wechat-input"
+              filterable
+              allow-create
+              default-first-option
+              remote
+              reserve-keyword
+              clearable
+              :remote-method="searchBindUsers"
+              :loading="userSearching"
+              placeholder="按手机号 / 昵称搜用户，或直接填 wx_user.id"
+            >
+              <el-option v-for="user in userOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" />
+            </el-select>
+            <span class="muted wechat-tip">推荐填这一项：按手机号搜到人即可拿到，运营不需要知道 openid。</span>
+          </el-form-item>
+          <el-form-item :label="STAFF_WECHAT_LABELS.wechatId">
+            <el-input v-model="form.wechatId" placeholder="用户本人的微信号（如 wxid_xxx / 自定义微信号）" />
+            <span class="muted wechat-tip">{{ WECHAT_ID_NEEDS_REGISTRATION_HINT }}</span>
+          </el-form-item>
+          <el-form-item :label="STAFF_WECHAT_LABELS.openid">
+            <el-input v-model="form.wechatOpenid" placeholder="微信 openid（形如 oX-abc123）" />
+            <span class="muted wechat-tip">兜底项：openid 是微信内部标识，运营通常拿不到，仅在能拿到时使用。</span>
+          </el-form-item>
+          <el-form-item label-width="0">
+            <span class="muted wechat-tip">{{ wechatRoutingHint }}</span>
+          </el-form-item>
         </template>
         <el-form-item v-if="isEditing && needWechat" label-width="0">
           <el-alert title="微信绑定请用操作列「绑定微信 / 解绑微信」，此处不修改。" type="warning" :closable="false" show-icon />
         </el-form-item>
       </el-form>
       <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" :loading="store.saving || store.actionLoading" @click="submitForm">保存</el-button></template>
+    </el-dialog>
+
+    <!-- 绑定微信（D4b）：三个 key **各自独立**输入，各走各的 key
+         （契约原文：「微信标识三选一，优先 userId > 微信号 > openid」）。
+         ⚠️ 取代了旧的单行 prompt：旧实现按"值是不是纯数字"路由成 userId / openid，
+         **没有 wechatId 这一支** ⇒ 填微信号必被当成 openid 提交。 -->
+    <el-dialog v-model="bindVisible" title="绑定微信" width="580px" append-to-body>
+      <el-alert type="info" :closable="false" show-icon>
+        <p class="muted">绑定对象：<strong>{{ bindRow?.name || '—' }}</strong>（{{ bindRow?.shopName || '—' }}）</p>
+        <p class="muted">三个标识填一个即可；多填时按后端优先级取「微信用户ID &gt; 微信号 &gt; openid」，页面会写明实际用了哪个。</p>
+      </el-alert>
+      <el-form label-width="110px" class="bind-form">
+        <el-form-item :label="STAFF_WECHAT_LABELS.userId">
+          <el-select
+            v-model="bindForm.userId"
+            class="wechat-input"
+            filterable
+            allow-create
+            default-first-option
+            remote
+            reserve-keyword
+            clearable
+            :remote-method="searchBindUsers"
+            :loading="userSearching"
+            placeholder="按手机号 / 昵称搜用户，或直接填 wx_user.id"
+          >
+            <el-option v-for="user in userOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" />
+          </el-select>
+          <span class="muted wechat-tip">推荐填这一项：按手机号搜到人即可拿到。</span>
+        </el-form-item>
+        <el-form-item :label="STAFF_WECHAT_LABELS.wechatId">
+          <el-input v-model="bindForm.wechatId" placeholder="用户本人的微信号（如 wxid_xxx / 自定义微信号）" />
+          <span class="muted wechat-tip">{{ WECHAT_ID_NEEDS_REGISTRATION_HINT }}</span>
+        </el-form-item>
+        <el-form-item :label="STAFF_WECHAT_LABELS.openid">
+          <el-input v-model="bindForm.openid" placeholder="微信 openid（形如 oX-abc123）" />
+        </el-form-item>
+        <el-form-item label-width="0">
+          <span class="muted wechat-tip">{{ bindRoutingHint }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="bindVisible = false">取消</el-button>
+        <el-button type="primary" :loading="store.actionLoading" @click="confirmBind">确定绑定</el-button>
+      </template>
     </el-dialog>
 
     <!-- 发号（D1b，2026-10-10 B1）：密码**可留空**（后端按「手机号后4位+身份证后4位」生成并要求首登改密）；
@@ -996,4 +1233,9 @@ watch(() => route.query.shopId, (value) => {
 .issue-meta { margin-bottom: 14px; }
 .issue-error { margin-top: 12px; }
 .issue-note { margin-left: 6px; font-size: 12px; }
+/* 微信标识三选一（2026-10-10）：三个 key 各一个输入，必须能一眼看出"哪个 key 会被提交" */
+.wechat-input { width: 100%; }
+.wechat-tip { display: block; line-height: 1.6; font-size: 12px; }
+.wechat-cell-tip { font-size: 12px; }
+.bind-form { margin-top: 14px; }
 </style>

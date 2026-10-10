@@ -106,6 +106,27 @@ export async function updateUserBanStatus(userId: string, banStatus: UserBanStat
   unwrapResponse(response, '用户状态更新失败')
 }
 
+/**
+ * 人工登记 / 清空用户微信号（`PUT /api/admin/user/{userId}/wechat-id`）。
+ *
+ * ⚠️ 2026-10-10 新增：**这条链路此前在本仓库没有任何 UI**（三个前端全文检索 `wechat-id` 均为 0 命中），
+ * 而人员绑定微信号**必须**先经过它 —— 契约接口描述原文：
+ *
+ * > 把客服线下收集到的用户**微信号**登记到用户档案（`wx_user.wx_id`）。
+ * > **背景**：小程序 OpenAPI 拿不到微信号，只能拿 openid；所以微信号只能人工登记，
+ * > **登记后「新增人员 → 绑定微信」可直接填微信号**。
+ *
+ * 绑定接口的描述同样写明：「微信号是人工登记值…**需先在「用户管理」里登记，否则报 2000 并提示去登记**。」
+ * ⇒ 没有这个入口时，「新增人员」里的「微信号」选项就是**死路**（登记不出来，填了必报 2000）。
+ *
+ * `wechatId` 传**空串 = 清空登记**（契约原文：「入参：`wechatId` 非空=登记；空串/null=清空登记（纠正手误）」）。
+ * 同一微信号只能登记到一个用户档案（登记给别的用户会返回 `1000` 并告知占用者用户 ID）。
+ */
+export async function registerUserWechatId(userId: string, wechatId: string): Promise<void> {
+  const response = await request.put<UserResponse<null>>(`/api/admin/user/${String(userId)}/wechat-id`, { wechatId })
+  unwrapResponse(response, '微信号登记失败')
+}
+
 /** 软删除用户。 */
 export async function deleteUser(userId: string): Promise<void> {
   const response = await request.delete<UserResponse<null>>(`/api/admin/user/${userId}`)
