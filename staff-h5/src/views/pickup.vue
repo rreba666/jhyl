@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { staffLogin, staffVerify } from '@/api/staff'
-import { clearSession, getSession, setSession, type StaffSession } from '@/utils/auth'
+import { clearSession, consumeNotice, getSession, setSession, type StaffSession } from '@/utils/auth'
 import { getModules, isModuleEnabled, type ModuleConfig } from '@/utils/config'
+import { authErrorMessage } from '@/utils/error'
+import { CHANGE_PASSWORD_PATH } from '@/utils/navigation'
 import type { StaffVerifyVO } from '@/types/staff'
+
+const router = useRouter()
 
 /** 当前登录态（null 表示未登录）。 */
 const session = ref<StaffSession | null>(null)
@@ -25,9 +30,17 @@ const error = ref('')
 const moduleConfig = ref<ModuleConfig[] | null>(null)
 /** pickup 模块是否启用；未启用则拦截核销入口。 */
 const pickupEnabled = ref(true)
+/** 一次性提示（改密成功回登录页时的「密码已修改，请用新密码登录」）。 */
+const notice = ref('')
 
 onMounted(() => {
+  notice.value = consumeNotice()
   session.value = getSession()
+  // 首登未改密的账号，即便直接进本页也先送去改密（路由守卫已拦一次，这里是组件自身的兜底）。
+  if (session.value?.mustChangePassword === true) {
+    void router.replace({ path: CHANGE_PASSWORD_PATH, query: { force: '1' } })
+    return
+  }
   // 扫码链接形如 /pickup?c=自提码
   const urlCode = new URLSearchParams(window.location.search).get('c')
   if (urlCode) {
@@ -52,16 +65,24 @@ function roleText(): string {
 /** 店员登录：工号+密码换 token（固定 client=H5，后端据此放行核销/店长、拦截商家与骑手）。 */
 async function login(): Promise<void> {
   error.value = ''
+  notice.value = ''
   if (!username.value.trim() || !password.value) {
     error.value = '请输入工号和密码'
     return
   }
   logging.value = true
   try {
-    session.value = setSession(await staffLogin({ username: username.value.trim(), password: password.value, client: 'H5' }))
+    const vo = await staffLogin({ username: username.value.trim(), password: password.value, client: 'H5' })
+    session.value = setSession(vo)
     password.value = ''
+    // 首登强制改密：登录成功也必须**先改密**，不得进入任何其它页面（守卫同时会拦所有深链）。
+    if (vo.mustChangePassword === true) {
+      void router.replace({ path: CHANGE_PASSWORD_PATH, query: { force: '1' } })
+    }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '登录失败'
+    // ⚠️ 必须传 'login'：8102 在本接口是「工号或密码错误」（契约 400 示例文案），
+    // 不能落成改密页那句「原密码不正确」——否则用户会以为自己在改密码。
+    error.value = authErrorMessage(err, '登录失败', 'login')
   } finally {
     logging.value = false
   }
@@ -72,6 +93,7 @@ function logout(): void {
   clearSession()
   session.value = null
   result.value = null
+  notice.value = ''
 }
 
 /** 用户手动改动自提码时，视为手动输码。 */
@@ -111,6 +133,7 @@ function nextOrder(): void {
       <div class="header-title">自提核销</div>
       <div class="header-user" v-if="session">
         <span class="staff-name">{{ session.staffName }}（{{ roleText() }}）</span>
+        <button class="link-btn" @click="router.push(CHANGE_PASSWORD_PATH)">修改密码</button>
         <button class="link-btn" @click="logout">退出</button>
       </div>
     </header>
@@ -125,6 +148,7 @@ function nextOrder(): void {
       <!-- 未登录：显示登录表单 -->
       <section class="card" v-else-if="!session">
         <h2 class="card-title">店员登录</h2>
+        <p class="notice-tip" v-if="notice">{{ notice }}</p>
         <label class="field">
           <span class="field-label">工号</span>
           <input v-model="username" class="field-input" type="text" placeholder="请输入工号" autocomplete="username" />
@@ -207,4 +231,5 @@ function nextOrder(): void {
 .item-qty { font-size: 14px; color: #6b7280; }
 
 .error-tip { margin: 14px 0 0; padding: 10px 12px; background: #fef2f2; color: #dc2626; border-radius: 8px; font-size: 14px; text-align: center; }
+.notice-tip { margin: 0 0 14px; padding: 10px 12px; background: #eef6ff; color: #1666d9; border-radius: 8px; font-size: 14px; text-align: center; }
 </style>

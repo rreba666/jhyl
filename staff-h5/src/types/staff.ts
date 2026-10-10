@@ -25,6 +25,20 @@ export interface StaffLoginVO {
   role?: StaffRole | string
   /** 过期时间戳（毫秒）。 */
   expireAt: number
+  /**
+   * 是否必须先修改初始密码；`true` ⇒ 前端强制进入改密页。
+   * 契约 `StaffLoginVO.mustChangePassword`：「true=只能先改密；后端对业务请求返回 8109」。
+   * 后端未下发该字段时为 `undefined`（按"无需改密"处理）。
+   */
+  mustChangePassword?: boolean
+}
+
+/** 修改密码请求体（`POST /api/staff/auth/change-password`）。 */
+export interface ChangePasswordDTO {
+  /** 原密码（首次登录时为初始密码）。 */
+  oldPassword: string
+  /** 新密码：6~32 位，且不能与原密码相同。 */
+  newPassword: string
 }
 
 /** 店员核销请求体。 */
