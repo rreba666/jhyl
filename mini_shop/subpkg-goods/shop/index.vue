@@ -106,6 +106,26 @@
  * 2. **筛选行第 4 个 chip「新品」（答「3. 加」）**：按节点几何插在「价格」与「口碑优品」
  *    **之间**（不是追加到末尾），映射 `sortBy=new_desc`。
  * 3. 服务表现三项的后端需求另立文档：`docs/26/10.10/后端需求-店铺服务表现三项-2026-10-10.md`。
+ *
+ * ## 2026-10-10 第五轮（用户四条修改意见，全部只动本页）
+ * (1) **导航栏标题 = 「店铺」**（用户逐字：「页面标题改为店铺」）。此前标题是**店铺名**
+ *     （会显示成「今华有官方旗舰店」）⇒ 现固定为常量 `NAV_TITLE`；店名照旧在**卡内**渲染。
+ * (2) **卡片上方那根白线**：实测用户的真机截图，是**固定导航栏底边**处一条 1 设备像素的
+ *     浅色缝（把渐变色与 `page`/`.shop-page` 的 `#F2F3F7` 按 ~34% 混合，逐通道解出的覆盖率
+ *     0.345/0.344/0.344 完全一致）—— 设计稿里那一段是**一条连续渐变**，没有这道缝。
+ *     两处一起治：① 导航栏高度**向上对齐到整设备像素**并**多画 1 设备像素**（盖住内容首行）；
+ *     ② `.shop-page` 的背景在头图区间**接着渐变**（`#704138 → #9A674D 477rpx`，之后才是
+ *     `#F2F3F7`）⇒ 万一还有亚像素缝，混到的也是同色渐变色而不是浅色底。见 `navHeight`。
+ * (3) **评分/粉丝/服务表现为什么是空的**：不是渲染漏了 —— 线上/内网后端对这三项**一个键都不下发**
+ *     （`ShopVO` 契约里 48 个字段含 `rating` / `onTimeRate` / `avgAcceptSeconds`，但真实响应里
+ *     **没有这三个键**；`fansCount` 恒下发，实测 `0` ⇒ 页面如实显示「0 粉丝」）。
+ *     ⇒ 属于「后端没数据」，页面**不编数字**（详见文件尾部 `RATING_LABEL` / `shop-metrics.ts`）。
+ * (4) **随滚动收起的是「评分/粉丝行 + 服务表现」这一块**（用户逐字：「吸顶是除了星级评分，
+ *     粉丝，口碑配置，发货时效，客服响应这块，卡片之前其他的都显示」）⇒ 收起的块 = 模板里的
+ *     `shop-metrics-block`（评分/粉丝行 + 解释文案）与 `shop-service-row`（服务表现格），
+ *     其余（导航栏 / logo+店名 / 收藏 / 资质条 / Tab / 筛选 / 网格）一律不动。
+ *     ⚠️ 设计稿的**滚动帧**（`4050:6387`）只删了「服务表现」，仍保留 `Frame 117`（评分/粉丝行）
+ *        —— 这一点以**用户口径**为准（用户把评分/粉丝也点进了那一块），见 `COLLAPSE_BLOCK_IDS`。
  */
 import { computed, nextTick, ref } from 'vue'
 import { onLoad, onPageScroll, onReachBottom } from '@dcloudio/uni-app'
@@ -192,9 +212,45 @@ const loginGuideVisible = ref(false)
 /** 「收藏」按钮文案：**已关注**才作「已收藏」，未关注/未知一律「收藏」（不伪造已关注态）。 */
 const favText = computed(() => (followed.value === true ? '已收藏' : '收藏'))
 
-/** 真实状态栏高度（px）；导航栏高度 = 状态栏 + 设计稿的 **44px 标题栏**。 */
+/**
+ * 真实状态栏高度（px）；导航栏「内容让位高度」= 状态栏 + 设计稿的 **44px 标题栏**。
+ * ⚠️ 两个值都**向上对齐到整设备像素**（见 `navHeight`），否则固定层底边会落在半个物理像素上，
+ *    与内容首行之间出现一条亚像素浅色缝（就是用户报的那根「白线」）。
+ */
 const statusBarHeight = ref(0)
-const navHeight = computed(() => statusBarHeight.value + 44)
+
+/** 设备像素比（`uni.getSystemInfoSync().pixelRatio`）；非微信环境拿不到时按 1 处理。 */
+const dpr = ref(1)
+
+/** 设计稿的标题栏高度（状态栏之下 44px）—— 设计值，不是可调参。 */
+const NAV_BAR_HEIGHT = 44
+
+/**
+ * 固定导航栏**底边与内容起始之间的重叠量**（设备像素）。
+ *
+ * 为什么要有它：实测那根「白线」是**亚像素缝** —— 固定层底边与内容首行各按自己的方式取整后
+ * 差不到 1 个物理像素，缝里露出的是页面底色（`#F2F3F7` 一族），压在深色渐变上就成了一条白线。
+ * 让它多画 **1 个设备像素**，这条缝就落在**导航栏自己的不透明渐变**下面（那块是店铺卡的上内边距，
+ * 本来就没有内容），视觉上零代价。
+ * ⇒ 真机上要调的**第一个值**就是它（0 = 不重叠，也就是改回原来的行为）。
+ */
+const NAV_SEAM_OVERLAP_DEVICE_PX = 1
+
+/**
+ * 内容让位高度（px）= 状态栏 + 44，**向上取整到整设备像素**。
+ * 内容层（`.shop-body` 的 `padding-top`）与吸顶带 `top` 都用它 ⇒ 卡片起点与导航栏底边对齐。
+ */
+const navHeight = computed(() => {
+  const raw = statusBarHeight.value + NAV_BAR_HEIGHT
+  const ratio = dpr.value > 0 ? dpr.value : 1
+  return Math.ceil(raw * ratio) / ratio
+})
+
+/**
+ * 固定导航栏**实际绘制高度**（px）= 内容让位高度 + `NAV_SEAM_OVERLAP_DEVICE_PX` 个设备像素。
+ * ⚠️ 它**只**用在 `.nav` 的高度上：比内容起点多出这一丝，正是用来盖住那条亚像素缝的。
+ */
+const navBarHeight = computed(() => navHeight.value + NAV_SEAM_OVERLAP_DEVICE_PX / (dpr.value > 0 ? dpr.value : 1))
 
 /**
  * 卡片上的店名：**档案优先**，取不到时退回进店时已知的店名（见 `knownShopName`）。
@@ -202,8 +258,15 @@ const navHeight = computed(() => statusBarHeight.value + 44)
  */
 const shopNameText = computed(() => String(shop.value?.name || '').trim() || knownShopName.value)
 
-/** 导航标题：优先店铺名（真实数据），其次进店时已知的店名，都没有时才用设计稿写的平台标题。 */
-const navTitle = computed(() => shopNameText.value || '非遗老号')
+/**
+ * 导航栏标题：**固定「店铺」**（用户 2026-10-10 逐字：「页面标题改为店铺」）。
+ *
+ * ⚠️ 2026-10-10 第五轮**改掉了**旧行为：旧实现是 `computed(() => shopNameText.value || '非遗老号')`
+ *    —— 标题会变成**店铺名**（用户截图里就是「今华有官方旗舰店」），与设计不一致。
+ *    店名本身照旧渲染在**卡内**（`.shop-name`，`shopNameText`），导航栏只放页面标题。
+ */
+const NAV_TITLE = '店铺'
+
 /** 门头图：档案优先，其次进店时已知的图；都没有 ⇒ 模板画**中性方块**（不塞占位图）。 */
 const logo = computed(() => String(shop.value?.shopImage || '').trim() || knownShopImage.value)
 
@@ -258,11 +321,26 @@ const sortByParam = computed<'sold_desc' | 'price_asc' | 'price_desc' | 'new_des
 const recommendedParam = computed(() => activeSort.value === 'reputation')
 
 /**
- * 店铺卡内的「服务表现」三格（真实数据，见 `utils/shop-metrics.ts`）；没有可计算项时是空数组。
- * ⚠️ 这是**滚动折叠**要收起来的那一块（用户 2026-10-10 对节点 `4050:6387` 的澄清：
- *    「图中**这块内容滚动后不显示，其他的固定，中间要有过渡动画**」）。
+ * 店铺卡内的「服务表现」格（真实数据，见 `utils/shop-metrics.ts`）；没有可计算项时是空数组。
+ * ⚠️ 它属于**滚动收起**的那一块（见 `COLLAPSE_BLOCK_IDS`）。
  */
 const serviceMetrics = computed(() => shopServiceMetrics(shop.value))
+
+/**
+ * ===== 随滚动收起的两块（用户 2026-10-10 第四条）=====
+ *
+ * 用户逐字：「**吸顶是除了星级评分，粉丝，口碑配置，发货时效，客服响应这块，卡片之前其他的都显示**」
+ * ⇒ 收起的 = 店铺卡里的**评分/粉丝行**（含「综合服务分（非用户评价）」那行解释文案）
+ *    与**服务表现格**这两块；其余一律不动：
+ *   导航栏 / logo + 店名 / 收藏 / 「店铺资质 · 经营资质」条 / Tab 栏 / 筛选行（后两者是吸顶带）/ 商品网格。
+ *
+ * ⚠️ **块 id 必须与模板里的 `id="…"` 逐字一致**（`uni.createSelectorQuery` 按 id 量高；
+ *    契约 `shop-page.contract.ps1` §11e 会把两边的字面量都钉住，改一处不改另一处会红）。
+ * ⚠️ 设计稿的**滚动帧**（节点 `4050:6387`，店铺卡 390×72）只删了「服务表现」，
+ *    仍保留 `Frame 117`（评分/粉丝行）—— 这一条**以用户口径为准**（用户把评分/粉丝也点进了那一块）；
+ *    若要回到设计稿的滚动帧，只需把 `'shop-metrics-block'` 从本数组里去掉（一处即可）。
+ */
+const COLLAPSE_BLOCK_IDS = ['shop-metrics-block', 'shop-service-row'] as const
 
 /**
  * 滚动折叠阈值（px，页面纵向滚动距离）。
@@ -273,24 +351,25 @@ const serviceMetrics = computed(() => shopServiceMetrics(shop.value))
  * （156 太靠后：网格已经滚过一屏，用户会以为卡里那块"本来就没了"）。
  * ⇒ 真机上手要调的**第一个值**就是它（变大 = 更晚收起）。
  */
-const SERVICE_COLLAPSE_THRESHOLD = 60
+const METRICS_COLLAPSE_THRESHOLD = 60
 
 /**
  * 折叠的**缓冲带**（px）：只有在 `阈值 − 40` 以下才恢复，避免在阈值附近来回抖动。
  * 真机要调的**第二个值**（见 `onPageScroll` 注释）。
  */
-const SERVICE_COLLAPSE_HYSTERESIS = 40
+const METRICS_COLLAPSE_HYSTERESIS = 40
 
-/** 是否已滚过阈值 ⇒ 折叠服务表现那一块（**可逆**：滚回去会恢复，见 `onPageScroll` 注释）。 */
-const serviceCollapsed = ref(false)
+/** 是否已滚过阈值 ⇒ 收起 `COLLAPSE_BLOCK_IDS` 里的两块（**可逆**：滚回去会恢复，见 `onPageScroll`）。 */
+const metricsCollapsed = ref(false)
 
 /**
- * 量高度的**重试上限**：量到就停；**量不到也要停**。
- * ⚠️ 门店没有任何可计算指标时这一行根本不存在（`v-if="serviceMetrics.length"`）⇒ 查询永远返回
- *    null；没有这个上限，`onPageScroll` 每触发一次就发一次 `createSelectorQuery`（= 每帧一次布局读取）。
+ * 量高度的**重试上限**（**按块各算一份**：模板渲染完之前量不到，量到就停、量不到也要停）。
+ * ⚠️ 门店没有任何可计算指标 / 没有评分也没有粉丝时，对应的块**根本不存在**
+ *    （`v-if`）⇒ `createSelectorQuery` 永远返回 null；没有这个上限，
+ *    `onPageScroll` 每触发一次就发一次查询（= 每帧一次布局读取）。
  */
-const SERVICE_ROW_MEASURE_MAX_TRIES = 5
-let serviceRowMeasureTries = 0
+const COLLAPSE_MEASURE_MAX_TRIES = 5
+const collapseTries: Record<string, number> = {}
 
 /**
  * ===== 吸顶（用户 2026-10-10 答复「2. 吸顶」）=====
@@ -304,16 +383,16 @@ let serviceRowMeasureTries = 0
  * - **不吸店铺卡 / 资质条**：设计那一帧里店铺卡是被**裁到 72** 的（服务表现整块不在帧内）
  *   ⇒ 头部本来就该随滚动让位；把 143 高的卡常驻会在 667px 屏上吃掉约 22% 的高度。
  *
- * ## 与"服务表现折叠"为什么不打架（三条硬约束）
- * 1. **偏移量只有一个来源 `navHeight`**（模板里绑成 `top`）：折叠块在吸顶带的**上方**，
+ * ## 与"两块收起"为什么不打架（三条硬约束）
+ * 1. **偏移量只有一个来源 `navBarHeight`**（模板里绑成 `top`）：折叠块在吸顶带的**上方**，
  *    它收起只会把吸顶带**更早**顶到吸住位置，**不改变吸住后的位置**
  *    （`top` 是相对滚动视口的常量 ⇒ 折叠前后吸住位置逐像素相同）。
  * 2. **不切 `position`**：`.shop-head` 恒为 `sticky`，滚动只切阴影（可过渡）——
  *    `relative ↔ sticky` 切换会重算位置并抖动（见 `CLAUDE.md` §十二）。
- * 3. **判据同步折叠量**：折叠行的高度是**量出来的**（`serviceRowHeights`），它只把
+ * 3. **判据同步折叠量**：两个折叠块的累计高度是**量出来的**（`collapseHeights`），它只把
  *    "什么时候算吸住"的判据上移同样的像素数（见 `syncHeadStuck`），**不参与布局、不写回样式**。
  *
- * ⚠️ **偏移量必须是"真实状态栏高 + 44"**（`navHeight`）：固定导航栏盖住的正是这一段，
+ * ⚠️ **偏移量必须是"真实状态栏高 + 44"**（`navBarHeight`）：固定导航栏盖住的正是这一段，
  *    写死一个"看起来差不多"的值 ⇒ 刘海屏 / 不同状态栏高度下 Tab 被压在导航栏底下（**点不到**）。
  */
 
@@ -321,8 +400,12 @@ let serviceRowMeasureTries = 0
 const headTopPx = ref(0)
 /** 是否已吸在导航栏下方 —— **只驱动阴影**，不参与定位（定位恒由 `sticky` + `top` 决定）。 */
 const headStuck = ref(false)
-/** 吸顶带 `top` 的内联样式：**真实导航栏高**（`px`），由 `uni.getSystemInfoSync().statusBarHeight` 算出。 */
-const headStyle = computed(() => ({ top: `${navHeight.value}px` }))
+/**
+ * 吸顶带 `top` 的内联样式：**固定导航栏的真实下沿**（`navBarHeight`，含那 1 个设备像素的重叠）。
+ * ⚠️ 这里**不能**用 `navHeight`（内容让位高度）：它比导航栏下沿少 1 个设备像素 ⇒
+ *    吸住时 Tab 栏顶部那一丝会被导航栏盖住，看起来像"吸顶带上方又有一条深色缝"。
+ */
+const headStyle = computed(() => ({ top: `${navBarHeight.value}px` }))
 /** 量吸顶带位置的重试上限（`onLoad` 时模板可能还没渲染完；量到就停）。 */
 const HEAD_MEASURE_MAX_TRIES = 5
 let headMeasureTries = 0
@@ -334,7 +417,7 @@ let lastScrollTop = 0
  *
  * ⚠️ `uni.createSelectorQuery().boundingClientRect` 给的是**视口坐标** ⇒ 要加回当前滚动量
  *    （`lastScrollTop`）才是页面坐标。
- * ⚠️ **已经吸住时不能量**：那时视口坐标恒等于 `navHeight`，加回去得到的是"吸住位置"而不是
+ * ⚠️ **已经吸住时不能量**：那时视口坐标恒等于导航栏下沿，加回去得到的是"吸住位置"而不是
  *    "自然位置" ⇒ 用它算判据永远算不出吸住点。这一档直接丢弃（下次在非吸住位置再量）。
  * @see https://uniapp.dcloud.net.cn/api/ui/nodes-info.html
  */
@@ -345,24 +428,33 @@ function measureHeadTop(): void {
     .select('#shop-head')
     .boundingClientRect((rect) => {
       const top = Number((rect as { top?: number } | null)?.top)
-      if (!Number.isFinite(top) || top <= navHeight.value + 1) return
+      if (!Number.isFinite(top) || top <= navBarHeight.value + 1) return
       headTopPx.value = top + lastScrollTop
     })
     .exec()
 }
 
 /**
+ * 两个折叠块的**累计真实高度**（px）：全部收起后，吸顶带整体上移这么多。
+ * ⚠️ 只对**已经量到**的块求和（量不到 = 那块根本不存在/还没量到 ⇒ 当作 0，绝不猜一个高度）。
+ */
+const collapsedShiftPx = computed(() => COLLAPSE_BLOCK_IDS.reduce(
+  (sum, id) => sum + (collapseHeights.value[id] || 0),
+  0
+))
+
+/**
  * 更新"是否已吸住"（**只影响阴影**）。
  *
- * 判据 = `scrollTop + 导航栏高 ≥ 吸顶带的页面顶边`；吸顶带在**折叠态**下整体上移了
- * `serviceRowHeights[0]`（折叠行在它上方）⇒ 判据同步上移同样的像素数，折叠动画与吸顶**同源同量**，
+ * 判据 = `scrollTop + 导航栏下沿 ≥ 吸顶带的页面顶边`；吸顶带在**折叠态**下整体上移了
+ * `collapsedShiftPx`（两块都在它上方）⇒ 判据同步上移同样的像素数，折叠动画与吸顶**同源同量**，
  * 不会出现"折叠完阴影滞后 / 提前"。
  * 量不到顶边（`headTopPx === 0`）⇒ 恒 `false`：**不猜阈值**，宁可没有阴影。
  */
 function syncHeadStuck(scrollTop: number): void {
   if (headTopPx.value <= 0) return
-  const headTop = headTopPx.value - (serviceCollapsed.value ? (serviceRowHeights.value[0] || 0) : 0)
-  headStuck.value = scrollTop + navHeight.value >= headTop
+  const headTop = headTopPx.value - (metricsCollapsed.value ? collapsedShiftPx.value : 0)
+  headStuck.value = scrollTop + navBarHeight.value >= headTop
 }
 
 /**
@@ -382,58 +474,60 @@ const fans = computed(() => fansText(shop.value?.fansCount))
  * ② 一致性：`CLAUDE.md` §十二 的既有口径是"吸顶元素恒定 sticky、只过渡可过渡属性"，
  *    可逆的、由同一个布尔驱动的过渡与它同构，不会出现"回滚时另一个分支又跳一下"。
  * ⚠️ **脱离阈值加缓冲带（60 / 40）**：阈值处手指微抖会反复穿越 ⇒ 过渡被反复打断（视觉上像抖动）。
- *    要真机上调的**第二个值**就是这个缓冲带（本文件取 `SERVICE_COLLAPSE_HYSTERESIS`）。
- * ⚠️ 顺手在这里**量一次服务表现行的真实高度**（`measureServiceRow`）：`onLoad` 时模板还没渲染完，
+ *    要真机上调的**第二个值**就是这个缓冲带（本文件取 `METRICS_COLLAPSE_HYSTERESIS`）。
+ * ⚠️ 顺手在这里**量一次两个折叠块的真实高度**（`measureCollapseBlock`）：`onLoad` 时模板还没渲染完，
  *    量到的会是 0 ⇒ 必须在每次滚动里试着量，量到就记下、之后不再量。
- * ⚠️ **本回调要便宜**：每帧只做「两个缓存判空 + 两次数值比较」，**没有布局读取** ——
- *    两个 `createSelectorQuery` 都在量到之后立即短路（各自还有重试上限兜底，见那两个常量）。
+ * ⚠️ **本回调要便宜**：每帧只做「几个缓存判空 + 两次数值比较」，**没有布局读取** ——
+ *    每个 `createSelectorQuery` 都在量到之后立即短路（各自还有重试上限兜底，见那两个常量）。
  */
 onPageScroll((event) => {
   const top = Number(event?.scrollTop) || 0
   lastScrollTop = top
-  measureServiceRow(0)
+  for (const id of COLLAPSE_BLOCK_IDS) measureCollapseBlock(id)
   // 吸顶带的页面坐标只在"还没吸住"时量得到（见 `measureHeadTop`）；量到即缓存，之后零开销。
   if (headTopPx.value <= 0) measureHeadTop()
-  if (!serviceCollapsed.value && top >= SERVICE_COLLAPSE_THRESHOLD) {
-    serviceCollapsed.value = true
-  } else if (serviceCollapsed.value && top <= SERVICE_COLLAPSE_THRESHOLD - SERVICE_COLLAPSE_HYSTERESIS) {
-    serviceCollapsed.value = false
+  if (!metricsCollapsed.value && top >= METRICS_COLLAPSE_THRESHOLD) {
+    metricsCollapsed.value = true
+  } else if (metricsCollapsed.value && top <= METRICS_COLLAPSE_THRESHOLD - METRICS_COLLAPSE_HYSTERESIS) {
+    metricsCollapsed.value = false
   }
   // 放在折叠判定**之后**：同一帧里折叠与吸顶判据用的是同一份几何（见 `syncHeadStuck`）。
   syncHeadStuck(top)
 })
 
 /**
- * 服务表现行上绑定的一次性内联高度（`record`）。
+ * 两个折叠块上绑定的一次性内联高度（`Record<块 id, px>`）。
  *
- * ⚠️ 为什么不用 CSS 里的固定 `height: 108rpx`：三格的高度由内容决定（设计是 HUG），
+ * ⚠️ 为什么不用 CSS 里的固定高度：块高由内容决定（设计是 HUG）——
+ *    服务表现格按实际存在的格数走，评分/粉丝行还可能是 0 行（没有真实评分又没有粉丝时整块不存在）。
  *    写死一个"看起来差不多"的数就是**在样式里编数据**。这里改为**首帧量一次真实高度**，
  *    之后 `height: 0 / N px` 的过渡两端都是**真实几何**。
  *    量不到（非微信环境 / 节点未渲染）时留空 ⇒ 模板退化为"不折叠"，**绝不用假高度顶上**。
  * @see https://uniapp.dcloud.net.cn/api/ui/nodes-info.html
  */
-const serviceRowHeights = ref<Record<number, number>>({})
+const collapseHeights = ref<Record<string, number>>({})
 
 /**
- * 量一次服务表现行的真实高度（仅在折叠时用得到；量过就不重复量）。
- * ⚠️ **量不到也要停**（`SERVICE_ROW_MEASURE_MAX_TRIES`）：该店没有任何可计算指标时这一行不存在
- *    （`v-if="serviceMetrics.length"`）⇒ 查询恒返回 null；不加预算就会**每个滚动事件发一次查询**。
+ * 量一次某个折叠块的真实高度（量过就不重复量）。
+ * ⚠️ **量不到也要停**（`COLLAPSE_MEASURE_MAX_TRIES`）：块本身可能不存在（`v-if`）⇒
+ *    查询恒返回 null；不加预算就会**每个滚动事件发一次查询**（每帧一次布局读取）。
  */
-function measureServiceRow(index: number): void {
-  if (serviceRowHeights.value[index] !== undefined) return
-  if (serviceRowMeasureTries >= SERVICE_ROW_MEASURE_MAX_TRIES) return
-  serviceRowMeasureTries++
+function measureCollapseBlock(id: string): void {
+  if (collapseHeights.value[id] !== undefined) return
+  const tried = collapseTries[id] || 0
+  if (tried >= COLLAPSE_MEASURE_MAX_TRIES) return
+  collapseTries[id] = tried + 1
   uni.createSelectorQuery()
-    .select(`#shop-service-row-${index}`)
+    .select(`#${id}`)
     .boundingClientRect((rect) => {
       const height = Number((rect as { height?: number } | null)?.height) || 0
-      if (height > 0) serviceRowHeights.value = { ...serviceRowHeights.value, [index]: height }
+      if (height > 0) collapseHeights.value = { ...collapseHeights.value, [id]: height }
     })
     .exec()
 }
 
 /**
- * 根据折叠状态与已量到的高度，给出该行的内联样式。
+ * 根据折叠状态与已量到的高度，给出该块的内联样式。
  * - 没量到真实高度 ⇒ **返回空对象**（即不折叠：宁可不动，也不用假高度把布局搞坏）；
  * - 未折叠 ⇒ 显式高度 = 真实高度（过渡的起点）；
  * - 已折叠 ⇒ 高度 0 + `opacity: 0`（配合 `overflow: hidden` 收干净，不留空档）。
@@ -441,11 +535,14 @@ function measureServiceRow(index: number): void {
  * ⚠️ 用**显式高度**而不是 `max-height`：`max-height` 从一个大值收到 0 时，
  *    感知速度是非线性的（前 80% 的动画时间只走了很小的视觉变化），看起来"先卡一下再突然收完"。
  * ⚠️ 也**不能**用 `display: none` —— 它不可过渡，会变成硬切。
+ * ⚠️ 内边距**必须在块自己身上**（`.shop-metrics-block` / `.shop-service-row` 的 `padding-top`），
+ *    不能写成 `margin-top`：`boundingClientRect().height` 是**边框盒**、**不含外边距** ⇒
+ *    用 margin 时量到的高度比实际占位少一截，收起后会留下一条空隙。
  */
-function serviceRowStyle(index: number): Record<string, string> {
-  const measured = serviceRowHeights.value[index]
+function collapseBlockStyle(id: string): Record<string, string> {
+  const measured = collapseHeights.value[id]
   if (measured === undefined) return {}
-  return serviceCollapsed.value
+  return metricsCollapsed.value
     ? { height: '0px', opacity: '0' }
     : { height: `${measured}px`, opacity: '1' }
 }
@@ -594,9 +691,12 @@ onLoad(async (options) => {
   try {
     const info = uni.getSystemInfoSync()
     statusBarHeight.value = Number(info?.statusBarHeight) || 0
+    // 设备像素比：导航栏高度要靠它**向上对齐到整设备像素**（见 `navHeight` / `NAV_SEAM_OVERLAP_DEVICE_PX`）。
+    dpr.value = Number(info?.pixelRatio) || 1
   } catch {
-    // 非微信环境拿不到系统信息：退化为仅 44px 标题栏。
+    // 非微信环境拿不到系统信息：退化为仅 44px 标题栏、倍率按 1 算（对齐仍成立）。
     statusBarHeight.value = 0
+    dpr.value = 1
   }
   const params = (options || {}) as Record<string, unknown>
   shopId.value = String(params.shopId || '').trim()
@@ -743,13 +843,16 @@ function formatAmount(value: number): string {
          高度 248 设计 px = 477rpx；y≥246 的部分会被资质条/白卡盖住，留出圆角处的渐变。 -->
     <view class="hero-gradient" />
 
-    <!-- 导航栏：固定在最上方（滚下去也要能返回），背景取同一渐变的 0→92 切片。 -->
-    <view class="nav" :style="{ paddingTop: `${statusBarHeight}px`, height: `${navHeight}px` }">
+    <!-- 导航栏：固定在最上方（滚下去也要能返回），背景取同一渐变的 0→92 切片。
+         ⚠️ 高度绑的是 `navBarHeight`（= 内容让位高度 + 1 个设备像素的重叠），**不是** `navHeight`：
+            多出的这一丝用来盖住"固定层底边 ↔ 内容首行"之间那条亚像素浅色缝（用户报的白线）。 -->
+    <view class="nav" :style="{ paddingTop: `${statusBarHeight}px`, height: `${navBarHeight}px` }">
       <!-- 返回箭头：设计是 9×17 白色折线（`#FFFFFF@90%`）；用两根边框旋转画，零切图。 -->
       <view class="nav-back" @click="goBack">
         <view class="nav-back-arrow" />
       </view>
-      <text class="nav-title">{{ navTitle }}</text>
+      <!-- 标题：**固定「店铺」**（用户 2026-10-10 逐字要求）；店名只出现在下面的卡片里。 -->
+      <text class="nav-title">{{ NAV_TITLE }}</text>
     </view>
 
     <!-- 内容层：顶部让出导航栏高度（= 设计里店铺卡的起点 y=92）。
@@ -769,14 +872,27 @@ function formatAmount(value: number): string {
           <view v-else class="shop-logo" />
           <view class="shop-card-main">
             <text class="shop-name">{{ shopNameText }}</text>
-              <!-- 评分行 / 粉丝数（**S4 起为真实字段**，2026-10-10 第四轮接线）：
-                   评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
-                   解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
-                   光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null** ⇒ 星串与分值
-                   一起不渲染（不补 0、不补 `—`）；粉丝 ← `ShopVO.fansCount`
-                   （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染）。
-                   ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
-                      `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
+            <!-- **折叠块 ①**：评分行 / 粉丝数（含下面那行解释文案）—— 用户 2026-10-10 第四条要
+                 「随滚动收起」的两块之一（见脚本 `COLLAPSE_BLOCK_IDS` / `collapseBlockStyle`）。
+                 ⚠️ `id` 必须与脚本里那个字面量**逐字一致**（契约 §11e 会把两边都钉住）。
+                 ⚠️ 内边距写在**本块自己**的 `padding-top` 上，不能用 `margin-top`：
+                    `boundingClientRect().height` 是边框盒、不含外边距 ⇒ 用 margin 会漏量一截。
+                 数据（**S4 起为真实字段**，2026-10-10 第四轮接线）：
+                 评分 ← `ShopVO.rating`（⚠️ 契约原文「由客观指标合成，**非用户评价**」⇒ 下面那行
+                 解释文案 `RATING_LABEL` 就是为此而加；设计稿只画了「★★★★★ 5.0」没有任何解释，
+                 光看星串用户会默认理解成"用户评分"）；**样本不足时后端给 null** ⇒ 星串与分值
+                 一起不渲染（不补 0、不补 `—`）；粉丝 ← `ShopVO.fansCount`
+                 （契约：恒不为 null，`0` = 暂无粉丝 ⇒ 0 也照实渲染 —— 2026-10-10 实测线上
+                 `GET /api/shop/5` 就是 `"fansCount": 0`，而 `rating` / `onTimeRate` /
+                 `avgAcceptSeconds` **三个键后端一个都不下发** ⇒ 那一行按"没有数据"如实留空）。
+                 ⛔ 任何情况下都不得改用 `boundUserCount`（已绑定微信人数）或
+                    `MerchantOverviewVO.serviceScore`（恒 null 占位）顶替这两项。 -->
+            <view
+              id="shop-metrics-block"
+              class="shop-metrics-block"
+              :class="{ 'shop-metrics-block-collapsed': metricsCollapsed }"
+              :style="collapseBlockStyle('shop-metrics-block')"
+            >
               <view v-if="rating || fans" class="shop-metrics-row">
                 <view v-if="rating" class="shop-rating">
                   <text class="shop-stars">{{ stars }}</text>
@@ -789,6 +905,7 @@ function formatAmount(value: number): string {
               </view>
               <text v-if="rating" class="shop-rating-note">{{ RATING_LABEL }}</text>
             </view>
+          </view>
             <!-- 「收藏」按钮：设计 66×28 圆角 4，填充是**渐变** `#FF9900 → #FF3C00`
                  （三个 handle 的仿射变换 ⇒ CSS `104.7deg`，见样式表注释），
                  内边距 上4/右12/下4/左12、元素间距 4，星形 14×14 **空心**白星（真实切图，
@@ -825,18 +942,21 @@ function formatAmount(value: number): string {
                   「商品品质」—— 两张卡的设计文案本身不一致（旧需求单 §4-4 已记）。
                   因为服务表现的三项在契约里**都不存在**，我们改用契约真有的两项指标名，
                   这个不一致**不影响本页**（不再沿用设计填充文案）。
-               ⚠️ **滚动折叠**：用户 2026-10-10 对节点 `4050:6387` 的澄清是
-                  「图中**这块内容滚动后不显示**，其他的固定，中间要有过渡动画」
-                  ⇒ 本块是**唯一**随滚动收起的内容（`serviceCollapsed`），
-                  其余（渐变 / 店名 / 评分 / 粉丝 / 收藏 / Tab / 筛选 / 网格）保持不动。
+               ⚠️ **滚动收起（折叠块 ②）**：用户 2026-10-10 第四条的答复是「吸顶是除了**星级评分，
+                  粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」
+                  ⇒ 收起的就是**评分/粉丝行**（折叠块 ①）与**本块**（见脚本 `COLLAPSE_BLOCK_IDS`），
+                  其余（导航栏 / logo+店名 / 收藏 / 资质条 / Tab / 筛选 / 网格）保持不动。
                   过渡机制 = 显式 `height` + `opacity`（`display` 不可过渡），
-                  高度取**首帧量到的真实值**（见 `measureServiceRow`）。 -->
+                  高度取**首帧量到的真实值**（见 `measureCollapseBlock`）。
+                  ⚠️ 设计稿的**滚动帧**（`4050:6387`）其实只删了「服务表现」、保留了评分行
+                     （`Frame 117`），即折叠块 ① 是**按用户口径**加的；要去掉它只需从
+                     `COLLAPSE_BLOCK_IDS` 里删掉 `'shop-metrics-block'` 一处。 -->
           <view
-            :id="`shop-service-row-${0}`"
+            id="shop-service-row"
             v-if="serviceMetrics.length"
             class="shop-service-row"
-            :class="{ 'shop-service-row-collapsed': serviceCollapsed }"
-            :style="serviceRowStyle(0)"
+            :class="{ 'shop-service-row-collapsed': metricsCollapsed }"
+            :style="collapseBlockStyle('shop-service-row')"
           >
             <view v-for="metric in serviceMetrics" :key="metric.name" class="shop-metric">
               <text class="shop-metric-name">{{ metric.name }}</text>
@@ -983,7 +1103,14 @@ function formatAmount(value: number): string {
       里面的 `position: sticky` 会**静默失效**（吸顶带不再吸顶，且不报错）。
       本页没有超宽元素（无负 left/right、无固定宽度、无 100vw）⇒ 兜底放 `page` 已足够。 */
 page { background: #F2F3F7; overflow-x: hidden; }
-.shop-page { position: relative; min-height: 100vh; background: #F2F3F7; }
+/* ⚠️ 2026-10-10 第五轮：本层背景**在头图区间接着那条渐变**（`#704138 → #9A674D`，到 477rpx 为止），
+   之后才回到设计底色 `#F2F3F7`。
+   为什么：实机在**固定导航栏底边**处有一条 1 设备像素的浅色缝（实测把渐变色与 `#F2F3F7` 按
+   ~34% 混合，逐通道解出的覆盖率 0.345/0.344/0.344 一致）⇒ 缝里露的就是**本层/页面底色**。
+   让本层在头图区间也是同一渐变，缝里混到的就是**同色**，白线消失。
+   视觉上与原来**逐像素相同**：`0 → 477rpx` 这段本来就被 `.hero-gradient` 完全盖住（同为 477rpx、
+   同色、同 180deg），477rpx 以下仍是 `#F2F3F7`（设计底色）。 */
+.shop-page { position: relative; min-height: 100vh; background: linear-gradient(180deg, #704138 0rpx, #9A674D 477rpx, #F2F3F7 477rpx); }
 
 /* ① 渐变头图层（设计 0→248 设计 px）。色值 = 节点树的 GRADIENT_LINEAR 端点，
    且与渲染图逐点取色核对一致（实现说明 §1.2 表）。
@@ -1045,10 +1172,23 @@ page { background: #F2F3F7; overflow-x: hidden; }
    加个环或换色都属于"设计稿没有的视觉声明"；文案已由「收藏」变「已收藏」表达状态。 */
 .shop-fav-on { opacity: 0.72; }
 
+/* **折叠块 ①**（评分/粉丝行 + 解释文案）：与「服务表现」同属随滚动收起的两块（见脚本
+   `COLLAPSE_BLOCK_IDS` / `collapseBlockStyle`）。
+   ⚠️ 与店名的间距写成**本块的 `padding-top`**（4rpx = 设计的 `margin-top` 4rpx），不是 `margin-top`：
+      `boundingClientRect().height` 是边框盒、**不含外边距** ⇒ 用 margin 时收起后会留下 4rpx 空隙。
+   ⚠️ 正因为间距变成了**内边距**，本块必须 `box-sizing: border-box`：
+      内联高度写的是**量到的边框盒高度**（已含内边距），content-box 下会把内边距再加一遍 ⇒
+      未折叠时会突然高一截、折叠后又会剩一条 4rpx 的空档。
+   ⚠️ `overflow: hidden` 把内容裁干净；过渡只用 `height` + `opacity`（见下面那段总注释）。 */
+.shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden; transition: height 240ms ease-out, opacity 240ms ease-out; }
+/* 折叠态：高度 0 + 完全透明（真实高度由 `collapseBlockStyle` 内联给出，两端都是真实几何）。 */
+.shop-metrics-block-collapsed { opacity: 0; }
+
 /* 评分行 / 粉丝数（设计 `Frame 117` 160×20，`gap=8`；星块 `Frame 116` 62×10 `gap=3`；
    分值 12px `#FFB200` 与星块间距 6；竖线 1×8 `#FFFFFF@70%`；粉丝 12px `#FFFFFF@80%`）。
-   ⚠️ 只有真实字段有值时才渲染（见模板），这里只管排版。 */
-.shop-metrics-row { display: flex; align-items: center; margin-top: 4rpx; }
+   ⚠️ 只有真实字段有值时才渲染（见模板），这里只管排版。
+   ⚠️ 与店名的间距 4rpx 已挪到外面 `.shop-metrics-block` 的 `padding-top`（折叠时才会一起收掉）。 */
+.shop-metrics-row { display: flex; align-items: center; }
 .shop-rating { display: flex; align-items: center; }
 /* 星串：设计每颗 10×10、间距 3 ⇒ 整块 62px。`★`/`☆` 字身都是 1em ⇒ 20rpx + 4rpx 字距
    ≈ 62px（与进店卡片同一算法，见 `ShopEntryCard.vue` 的注释）。 */
@@ -1065,29 +1205,36 @@ page { background: #F2F3F7; overflow-x: hidden; }
 /* 服务表现（设计 `服务表现` 390×55，`gap=8`，三格 `#FFFFFF@10%`、圆角 6、
    内边距 上下6 左右12、格内间距 1；名 12px `#FFFFFF@80%`、值 13px `#FFFFFF`）。
    ⚠️ 设计是三格 `sizingH=HUG`（宽由内容撑开）；契约只给两项可计算指标 ⇒ 这里用
-    `flex: 1` 让**实际存在的格数**均分（两格就两格，不补一个空格假装是三格）。 */
-.shop-service-row { display: flex; align-items: center; margin-top: 23rpx; }
+    `flex: 1` 让**实际存在的格数**均分（两格就两格，不补一个空格假装是三格）。
+   ⚠️ 与上方内容的间距 23rpx 同样是**本块的 `padding-top`**（不是 `margin-top`）——
+      理由见 `.shop-metrics-block`：量到的是边框盒高度，margin 收不掉会留空隙。
+      视觉等价：原来 `margin-top: 23rpx` + 内容居中于 55 高的行，现在 `padding-top: 23rpx` +
+      内容居中于内容盒（55）⇒ 第一格的位置与总占位逐像素相同。
+   ⚠️ 同样必须 `box-sizing: border-box`（内联高度 = 量到的边框盒高度，已含 23rpx 内边距）。 */
+.shop-service-row { display: flex; align-items: center; box-sizing: border-box; padding-top: 23rpx; }
 .shop-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 12rpx 23rpx; border-radius: 12rpx; background: rgba(255, 255, 255, 0.1); box-sizing: border-box; }
 .shop-metric + .shop-metric { margin-left: 15rpx; }
 .shop-metric-name { color: rgba(255, 255, 255, 0.8); font-size: 23rpx; line-height: 38rpx; }
 .shop-metric-value { margin-top: 2rpx; color: #FFFFFF; font-size: 25rpx; line-height: 42rpx; }
 
-/* ===== 滚动折叠（用户 2026-10-10 对节点 `4050:6387` 的澄清） =====
-   「图中**这块内容滚动后不显示**，其他的固定，**中间要有过渡动画**」
-   ⇒ 随滚动**收起**的只有上面那一块（服务表现三格）—— 另外两条随滚动**吸顶**的是
-     `.shop-head`（Tab 栏 + 筛选行，见那条注释），两者互不干涉：
-     折叠块在吸顶带**上方**，收起只会让吸顶带更早顶到吸住位置，不改变吸住后的位置。
+/* ===== 滚动折叠（用户 2026-10-10 第四条） =====
+   「吸顶是除了**星级评分，粉丝，口碑配置，发货时效，客服响应**这块，卡片之前其他的都显示」
+   ⇒ 随滚动**收起**的是**两块**：① 店铺卡里的评分/粉丝行（含解释文案，`.shop-metrics-block`）；
+     ② 服务表现格（`.shop-service-row`）。见脚本 `COLLAPSE_BLOCK_IDS`。
+     另外一条随滚动**吸顶**的是 `.shop-head`（Tab 栏 + 筛选行，见那条注释），两者互不干涉：
+     两个折叠块都在吸顶带**上方**，收起只会让吸顶带更早顶到吸住位置，不改变吸住后的位置。
 
    ⚠️ 过渡只用**可过渡属性**：`height` + `opacity`（外加 `overflow: hidden` 把内容裁干净）。
       · **不能**用 `display: none` —— 不可过渡，会变成硬切；
       · **不能**用 `max-height` —— 从一个大值收到 0 的**感知速度是非线性的**
         （前 80% 动画时间只走很小的视觉变化，看起来"先卡一下再突然收完"）；
-      · 高度取**首帧量到的真实值**（`measureServiceRow` 用 `uni.createSelectorQuery`），
-        量不到就不折叠 —— 不用一个"看起来差不多"的假高度（那是样式里编数据）。
-      · **不切 `position`**：本块自始至终是普通流内元素（`position` 不可过渡，切换必抖，
+      · 高度取**首帧量到的真实值**（`measureCollapseBlock` 用 `uni.createSelectorQuery`），
+        量不到就不折叠 —— 不用一个"看起来差不多"的假高度（那是样式里编数据）；
+      · 间距写在块的 `padding-top` 上（**不是** `margin-top`）—— 量到的是边框盒高度，见上两条规则。
+      · **不切 `position`**：两块自始至终都是普通流内元素（`position` 不可过渡，切换必抖，
         见 `CLAUDE.md` §十二）；页面级滚动由 `onPageScroll` 驱动一个布尔，不换滚动容器。 */
 .shop-service-row { overflow: hidden; transition: height 240ms ease-out, opacity 240ms ease-out; }
-/* 折叠态：高度 0 + 完全透明（真实高度由 `serviceRowStyle` 内联给出，两端都是真实几何）。 */
+/* 折叠态：高度 0 + 完全透明（真实高度由 `collapseBlockStyle` 内联给出，两端都是真实几何）。 */
 .shop-service-row-collapsed { opacity: 0; }
 
 /* ④ 资质条：390×56（108rpx），`#FFF4E8`，**只有上圆角 12**，左右两侧 space-between、垂直居中。 */

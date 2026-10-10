@@ -68,19 +68,20 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "collapse hysteresis removed (jitter at the threshold boundary)",
-        "find":  "const SERVICE_COLLAPSE_HYSTERESIS = 40",
+        "find":  "const METRICS_COLLAPSE_HYSTERESIS = 40",
         "replace":  "const SERVICE_COLLAPSE_HYSTERESIS = 0"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "the collapsed row uses display:none (not transitionable - instant pop)",
-        "find":  "  return serviceCollapsed.value\r\n    ? { height: \u00270px\u0027, opacity: \u00270\u0027 }\r\n    : { height: `${measured}px`, opacity: \u00271\u0027 }",
-        "replace":  "  return serviceCollapsed.value\r\n    ? { display: \u0027none\u0027 }\r\n    : { height: `${measured}px`, opacity: \u00271\u0027 }"
+        "find":  "  return metricsCollapsed.value\r\n    ? { height: \u00270px\u0027, opacity: \u00270\u0027 }\r\n    : { height: `${measured}px`, opacity: \u00271\u0027 }",
+        "replace":  "  return metricsCollapsed.value\r\n    ? { display: \u0027none\u0027 }\r\n    : { height: `${measured}px`, opacity: \u00271\u0027 }"
     },
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "the collapse loses its transition (height would snap)",
         "find":  "transition: height 240ms ease-out, opacity 240ms ease-out;",
+        "all":  true,
         "replace":  "transition: none;"
     },
     {
@@ -422,7 +423,7 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "sticky offset hardcoded instead of the real nav height (tabs hidden under the nav)",
-        "find":  "const headStyle = computed(() => ({ top: `${navHeight.value}px` }))",
+        "find":  "const headStyle = computed(() => ({ top: `${navBarHeight.value}px` }))",
         "replace":  "const headStyle = computed(() => ({ top: '92px' }))"
     },
     {
@@ -446,7 +447,7 @@
     {
         "file":  "mini_shop/subpkg-goods/shop/index.vue",
         "desc":  "the .shop-page overflow guard comes back on the sticky ancestor (silent sticky death)",
-        "find":  ".shop-page { position: relative; min-height: 100vh; background: #F2F3F7; }",
+        "find":  ".shop-page { position: relative; min-height: 100vh; background: linear-gradient(180deg, #704138 0rpx, #9A674D 477rpx, #F2F3F7 477rpx); }",
         "replace":  ".shop-page { position: relative; min-height: 100vh; background: #F2F3F7; overflow-x: hidden; }"
     },
     {
@@ -550,5 +551,89 @@
         "desc":  "the entry stops passing the shop name it already has (shop page loses its content)",
         "find":  "query.push(`shopName=${encodeURIComponent(name)}`)",
         "replace":  ""
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "nav title goes back to rendering the shop name",
+        "find":  "{{ NAV_TITLE }}",
+        "replace":  "{{ shopNameText }}"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "nav title constant stops being the fixed page title",
+        "find":  "const NAV_TITLE = '\u5e97\u94fa'",
+        "replace":  "const NAV_TITLE = shopNameText.value"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "nav bar renders a shop-name-derived title variable again (old binding returns)",
+        "find":  "{{ NAV_TITLE }}\u003c/text\u003e",
+        "replace":  "{{ navTitle }}\u003c/text\u003e"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the seam overlap is switched off (the hairline above the card comes back)",
+        "find":  "const NAV_SEAM_OVERLAP_DEVICE_PX = 1",
+        "replace":  "const NAV_SEAM_OVERLAP_DEVICE_PX = 0"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the nav height stops being snapped to whole device pixels",
+        "find":  "return Math.ceil(raw * ratio) / ratio",
+        "replace":  "return raw"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the fixed nav stops covering the seam (painted at the content offset again)",
+        "find":  "height: `${navBarHeight}px`",
+        "replace":  "height: `${navHeight}px`"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the page layer background goes back to the flat light colour (what the seam exposed)",
+        "find":  "background: linear-gradient(180deg, #704138 0rpx, #9A674D 477rpx, #F2F3F7 477rpx)",
+        "replace":  "background: #F2F3F7"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the collapsing scope drops the rating/fans row (design scrolled frame instead of the user)",
+        "find":  "const COLLAPSE_BLOCK_IDS = ['shop-metrics-block', 'shop-service-row'] as const",
+        "replace":  "const COLLAPSE_BLOCK_IDS = ['shop-service-row'] as const"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the rating/fans block id drifts from the measured id (query would never resolve)",
+        "find":  "id=\"shop-metrics-block\"",
+        "replace":  "id=\"shop-metrics-block-typo\""
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the rating/fans block spacing goes back to a margin (height measurement would miss it)",
+        "find":  ".shop-metrics-row { display: flex; align-items: center; }",
+        "replace":  ".shop-metrics-row { display: flex; align-items: center; margin-top: 4rpx; }"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the sticky shift stops summing every collapsing block (shadow would lag)",
+        "find":  "COLLAPSE_BLOCK_IDS.reduce(",
+        "replace":  "COLLAPSE_BLOCK_IDS.slice(0, 1).reduce("
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the content layer starts at the painted nav bottom (first row would be covered twice)",
+        "find":  ":style=\"{ paddingTop: `${navHeight}px` }\"",
+        "replace":  ":style=\"{ paddingTop: `${navBarHeight}px` }\""
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the rating/fans block loses border-box (its padding would be added twice)",
+        "find":  ".shop-metrics-block { box-sizing: border-box; padding-top: 4rpx; overflow: hidden;",
+        "replace":  ".shop-metrics-block { padding-top: 4rpx; overflow: hidden;"
+    },
+    {
+        "file":  "mini_shop/subpkg-goods/shop/index.vue",
+        "desc":  "the service-metric block spacing goes back to a margin (gap left when collapsed)",
+        "find":  ".shop-service-row { display: flex; align-items: center; box-sizing: border-box; padding-top: 23rpx; }",
+        "replace":  ".shop-service-row { display: flex; align-items: center; margin-top: 23rpx; }"
     }
 ]
